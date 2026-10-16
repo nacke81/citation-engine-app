@@ -46,6 +46,10 @@ test("golden: stale phone listing is on the fix list with the right field and UR
   assert.equal(f.length, 1);
   assert.deepEqual(f[0], { directory: "a.example", url: "https://a.example/x", field: "phone", live: "(615) 555-0112", canonical: "(615) 555-0111" });
 });
+test("slice 2: site 'missing' row and a label pass through to the fix list", () => {
+  const f = fixList([{ result: "found", directory: "s.example", url: "https://s.example/x", diffs: [{ field: "site", live: "missing", canonical: "c.example" }, { field: "phone", live: "(615) 555-0177", canonical: "(615) 555-0111", label: "old phone" }] }]);
+  assert.deepEqual(f.map((x) => [x.field, x.live, x.label]), [["site", "missing", undefined], ["phone", "(615) 555-0177", "old phone"]]);
+});
 test("golden: a matching listing and a listing with no diffs recorded are not on the fix list", () => {
   assert.equal(fixList([clean, old]).length, 0);
 });

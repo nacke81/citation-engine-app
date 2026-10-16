@@ -120,7 +120,7 @@ def build(rows, texts):
             c.update(url=u, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
                      method=src.get("method"), nap_shown=nap_lines(texts.get(u, ""), b) if texts.get(u) else None,
                      note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""),
-                     diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b))
+                     diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b, u, labels=True))
         out.append(c)
     return comb, out
 

@@ -112,5 +112,57 @@ fixlist.diffs_for = lambda *a, **k: []
 check("G5 self-check: a broken extractor fails the stale-phone test", fixlist.diffs_for(TXT_STALE, EV_STALE, IDENT, "NM") != d_stale)
 fixlist.diffs_for = _o
 
+# G6 slice 2: compare by normalized value (any difference is a fix), site field, no noise from formatting, service-area rule.
+import copy  # noqa: E402
+I6 = copy.deepcopy(IDENT)
+I6["BIZ"]["NM"]["site"] = "birchmedia.example"; I6["BIZ"]["SCC"]["site"] = "aldercare.example"
+I6["BIZ"]["NM"]["street"] = "200 Sample Blvd Ste 200"
+I6["CANON"] = {"NM": {"name": "Birch Media", "phone": "(615) 555-0111", "address": "200 Sample Blvd Ste 200, Testville, TN 39999"}}
+def nm(lines): return fixlist.diffs_for("\n".join(["Birch Media"] + lines) + "\n", dict(EV_OK), I6, "NM", "https://dir.example/biz/1", labels=True)
+def fields(d): return sorted(x["field"] for x in d)
+OKSITE = "birchmedia.example"
+BASE = ["200 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0111", OKSITE]
+check("G6 baseline listing (canonical everywhere) -> no diffs", nm(BASE) == [], str(nm(BASE)))
+# (a) unknown wrong phone: not on any stale list
+d_a = nm(["200 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0177", OKSITE])
+check("G6a unknown wrong phone -> Phone fix with live value, no stale label", d_a == [{"field": "phone", "live": "(615) 555-0177", "canonical": "(615) 555-0111"}], str(d_a))
+d_a2 = nm(["200 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0112", OKSITE])
+check("G6a the known stale phone is still a Phone fix, now labeled old phone", d_a2[0].get("label") == "old phone" and fields(d_a2) == ["phone"], str(d_a2))
+# (b) site differing only by www / scheme / slash / tracking params / case
+for v in ("https://www.birchmedia.example/", "http://birchmedia.example", "WWW.BirchMedia.example/?utm_source=gbp&utm_medium=organic", "Visit: birchmedia.example"):
+    check(f"G6b site '{v}' -> not on the fix list", nm(BASE[:-1] + [v]) == [], str(nm(BASE[:-1] + [v])))
+d_b = nm(BASE[:-1] + ["https://www.other-site.example/"])
+check("G6b a different site IS a Site fix", d_b == [{"field": "site", "live": "other-site.example", "canonical": "birchmedia.example"}], str(d_b))
+# (c) missing site
+d_c = nm(BASE[:-1])
+check("G6c no site shown -> Site fix 'missing'", d_c == [{"field": "site", "live": "missing", "canonical": "birchmedia.example"}], str(d_c))
+check("G6c a bare 'Website' button (URL not in the text) is not called missing", nm(BASE[:-1] + ["Website"]) == [])
+check("G6c a results-page URL cannot prove 'missing'", fixlist.diffs_for("Birch Media\n(615) 555-0111\n", dict(EV_OK), I6, "NM", "https://dir.example/search?q=birch") == [])
+# (d) Suite vs Ste and other formatting noise
+for addr in (["200 Sample Blvd., Suite 200", "Testville, TN 39999"], ["200 sample boulevard #200", "Testville TN 39999"], ["200 Sample Blvd", "Suite 200", "Testville, TN 39999"], ["200 SAMPLE BLVD STE 200, Testville, TN 39999"]):
+    check(f"G6d address {addr[0]!r} -> no diff", nm(addr + ["(615) 555-0111", OKSITE]) == [], str(nm(addr + ["(615) 555-0111", OKSITE])))
+for ph in ("615-555-0111", "615.555.0111", "+1 (615) 555-0111", "6155550111"):
+    check(f"G6d phone {ph!r} -> no diff", nm(["200 Sample Blvd", "Ste 200", "Testville, TN 39999", ph, OKSITE]) == [])
+d_d = nm(["200 Sample Blvd", "Ste 300", "Testville, TN 39999", "(615) 555-0111", OKSITE])
+check("G6d a different suite number IS an Address fix", fields(d_d) == ["address"], str(d_d))
+check("G6d a different street IS an Address fix", fields(nm(["300 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0111", OKSITE])) == ["address"])
+# (e) service-area listing: no street shown -> never an address fix (a rule for any listing, not one URL)
+d_e = nm(["Marketing agency", "Open · Closes 5 PM", OKSITE, "(615) 555-0111"])
+check("G6e service-area listing (no street shown) -> not an address fix", d_e == [], str(d_e))
+check("G6e same rule on a second business and a different page shape", fixlist.diffs_for("Alder Care Consulting & Solutions\nHospice\n(502) 555-0101\naldercare.example\n", dict(EV_OK), I6, "SCC", "https://d2.example/x") == [])
+# other businesses on the same page must not leak in (list pages)
+d_f = nm(BASE + ["Claim this business", "Other Co", "9 Elm Rd", "Testville, TN 39999", "(615) 555-0999"])
+check("G6 other businesses below the stop marker are ignored", d_f == [], str(d_f))
+d_g = fixlist.diffs_for("Top 10 in Testville\nOne Co\n(615) 555-0301\nTwo Co\n(615) 555-0302\nThree Co\n(615) 555-0303\nBirch Media\n200 Sample Blvd\nTestville, TN 39999\n(615) 555-0111\n", dict(EV_OK), I6, "NM", "https://dir.example/cat/x", labels=True)
+check("G6c a card on a many-business list page is not called 'missing site'", d_g == [], str(d_g))
+# self-check: a comparer that never flags must fail (a)
+_o2 = fixlist.diffs_for
+fixlist.diffs_for = lambda *a, **k: []
+check("G6 self-check: a broken comparer fails the unknown-phone test", nm(["200 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0177", OKSITE]) != d_a)
+fixlist.diffs_for = _o2
+# the job path stays offline: build() makes no network or portal call
+import inspect  # noqa: E402
+check("G6 safety: fixlist imports no network/portal module", not any(w in inspect.getsource(fixlist) for w in ("httpx", "requests", "urlopen", "portal", "socket")))
+
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})")
 sys.exit(0 if all(ok) else 1)

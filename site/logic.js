@@ -52,7 +52,7 @@ export function fixList(checks) {
   const out = [];
   for (const k of sortChecks(checks)) {
     if (statusOf(k) !== "found" || !Array.isArray(k.diffs)) continue;
-    for (const d of k.diffs) if (d && d.field) out.push({ directory: k.directory, url: k.url || "", field: d.field, live: d.live, canonical: d.canonical });
+    for (const d of k.diffs) if (d && d.field) out.push({ directory: k.directory, url: k.url || "", field: d.field, live: d.live, canonical: d.canonical, ...(d.label ? { label: d.label } : {}) });
   }
   return out;
 }
