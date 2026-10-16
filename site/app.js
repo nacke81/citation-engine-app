@@ -35,7 +35,7 @@ function bizView(b) {
   const fixes = fixList(checks), absent = absentList(checks);
   const fixHtml = fixes.length ? fixes.map((f) => {
     const u = safeUrl(f.url);
-    return `<div class="row fix" data-testid="fix-${esc(f.directory)}-${esc(f.field)}"><h3>${esc(f.directory)} <span class="chip stale">${esc(FIELD[f.field] || f.field)}</span>${f.label ? ` <span class="chip" data-testid="fix-label">${esc(f.label)}</span>` : ''}</h3>
+    return `<div class="row fix" data-testid="fix-${esc(f.directory)}-${esc(f.field)}"><h3>${esc(f.directory)} <span class="chip stale">${esc(FIELD[f.field] || f.field)}</span>${f.label ? ` <span class="chip lbl" data-testid="fix-label">${esc(f.label)}</span>` : ''}</h3>
       <div class="kv"><span>Live</span><b class="no">${esc(f.live)}</b></div>
       <div class="kv"><span>Canonical</span><b class="ok">${esc(f.canonical)}</b></div>
       ${u ? `<div class="meta"><a href="${esc(u)}" rel="noopener noreferrer" target="_blank">${esc(u)}</a></div>` : '<div class="meta">No listing URL captured.</div>'}</div>`;
