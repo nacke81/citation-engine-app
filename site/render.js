@@ -1,5 +1,5 @@
 // Pure HTML for the overview and business pages. No DOM, no network: tests import this and check the real markup.
-import { BIZ, bizLabel, LABEL, statusOf, latestFor, windowLine, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel } from './logic.js';
+import { BIZ, bizLabel, LABEL, statusOf, latestFor, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel } from './logic.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
@@ -19,8 +19,7 @@ export function overviewHtml(runs, checks) {
         <div class="stat" data-testid="stat-cant"><b>${s.couldntCheck}</b><span>Couldn't check</span></div>
       </div></a>`;
   }).join('');
-  return `<div class="note" data-testid="runline">Last weekly check ${esc(when)} · ${esc(run.status)}</div>${cards}
-    <div class="note" data-testid="windows">${esc(windowLine(run))}</div>`;
+  return `<div class="note" data-testid="runline">Last weekly check ${esc(when)} · ${esc(run.status)}</div>${cards}`;
 }
 
 function errorRow(directory, f) {

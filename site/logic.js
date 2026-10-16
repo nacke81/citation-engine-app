@@ -40,12 +40,6 @@ export function latestFor(runs, checks, biz) {
   return { run, checks: checks.filter((c) => c.run_id === run.id && c.biz === biz) };
 }
 
-export function windowLine(run) {
-  if (!run) return "";
-  const eq = run.chrome_equal === true ? "equal" : "NOT equal";
-  const alive = (run.owned_alive_after || []).length ? `owned still alive: ${run.owned_alive_after.join(",")}` : "owned_alive_after empty";
-  return `Chrome windows before ${run.chrome_before}, during ${run.chrome_during}, after ${run.chrome_after} (${eq}); ${alive}`;
-}
 
 // ---- Gate 4: three groups, one card per directory. Found, Not found, Couldn't check.
 export const FIELD = { phone: "Phone", address: "Address", name: "Name", site: "Site" };

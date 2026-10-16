@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { statusOf, counts, matchLabel, sortChecks, latestFor, windowLine, LABEL, foundCards, notFoundCards, cantCheckCards, stats } from "../site/logic.js";
+import { statusOf, counts, matchLabel, sortChecks, latestFor, LABEL, foundCards, notFoundCards, cantCheckCards, stats } from "../site/logic.js";
 import { overviewHtml, bizHtml } from "../site/render.js";
 import { readdirSync, readFileSync } from "node:fs";
 
@@ -34,9 +34,12 @@ test("latest run only, per business", () => {
   assert.equal(latestFor(runs, checks, "SCC").checks.length, 1);
   assert.equal(latestFor([], checks, "SCC").run, null);
 });
-test("window line flags unequal counts and a live owned pid", () => {
-  assert.match(windowLine({ chrome_before: 3, chrome_during: 4, chrome_after: 3, chrome_equal: true, owned_alive_after: [] }), /\(equal\); owned_alive_after empty/);
-  assert.match(windowLine({ chrome_before: 3, chrome_during: 4, chrome_after: 4, chrome_equal: false, owned_alive_after: [9] }), /NOT equal.*9/);
+test("overview shows no Chrome window line, even when the run carries the counts", () => {
+  const withCounts = runs.map((r) => ({ ...r, chrome_before: 3, chrome_during: 4, chrome_after: 3, chrome_equal: true, owned_alive_after: [] }));
+  assert.ok(!/Chrome windows|owned_alive/i.test(overviewHtml(withCounts, all)));
+  const dir = new URL("../site/", import.meta.url);
+  const walk = (u) => readdirSync(u, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(new URL(e.name + "/", u)) : [new URL(e.name, u)]));
+  for (const f of walk(dir)) assert.ok(!/Chrome windows/i.test(readFileSync(f, "utf8")), `${f.pathname} has the window line`);
 });
 
 
