@@ -71,13 +71,15 @@ class HttpFetcher:
         src = r.text; links = []
         for m in re.finditer(r'(?is)<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', src):
             ctx = html_to_text(src[max(0, m.start() - 500):m.end() + 300])
-            links.append({"href": urljoin(str(r.url), H.unescape(m.group(1))), "card": ctx[-500:]})
+            links.append({"href": urljoin(str(r.url), H.unescape(m.group(1))), "card": ctx[-500:],
+                          "text": " ".join(html_to_text(m.group(2)).split())[:80],
+                          "aria": " ".join(H.unescape((re.search(r'(?i)aria-label="([^"]*)"', m.group(0)) or [None, ""])[1]).split())[:80]})
         return Result(r.status_code, str(r.url), html_to_text(src), links)
 
 LINKS_JS = r"""() => [...document.querySelectorAll('a[href]')].map(a => {
   let n = a, txt = '';
   for (let i = 0; i < 8 && n; i++, n = n.parentElement) { txt = (n.innerText || ''); if (txt.length > 150) break; }
-  return {href: a.href, card: txt.slice(0, 500)};
+  return {href: a.href, card: txt.slice(0, 500), text: (a.innerText || '').trim().slice(0, 80), aria: (a.getAttribute('aria-label') || '').trim().slice(0, 80)};
 })"""
 BANNER_JS = r"""(msg) => { let b = document.getElementById('__ce_banner');
   if (!b) { b = document.createElement('div'); b.id='__ce_banner';

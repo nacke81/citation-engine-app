@@ -66,12 +66,13 @@ def nap_lines(text, b):
 
 def discover_live():
     import core, discover, mapnap
-    texts = {}
+    texts = {}; linkmap = {}
     def wrap_fetch(cls):
         orig = cls.fetch
         def f(self, url, label=""):
             r = orig(self, url, label)
             if r is not None and getattr(r, "text", None): texts[r.url] = r.text
+            if r is not None and getattr(r, "links", None): linkmap[r.url] = r.links
             return r
         cls.fetch = f
     wrap_fetch(core.HttpFetcher); wrap_fetch(core.ChromeFetcher)
@@ -79,12 +80,14 @@ def discover_live():
     def lk(*a, **k):
         r = ol(*a, **k)
         if r.get("text"): texts[r["url"]] = r["text"]
+        if r.get("links"): linkmap[r["url"]] = r["links"]
         return r
     mapnap.lookup = lk; discover.mapnap.lookup = lk
     ob = discover.own_search_box
     def osb(*a, **k):
         r = ob(*a, **k)
         if r[0].text: texts[r[0].url] = r[0].text
+        if r[0].links: linkmap[r[0].url] = r[0].links
         return r
     discover.own_search_box = osb
     state = {}
@@ -101,13 +104,22 @@ def discover_live():
     after = window_count()
     alive = chrome_procs_with(state.get("profile"))
     return dict(before=before, during=state.get("during"), after=after, equal=(before == after), owned_alive_after=alive,
-                seconds=int(time.time() - t0), error=err), texts
+                seconds=int(time.time() - t0), error=err), texts, linkmap
 
 
 def load_rows(p): return [json.loads(l) for l in open(p, encoding="utf-8") if l.strip()]
 
 
-def build(rows, texts):
+def cant_reason(rows, b, d):
+    """Why a Directory is 'couldn't check': blocked (the site walled the visit), error (the visit failed), else no usable result."""
+    rs = [r for r in rows if r.get("kind") in ("dir", "map") and r.get("biz") == b and r.get("dir") == d]
+    if any("blocked" in (r.get("log") or "") or r.get("blocked_on_purpose") for r in rs): return "blocked"
+    if any(str(r.get("note") or "").startswith("error") for r in rs): return "error"
+    return "no usable result"
+
+
+def build(rows, texts, linkmap=None):
+    linkmap = linkmap or {}
     unsearch = set(IDENT.get("UNSEARCHABLE", []))
     comb = judge.combine(rows, DIRS, unsearch)
     out = []
@@ -120,7 +132,9 @@ def build(rows, texts):
             c.update(url=u, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
                      method=src.get("method"), nap_shown=nap_lines(texts.get(u, ""), b) if texts.get(u) else None,
                      note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""),
-                     diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b, u, labels=True))
+                     diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b, u, labels=True, links=linkmap.get(u)))
+        if res == "couldnt_check": c["note"] = cant_reason(rows, b, d)
+        elif res == "unsearchable": c["note"] = "unsearchable"
         out.append(c)
     return comb, out
 
@@ -129,13 +143,16 @@ def backfill(run_dir):
     """Compute diffs for an already-written run from its saved local pages (no Directory traffic) and PATCH them onto the newest ce_runs row."""
     rows = load_rows(os.path.join(run_dir, "rows.jsonl"))
     pages = json.load(open(os.path.join(run_dir, "pages.local.json"), encoding="utf-8"))
-    _, checks = build(rows, {p["url"]: p["text"] for p in pages})
+    _, checks = build(rows, {p["url"]: p["text"] for p in pages}, {p["url"]: p.get("links") or [] for p in pages})
     db = DB(load_env())
     run = db.call("GET", "ce_runs?select=id,started_at&order=started_at.desc&limit=1")[0]
     n = 0
     for c in checks:
-        if c["result"] != "found": continue
-        db.call("PATCH", "ce_checks?run_id=eq.%s&biz=eq.%s&directory=eq.%s" % (run["id"], c["biz"], c["directory"]), {"diffs": c["diffs"]}); n += 1
+        where = "ce_checks?run_id=eq.%s&biz=eq.%s&directory=eq.%s" % (run["id"], c["biz"], c["directory"])
+        if c["result"] != "found":
+            if c.get("note"): db.call("PATCH", where, {"note": c["note"]}); n += 1
+            continue
+        db.call("PATCH", where, {"diffs": c["diffs"]}); n += 1
         print("patched", c["biz"], c["directory"], [d["field"] for d in c["diffs"]])
     print("backfilled", n, "found checks on run", run["id"])
     return 0
@@ -145,11 +162,11 @@ def main():
     if "--backfill" in sys.argv: return backfill(sys.argv[sys.argv.index("--backfill") + 1])
     dry = "--dry" in sys.argv
     if "--from-rows" in sys.argv:
-        rows = load_rows(sys.argv[sys.argv.index("--from-rows") + 1]); texts = {}
+        rows = load_rows(sys.argv[sys.argv.index("--from-rows") + 1]); texts = {}; linkmap = {}
         wc = dict(before=None, during=None, after=None, equal=None, owned_alive_after=[], seconds=0, error="offline recombine")
     else:
-        wc, texts = discover_live(); rows = load_rows(os.environ["CE_ROWS"])
-    comb, checks = build(rows, texts)
+        wc, texts, linkmap = discover_live(); rows = load_rows(os.environ["CE_ROWS"])
+    comb, checks = build(rows, texts, linkmap)
     unsearch = set(IDENT.get("UNSEARCHABLE", []))
     guards = dict(hard_negative=judge.hard_negative_ok(rows, IDENT["HARDNEG_ID"]), made_up_zero=judge.made_up_ok(comb), blocked_ok=judge.blocked_ok(comb, rows))
     truth = judge.load_truth(IDENT["TRUTH_MD"]) if os.path.exists(IDENT.get("TRUTH_MD", "")) else {}
@@ -160,7 +177,7 @@ def main():
     # local artifacts: the decisive real pages (real NAP, stays on this PC, input for scrubbed fixtures) + the summary
     pages = []
     for c in checks:
-        if c["result"] == "found" and texts.get(c["url"]): pages.append(dict(biz=c["biz"], directory=c["directory"], url=c["url"], text=texts[c["url"]]))
+        if c["result"] == "found" and texts.get(c["url"]): pages.append(dict(biz=c["biz"], directory=c["directory"], url=c["url"], text=texts[c["url"]], links=[l for l in linkmap.get(c["url"], []) if l.get("text") or l.get("aria")][:200]))
     for r in rows:
         if r.get("kind") == "hardneg" and texts.get(r.get("url")): pages.append(dict(biz="SCC", directory=r["dir"], url=r["url"], text=texts[r["url"]], hardneg=True))
     json.dump(pages, open(os.path.join(RUN_DIR, "pages.local.json"), "w", encoding="utf-8"))

@@ -164,5 +164,37 @@ fixlist.diffs_for = _o2
 import inspect  # noqa: E402
 check("G6 safety: fixlist imports no network/portal module", not any(w in inspect.getsource(fixlist) for w in ("httpx", "requests", "urlopen", "portal", "socket")))
 
+# G7 gate 4: a site behind a Website button href is compared like a shown URL; second stale phone carries the old-phone label.
+I7 = copy.deepcopy(I6)
+I7["BIZ"]["NM"]["stale_phones"] = ["6155550112", "6155550113"]
+def btn(href, card="Birch Media", text="Website"): return {"href": href, "card": card, "text": text, "aria": ""}
+NOSITE = BASE[:-1]
+def nm7(lines, links, url="https://dir.example/biz/1"):
+    return fixlist.diffs_for("\n".join(["Birch Media"] + lines) + "\n", dict(EV_OK), I7, "NM", url, labels=True, links=links)
+d7a = nm7(NOSITE, [btn("https://www.birchmedia.example/?utm_source=dir")])
+check("G7d button href matches canonical -> no row", d7a == [], str(d7a))
+d7b = nm7(NOSITE, [btn("https://wrong-site.example/")])
+check("G7d button href differs -> Site row with the href host", d7b == [{"field": "site", "live": "wrong-site.example", "canonical": "birchmedia.example"}], str(d7b))
+d7c = nm7(NOSITE, [btn("https://dir.example/out?url=https%3A%2F%2Fwww.birchmedia.example%2F")])
+check("G7d redirect-wrapped matching href is unwrapped -> no row", d7c == [], str(d7c))
+d7d = nm7(NOSITE, [btn("https://dir.example/out?url=https%3A%2F%2Fwrong-site.example%2F")])
+check("G7d redirect-wrapped wrong href -> Site row", [x["live"] for x in d7d] == ["wrong-site.example"], str(d7d))
+check("G7d bare Website button with no href captured -> still no row, never 'missing'", nm7(NOSITE + ["Website"], []) == [])
+check("G7d no block text but a matching button href -> no row", fixlist.diffs_for("Birch Media\n", dict(EV_OK), I7, "NM", "https://dir.example/biz/2", labels=True, links=[btn("https://birchmedia.example")]) == [])
+check("G7d link whose text is not Website is ignored", nm7(NOSITE + ["Website"], [btn("https://wrong-site.example/", text="Read more")]) == [])
+d7e = nm7(NOSITE, [btn("https://wrong-site.example/", card="Other Co 9 Elm Rd"), btn("https://birchmedia.example/")], url="https://dir.example/search?q=birch")
+check("G7d on a list page another business's button is ignored", d7e == [], str(d7e))
+check("G7d directory's own and social hosts are not the business site", nm7(NOSITE + ["Website"], [btn("https://dir.example/about"), btn("https://www.facebook.com/x")]) == [])
+d7f = nm7(["200 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0113", OKSITE], [])
+check("G7e second stale phone -> Phone row labeled old phone", d7f == [{"field": "phone", "live": "(615) 555-0113", "canonical": "(615) 555-0111", "label": "old phone"}], str(d7f))
+check("G7e unknown phone still a Phone row with no label", [x.get("label") for x in nm7(["200 Sample Blvd", "Ste 200", "Testville, TN 39999", "(615) 555-0188", OKSITE], [])] == [None])
+_o3 = fixlist.website_hosts
+fixlist.website_hosts = lambda *a, **k: []
+check("G7 self-check: a comparer that ignores hrefs fails the wrong-href test", nm7(NOSITE, [btn("https://wrong-site.example/")]) != d7b)
+fixlist.website_hosts = _o3
+# couldn't-check reason is written by the job (blocked / error / no usable result)
+_rows = [dict(kind="dir", biz="NM", dir=DIRS[1], status="couldnt", log="search:blocked:403:u", note="rejected=0"), dict(kind="dir", biz="NM", dir=DIRS[2], status="couldnt", note="error TimeoutError", log=""), dict(kind="dir", biz="NM", dir=DIRS[3], status="couldnt", note="no plan", log="")]
+check("G7 couldn't-check reasons: blocked / error / no usable result", [jobrun.cant_reason(_rows, "NM", DIRS[i]) for i in (1, 2, 3)] == ["blocked", "error", "no usable result"])
+
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})")
 sys.exit(0 if all(ok) else 1)

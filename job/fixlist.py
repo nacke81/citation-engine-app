@@ -14,7 +14,7 @@ Rules (generic, none tied to one URL):
   - no readable block (thin page) = no new diffs from this module; the slice-1 evidence flags still apply.
 """
 import difflib, re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, unquote
 
 PHONE_RE = re.compile(r"(?<!\d)\(?(\d{3})\)?[\s.\-]*(\d{3})[\s.\-]*(\d{4})(?!\d)")
 
@@ -252,13 +252,56 @@ def sites_in(block, skip_host=""):
     return out, has_label
 
 
-def site_diff(block, ident, b, listing_url=""):
+SITE_LINK_TEXT_RE = re.compile(r"(?i)^(visit\s+)?(the\s+)?(business\s+)?(website|web\s*site|site|homepage|web|visit\s+site|official\s+site)(\s+(for|of)\b.*)?$")
+WRAP_PARAMS = ("url", "u", "to", "dest", "destination", "redirect", "target", "link", "q")
+
+
+def _unwrap(href):
+    """A tracking/redirect wrapper (?url=https%3A%2F%2Fsite...) -> the real target. Unchanged when not a wrapper."""
+    for _ in range(2):
+        qs = parse_qs(urlparse(href).query)
+        nxt = next((v[0] for k in WRAP_PARAMS for v in [qs.get(k)] if v and re.match(r"(?i)https?://", unquote(v[0]))), None)
+        if not nxt:
+            break
+        href = unquote(nxt)
+    return href
+
+
+def website_hosts(links, ident, b, listing_url=""):
+    """Hosts of the listing's own 'Website' link or button (href, not shown text). Saved by the job so a button is checked like a shown URL.
+
+    Only anchors whose text or aria-label says Website/Visit website/Homepage count. Directory-own hosts and social hosts drop out.
+    On a page with several such links (a results page) a link counts only if its own card names this business, so another
+    business's button never lands on this listing. Returns [] when nothing usable: no href is never a 'missing' or a Site row.
+    """
+    rx = re.compile(ident["RX"]["name"][b], re.I)
+    hu = urlparse(listing_url or "").netloc.lower().replace("www.", "")
+    skip = ".".join(hu.split(".")[-2:]) if hu else ""
+    cand = [l for l in (links or []) if isinstance(l, dict) and (SITE_LINK_TEXT_RE.match((l.get("text") or "").strip()) or SITE_LINK_TEXT_RE.match((l.get("aria") or "").strip()))]
+    out = []
+    for l in cand:
+        if len(cand) > 1 and not rx.search(l.get("card") or ""):
+            continue
+        if len(cand) == 1 and SEARCHY_URL_RE.search(listing_url or "") and not rx.search(l.get("card") or ""):
+            continue
+        href = _unwrap((l.get("href") or "").strip())
+        if not re.match(r"(?i)^https?://", href):
+            continue
+        h = site_host(href)
+        if not h or h in WRONG_HOSTS or (skip and (h == skip or h.endswith("." + skip))) or h in out:
+            continue
+        out.append(h)
+    return out
+
+
+def site_diff(block, ident, b, listing_url="", hrefs=()):
     c = canon(ident, b)
     want = site_host(c.get("site", ""))
-    if not want or not block:
+    if not want or not (block or hrefs):
         return None
     hu = urlparse(listing_url or "").netloc.lower().replace("www.", "")
-    got, has_label = sites_in(block, ".".join(hu.split(".")[-2:]) if hu else "")
+    got, has_label = sites_in(block or [], ".".join(hu.split(".")[-2:]) if hu else "")
+    got = [h for h in hrefs if h not in got] + got            # a Website button's href is checked like a shown URL
     if any(h == want or h.endswith("." + want) for h in got):
         return None
     if got:
@@ -284,7 +327,7 @@ def _is_list_page(text, block):
 
 
 # ---- entry point --------------------------------------------------------------------------------------------------
-def diffs_for(text, ev, ident, b, url="", labels=False):
+def diffs_for(text, ev, ident, b, url="", labels=False, links=None):
     """ev = the discovery row's evidence flags (name/street/old_street/phones/stale_phone). Returns a list of diffs."""
     ev = ev or {}
     c = canon(ident, b)
@@ -305,7 +348,7 @@ def diffs_for(text, ev, ident, b, url="", labels=False):
         if labels:
             d["label"] = "old address"
         out.append(d)
-    sd = site_diff(block, ident, b, url)
+    sd = site_diff(block, ident, b, url, website_hosts(links, ident, b, url))
     if sd and sd["live"] == "missing" and _is_list_page(text, block):     # one card among many businesses cannot prove "no site"
         sd = None
     if sd:

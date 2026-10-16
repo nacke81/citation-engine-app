@@ -73,6 +73,8 @@ def lookup(ctx, rec, d, b, kind, q, caption, tag):
         # real map results page = right host, search box loaded, page not a help/login/consent page
         verified = host_ok and not re.search(r"(?i)before you continue|sign in to continue|help center", text[:600])
         url = pg.url
+        try: links = pg.evaluate(LINKS_JS)
+        except Exception: links = []
     except Exception as e:
         shot = ""; url = ""; note.append("error " + type(e).__name__ + ": " + str(e)[:80])
     finally:
@@ -81,7 +83,7 @@ def lookup(ctx, rec, d, b, kind, q, caption, tag):
             except Exception: pass
         try: pg.close()
         except Exception: pass
-    return dict(text=text, url=url, shot=shot if 'shot' in dir() else "", verified=verified, panel=panel, results=results, note=";".join(note))
+    return dict(links=locals().get("links") or [], text=text, url=url, shot=shot if 'shot' in dir() else "", verified=verified, panel=panel, results=results, note=";".join(note))
 
 def judge_map(text, b):
     """claim = name + (street+city | exact canonical phone). A map panel often has no city string, so exact phone is the anchor."""

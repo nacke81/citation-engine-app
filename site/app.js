@@ -1,10 +1,9 @@
-import { BIZ, bizLabel, LABEL, counts, statusOf, matchLabel, sortChecks, latestFor, windowLine, FIELD, fixList, absentList, cantCheckLine } from './logic.js';
+import { BIZ } from './logic.js';
+import { overviewHtml, bizHtml, esc } from './render.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const app = document.getElementById('app');
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
 let user = null, data = { runs: [], checks: [] };
 
 async function load() {
@@ -16,44 +15,12 @@ async function load() {
   data = { runs, checks };
 }
 
-function home() {
-  const { run } = latestFor(data.runs, data.checks, 'SCC');
-  if (!run) { app.innerHTML = '<div class="card" data-testid="empty"><b>No weekly check has run yet.</b></div>'; return; }
-  const when = new Date(run.finished_at || run.started_at).toLocaleString();
-  const cards = Object.keys(BIZ).map((b) => {
-    const c = counts(latestFor(data.runs, data.checks, b).checks);
-    return `<a class="card biz" href="#${b}" data-testid="biz-${b}"><h2>${esc(bizLabel(latestFor(data.runs, data.checks, b).run, b))}</h2>
-      <div class="counts"><span><b>${c.found}</b> found</span><span><b>${c.absent}</b> absent</span><span><b>${c.couldnt_check + c.unsearchable}</b> couldn't check</span></div></a>`;
-  }).join('');
-  app.innerHTML = `<div class="note" data-testid="runline">Last weekly check ${esc(when)} · ${esc(run.status)}</div>${cards}
-    <div class="note" data-testid="windows">${esc(windowLine(run))}</div>`;
-}
+function home() { app.innerHTML = overviewHtml(data.runs, data.checks); }
 
 function bizView(b) {
-  const { run, checks } = latestFor(data.runs, data.checks, b);
-  if (!run || !BIZ[b]) { home(); return; }
-  const fixes = fixList(checks), absent = absentList(checks);
-  const fixHtml = fixes.length ? fixes.map((f) => {
-    const u = safeUrl(f.url);
-    return `<div class="row fix" data-testid="fix-${esc(f.directory)}-${esc(f.field)}"><h3>${esc(f.directory)} <span class="chip stale">${esc(FIELD[f.field] || f.field)}</span>${f.label ? ` <span class="chip lbl" data-testid="fix-label">${esc(f.label)}</span>` : ''}</h3>
-      <div class="kv"><span>Live</span><b class="no">${esc(f.live)}</b></div>
-      <div class="kv"><span>Canonical</span><b class="ok">${esc(f.canonical)}</b></div>
-      ${u ? `<div class="meta"><a href="${esc(u)}" rel="noopener noreferrer" target="_blank">${esc(u)}</a></div>` : '<div class="meta">No listing URL captured.</div>'}</div>`;
-  }).join('') : '<div class="note" data-testid="fix-empty">Nothing found that differs from canonical.</div>';
-  const absHtml = absent.length ? absent.map((x) => `<div class="row" data-testid="absent-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip absent">no listing found</span></h3></div>`).join('')
-    : '<div class="note" data-testid="absent-empty">None.</div>';
-  const all = sortChecks(checks).map((k) => {
-    const st = statusOf(k), u = safeUrl(k.url);
-    return `<div class="row" data-testid="row-${esc(k.directory)}"><h3>${esc(k.directory)} <span class="chip ${st}">${esc(LABEL[st])}</span></h3>
-      ${st === 'found' ? `${u ? `<div><a href="${esc(u)}" rel="noopener noreferrer" target="_blank">${esc(u)}</a></div>` : ''}
-        <div class="nap">${esc(k.nap_shown || 'NAP not captured')}</div>
-        <div class="meta ${k.match === true ? 'ok' : 'no'}">${esc(matchLabel(k))}${k.note ? ' · ' + esc(k.note) : ''}</div>` : ''}</div>`;
-  }).join('');
-  app.innerHTML = `<a class="back" href="#">&larr; Both businesses</a><h2>${esc(bizLabel(run, b))}</h2>
-    <h2 class="sec" data-testid="fix-title">Fix list <span class="n">${fixes.length}</span></h2>${fixHtml}
-    <h2 class="sec" data-testid="absent-title">No listing found <span class="n">${absent.length}</span></h2>${absHtml}
-    <div class="note" data-testid="cant-check">${esc(cantCheckLine(checks))}</div>
-    <details><summary>All directories</summary>${all}</details>`;
+  const h = bizHtml(data.runs, data.checks, b);
+  if (h === null) { home(); return; }
+  app.innerHTML = h;
 }
 
 function route() { if (!user) return; const h = location.hash.slice(1); BIZ[h] ? bizView(h) : home(); window.scrollTo(0, 0); }
