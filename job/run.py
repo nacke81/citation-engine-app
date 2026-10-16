@@ -2,7 +2,7 @@
 
 Writes one ce_runs row + one ce_checks row per business x Directory to the shared Supabase project (secret key from the default
 profile .env; never printed). Logs the chrome.exe-only window count before/during/after and owned_alive_after (must be empty).
-No Directory login, no signup, no spend, no Directory or portal write, no NAP fix.
+No Directory login, no signup, no spend, no Directory write, no NAP fix. After the build-DB write it upserts one citation-engine footprint_snapshot per business (SCC + NM only, job/portal.py).
 
   python job/run.py              real run, writes to Supabase
   python job/run.py --dry        real discovery, no database write
@@ -159,6 +159,7 @@ def backfill(run_dir):
 
 
 def main():
+    if "--portal-backfill" in sys.argv: return portal_backfill(sys.argv[sys.argv.index("--portal-backfill") + 1])
     if "--backfill" in sys.argv: return backfill(sys.argv[sys.argv.index("--backfill") + 1])
     dry = "--dry" in sys.argv
     if "--from-rows" in sys.argv:
@@ -194,7 +195,31 @@ def main():
                   "owned_alive_after": wc["owned_alive_after"], "guards": guards, "counts": n, "score": summary["score"], "error": wc["error"]})[0]
     db.call("POST", "ce_checks", [dict(c, owner=db.owner, run_id=run["id"], checked_on=datetime.now().date().isoformat()) for c in checks])
     print("wrote run", run["id"], status, len(checks), "checks", flush=True)
-    return 0 if ok_run else 1
+    portal_ok = portal_publish(checks, datetime.now().date().isoformat())
+    return 0 if (ok_run and portal_ok) else 1
+
+
+def portal_publish(checks, day, portal=None):
+    """Portal write AFTER the build-DB write. A failure is loud in the run log (PORTAL WRITE FAILED) and never touches build-DB rows."""
+    import portal as P
+    try:
+        res = P.write_run(checks, day, portal)
+        print("PORTAL WRITE OK", json.dumps(res), flush=True)
+        return True
+    except Exception as e:
+        print("PORTAL WRITE FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        print("PORTAL WRITE FAILED (build-DB results are saved; re-run: python job/run.py --portal-backfill <run id>)", flush=True)
+        return False
+
+
+def portal_backfill(run_id):
+    """Write the portal rows for an already-saved build-DB run (read-only on the build DB, no Directory traffic)."""
+    db = DB(load_env())
+    run = db.call("GET", "ce_runs?select=id,status&id=eq.%s" % run_id)[0]
+    ch = db.call("GET", "ce_checks?select=biz,directory,result,url,method,note,diffs,checked_on&run_id=eq.%s" % run_id)
+    day = max(c["checked_on"] for c in ch)
+    print("backfill portal from run", run["id"], run["status"], len(ch), "checks, day", day)
+    return 0 if portal_publish(ch, day) else 1
 
 
 if __name__ == "__main__":
