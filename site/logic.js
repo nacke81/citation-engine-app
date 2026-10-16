@@ -43,3 +43,27 @@ export function windowLine(run) {
   const alive = (run.owned_alive_after || []).length ? `owned still alive: ${run.owned_alive_after.join(",")}` : "owned_alive_after empty";
   return `Chrome windows before ${run.chrome_before}, during ${run.chrome_during}, after ${run.chrome_after} (${eq}); ${alive}`;
 }
+
+// ---- Fix list (slice 1). The page's work list: found listings that differ from canonical, then Directories with no listing, then one count line.
+export const FIELD = { phone: "Phone", address: "Address", name: "Name", site: "Site" };
+
+// Found listings with at least one recorded difference. Only status found can be here; one entry per difference.
+export function fixList(checks) {
+  const out = [];
+  for (const k of sortChecks(checks)) {
+    if (statusOf(k) !== "found" || !Array.isArray(k.diffs)) continue;
+    for (const d of k.diffs) if (d && d.field) out.push({ directory: k.directory, url: k.url || "", field: d.field, live: d.live, canonical: d.canonical });
+  }
+  return out;
+}
+
+// Strict-rule absent only: statusOf already sends anything that is not exactly "absent" to couldn't check.
+export function absentList(checks) {
+  return sortChecks(checks).filter((k) => statusOf(k) === "absent").map((k) => ({ directory: k.directory }));
+}
+
+export function cantCheckCount(checks) {
+  const c = counts(checks);
+  return c.couldnt_check + c.unsearchable;
+}
+export const cantCheckLine = (checks) => `${cantCheckCount(checks)} couldn't check`;

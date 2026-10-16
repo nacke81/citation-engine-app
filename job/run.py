@@ -22,7 +22,7 @@ RUN_DIR = os.path.join(RUNS, STAMP); os.makedirs(RUN_DIR, exist_ok=True)
 os.environ.setdefault("CE_ROWS", os.path.join(RUN_DIR, "rows.jsonl"))
 os.environ.setdefault("CE_SHOTS", os.path.join(RUN_DIR, "shots"))
 
-import judge  # noqa: E402
+import judge, fixlist  # noqa: E402
 from cfg import DIRS, IDENT  # noqa: E402
 
 
@@ -113,18 +113,36 @@ def build(rows, texts):
     out = []
     for (b, d), (res, src) in comb.items():
         if b == "FAKE": continue
-        c = dict(biz=b, directory=d, result=res, url=None, nap_shown=None, name_match=None, street_match=None, phone_match=None, match=None, method=None, note=None)
+        c = dict(biz=b, directory=d, result=res, url=None, nap_shown=None, name_match=None, street_match=None, phone_match=None, match=None, method=None, note=None, diffs=None)
         if res == "found" and src:
             fl = judge.nap_flags(src)
             u = src.get("url") or ""
             c.update(url=u, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
                      method=src.get("method"), nap_shown=nap_lines(texts.get(u, ""), b) if texts.get(u) else None,
-                     note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""))
+                     note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""),
+                     diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b))
         out.append(c)
     return comb, out
 
 
+def backfill(run_dir):
+    """Compute diffs for an already-written run from its saved local pages (no Directory traffic) and PATCH them onto the newest ce_runs row."""
+    rows = load_rows(os.path.join(run_dir, "rows.jsonl"))
+    pages = json.load(open(os.path.join(run_dir, "pages.local.json"), encoding="utf-8"))
+    _, checks = build(rows, {p["url"]: p["text"] for p in pages})
+    db = DB(load_env())
+    run = db.call("GET", "ce_runs?select=id,started_at&order=started_at.desc&limit=1")[0]
+    n = 0
+    for c in checks:
+        if c["result"] != "found": continue
+        db.call("PATCH", "ce_checks?run_id=eq.%s&biz=eq.%s&directory=eq.%s" % (run["id"], c["biz"], c["directory"]), {"diffs": c["diffs"]}); n += 1
+        print("patched", c["biz"], c["directory"], [d["field"] for d in c["diffs"]])
+    print("backfilled", n, "found checks on run", run["id"])
+    return 0
+
+
 def main():
+    if "--backfill" in sys.argv: return backfill(sys.argv[sys.argv.index("--backfill") + 1])
     dry = "--dry" in sys.argv
     if "--from-rows" in sys.argv:
         rows = load_rows(sys.argv[sys.argv.index("--from-rows") + 1]); texts = {}

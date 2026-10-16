@@ -55,3 +55,6 @@ end $$;
 
 create index if not exists ce_checks_run on public.ce_checks(run_id);
 create index if not exists ce_runs_owner on public.ce_runs(owner, started_at);
+
+-- Slice 1 (fix list): per found listing, the NAP fields that differ from canonical: [{field, live, canonical}]. Null = none recorded.
+alter table public.ce_checks add column if not exists diffs jsonb;

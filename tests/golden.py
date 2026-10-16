@@ -1,4 +1,4 @@
-"""Golden tests 1-4 on scrubbed fixtures (placeholder identity). Each also has a self-check that proves the test CAN fail.
+"""Golden tests 1-5 on scrubbed fixtures (placeholder identity). Each also has a self-check that proves the test CAN fail.
 Run: python tests/golden.py   (CI does this). Exit 1 on any failure.
 
   G1 recall: >=80% of the fixture listings per business found, 0 wrong-business claims.
@@ -83,6 +83,34 @@ check("G4 self-check: not blocked + no made-up match -> not found", r2["status"]
 crow = [row(biz="SCC", dir="yellowpages.com", status="found"), row(biz="FAKE", dir="yellowpages.com", status="couldnt", blocked_on_purpose=True)]
 cc = judge.combine(crow, DIRS, ())
 check("G4 rows: blocked made-up cell is couldn't check and made-up finds 0", judge.blocked_ok(cc, crow) and judge.made_up_ok(cc))
+
+# G5 fix list: a stale phone is reported with the right field; a matching listing is not; old street is an address diff.
+import fixlist  # noqa: E402
+TXT_STALE = "Birch Media\n200 Sample, Testville, TN 39999\n(615) 555-0112\n"
+TXT_OK = "Birch Media\n200 Sample, Testville, TN 39999\n(615) 555-0111\n"
+TXT_OLD = "Birch Media\n900 Old Rd, Testville, TN 39999\n(615) 555-0111\n"
+EV_STALE = dict(name=True, street=True, old_street=False, phones=[], stale_phone=True)
+EV_OK = dict(name=True, street=True, old_street=False, phones=["6155550111"], stale_phone=False)
+EV_OLD = dict(name=True, street=False, old_street=True, phones=["6155550111"], stale_phone=False)
+d_stale = fixlist.diffs_for(TXT_STALE, EV_STALE, IDENT, "NM")
+check("G5 stale phone -> one diff, field phone, live stale value, canonical value", d_stale == [{"field": "phone", "live": "(615) 555-0112", "canonical": "(615) 555-0111"}], str(d_stale))
+check("G5 matching listing -> no diffs", fixlist.diffs_for(TXT_OK, EV_OK, IDENT, "NM") == [])
+d_old = fixlist.diffs_for(TXT_OLD, EV_OLD, IDENT, "NM")
+check("G5 old street -> field address", [d["field"] for d in d_old] == ["address"] and d_old[0]["live"].lower().startswith("900 old"), str(d_old))
+check("G5 name variant on the page -> field name", [d["field"] for d in fixlist.diffs_for("1. Alder Care Conslting-Solutions\n100 Example\n", dict(EV_OK), IDENT, "SCC")] == ["name"])
+check("G5 exact name -> no name diff", fixlist.diffs_for("1. Birch Media\n", dict(EV_OK), IDENT, "NM") == [])
+# only found rows get diffs in the job output; couldn't-check / absent / unsearchable rows carry none
+import run as jobrun  # noqa: E402
+fr = [row(biz="NM", dir=DIRS[0], status="found", url="u1", ev=EV_STALE, method="chrome-pattern"),
+      row(biz="NM", dir=DIRS[1], status="noresult"), row(biz="NM", dir=DIRS[2], status="couldnt")]
+_, built = jobrun.build(fr, {"u1": TXT_STALE})
+byd = {c["directory"]: c for c in built if c["biz"] == "NM"}
+check("G5 job: found stale row carries a phone diff", [d["field"] for d in byd[DIRS[0]]["diffs"]] == ["phone"])
+check("G5 job: couldn't-check cell has no diffs and is never absent", byd[DIRS[2]]["diffs"] is None and byd[DIRS[2]]["result"] == "couldnt_check")
+_o = fixlist.diffs_for
+fixlist.diffs_for = lambda *a, **k: []
+check("G5 self-check: a broken extractor fails the stale-phone test", fixlist.diffs_for(TXT_STALE, EV_STALE, IDENT, "NM") != d_stale)
+fixlist.diffs_for = _o
 
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})")
 sys.exit(0 if all(ok) else 1)

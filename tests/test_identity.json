@@ -73,5 +73,17 @@
  "UNSEARCHABLE": [
   "brownbook.net"
  ],
- "TRUTH_MD": ""
+ "TRUTH_MD": "",
+ "CANON": {
+  "SCC": {
+   "name": "Alder Care Consulting & Solutions",
+   "phone": "(502) 555-0101",
+   "address": "100 Example St, Exampleton, KY 40000"
+  },
+  "NM": {
+   "name": "Birch Media",
+   "phone": "(615) 555-0111",
+   "address": "200 Sample Ave Ste 1, Testville, TN 39999"
+  }
+ }
 }
