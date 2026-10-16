@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Citation Engine</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font:16px/1.4 system-ui,sans-serif; margin:0; background:#f5f6f8; color:#1a1a1a; overflow-x:hidden; }
+  header { background:#1b1f24; color:#fff; padding:12px 14px; }
+  header h1 { margin:0; font-size:1.3rem; }
+  header .sub { font-size:.85rem; color:#c9d1db; } header a { color:#fff; }
+  main { max-width:720px; margin:0 auto; padding:12px; }
+  h2 { font-size:1.15rem; margin:.2em 0 .4em; }
+  .card { display:block; background:#fff; border-radius:10px; padding:14px; margin:12px 0; text-decoration:none; color:inherit; box-shadow:0 1px 3px #0002; }
+  .row { background:#fff; border-radius:8px; padding:10px; margin:8px 0; box-shadow:0 1px 2px #0002; overflow-wrap:anywhere; }
+  .row h3 { margin:0 0 6px; font-size:1rem; }
+  .chip { display:inline-block; padding:2px 10px; border-radius:12px; font-size:.78rem; font-weight:600; color:#fff; vertical-align:middle; }
+  .found { background:#1e8e3e; } .absent { background:#b06000; } .couldnt_check { background:#6b6b6b; } .unsearchable { background:#4a4a8a; }
+  .ok { color:#1e8e3e; font-weight:600; } .no { color:#c5221f; font-weight:700; }
+  .meta, .note, .nap { font-size:.85rem; color:#555; margin-top:6px; overflow-wrap:anywhere; }
+  .counts span { margin-right:12px; display:inline-block; }
+  a { color:#0b57d0; word-break:break-all; } .back { display:inline-block; padding:6px 0; }
+  input { width:100%; font:inherit; padding:10px; border:1px solid #bbb; border-radius:8px; }
+  .btn { background:#0b57d0; color:#fff; border:0; border-radius:8px; padding:10px 14px; font-size:15px; cursor:pointer; }
+  .err { color:#c5221f; font-size:.85rem; min-height:18px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header><h1>Citation Engine</h1><div class="sub" id="me"></div></header>
+<main id="app"></main>
+<script src="vendor/supabase-2.117.3.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

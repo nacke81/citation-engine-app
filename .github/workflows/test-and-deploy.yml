@@ -1,0 +1,55 @@
+name: test-and-deploy
+# Every push runs every test. The site deploys only if all of them pass.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check (.mjs copies)
+        run: for f in site/*.js; do cp "$f" /tmp/chk.mjs && node --check /tmp/chk.mjs || exit 1; done
+      - name: Page rules (couldn't check is never absent)
+        run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile job
+        run: python -m py_compile job/*.py
+      - name: Golden tests 1-4 on scrubbed fixtures
+        run: python tests/golden.py
+      - name: Leak check with planted control
+        run: python tests/leak_check.py
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

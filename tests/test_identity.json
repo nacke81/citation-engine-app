@@ -1,0 +1,77 @@
+{
+ "BIZ": {
+  "SCC": {
+   "name": "Alder Care Consulting & Solutions",
+   "short": "Alder Care Consulting",
+   "street": "100 Example",
+   "city": "Exampleton",
+   "st": "KY",
+   "zip": "40000",
+   "phones": [
+    "5025550101"
+   ],
+   "stale_phones": [
+    "5025550102"
+   ],
+   "slug": "alder-care-consulting-solutions"
+  },
+  "NM": {
+   "name": "Birch Media",
+   "short": "Birch Media",
+   "street": "200 Sample",
+   "city": "Testville",
+   "st": "TN",
+   "zip": "39999",
+   "phones": [
+    "6155550111"
+   ],
+   "stale_phones": [
+    "6155550112"
+   ],
+   "old_street": "900 Old",
+   "slug": "birch-media"
+  },
+  "FAKE": {
+   "name": "Zorvath Quillbeck Holdings",
+   "short": "Zorvath Quillbeck",
+   "street": "7 Nowhere Lane",
+   "city": "Nashville",
+   "st": "TN",
+   "zip": "37999",
+   "phones": [
+    "6155550142"
+   ],
+   "stale_phones": [],
+   "slug": "zorvath-quillbeck-holdings"
+  }
+ },
+ "RX": {
+  "name": {
+   "SCC": "alder\\s+care\\s+cons\\w*",
+   "NM": "birch\\s+media",
+   "FAKE": "zorvath\\s+quillbeck"
+  },
+  "street": {
+   "SCC": "\\b100\\s+example",
+   "NM": "\\b200\\s+sample",
+   "FAKE": "\\b7\\s+nowhere\\s+lane"
+  },
+  "old_street": {
+   "NM": "\\b900\\s+old"
+  },
+  "hn": "elm\\s+rd|502[\\s.\\-)]*555[\\s.\\-]*0199|alder\\s+solutions\\s*(&|and)\\s*consulting"
+ },
+ "HARDNEG": [
+  "https://www.yellowpages.example/louisville-ky/mip/alder-solutions-consulting-000001",
+  "https://www.superpages.example/louisville-ky/bpp/alder-solutions-consulting-000001"
+ ],
+ "HARDNEG_ID": "000001",
+ "LABEL": {
+  "SCC": "Alder Care Consulting & Solutions",
+  "NM": "Birch Media"
+ },
+ "UNSEARCHABLE": [
+  "brownbook.net"
+ ],
+ "TRUTH_MD": ""
+}

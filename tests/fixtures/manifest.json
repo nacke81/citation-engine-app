@@ -1,0 +1,163 @@
+[
+ {
+  "file": "listing-scc-google-0.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "google.com",
+  "real_verdict": false
+ },
+ {
+  "file": "listing-scc-bing-1.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "bing.com",
+  "real_verdict": false
+ },
+ {
+  "file": "listing-scc-mapquest-2.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "mapquest.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-yellowpages-3.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "yellowpages.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-superpages-4.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "superpages.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-dexknows-5.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "dexknows.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-merchantcircle-6.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "merchantcircle.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-hotfrog-7.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "hotfrog.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-cybo-8.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "cybo.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-scc-n49-9.txt",
+  "kind": "listing",
+  "biz": "SCC",
+  "directory": "n49.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-google-10.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "google.com",
+  "real_verdict": false
+ },
+ {
+  "file": "listing-nm-maps-11.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "maps.apple.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-facebook-12.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "facebook.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-yelp-13.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "yelp.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-bbb-14.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "bbb.org",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-mapquest-15.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "mapquest.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-merchantcircle-16.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "merchantcircle.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-chamberofcommerce-17.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "chamberofcommerce.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-cybo-18.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "cybo.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-n49-19.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "n49.com",
+  "real_verdict": true
+ },
+ {
+  "file": "listing-nm-yellowbot-20.txt",
+  "kind": "listing",
+  "biz": "NM",
+  "directory": "yellowbot.com",
+  "real_verdict": true
+ },
+ {
+  "file": "hardneg-scc-yellowpages-21.txt",
+  "kind": "hardneg",
+  "biz": "SCC",
+  "directory": "yellowpages.com",
+  "real_verdict": false
+ },
+ {
+  "file": "hardneg-scc-superpages-22.txt",
+  "kind": "hardneg",
+  "biz": "SCC",
+  "directory": "superpages.com",
+  "real_verdict": false
+ }
+]
