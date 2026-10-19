@@ -6,6 +6,8 @@ P3 portal failure fails the run log loudly, build-DB rows already saved.  P4 key
 import io, json, os, sys, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+# Tests must never depend on the private runtime queue or its presence on CI.
+os.environ["CE_QUEUE"] = os.path.join(HERE, "fixtures", "test_queue.json")
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import portal as P  # noqa: E402
 

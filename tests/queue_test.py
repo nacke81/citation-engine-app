@@ -31,6 +31,25 @@ for s in Q.PORTAL_STATES:
 o = Q.overlay_directories(base, [dict(id="create-x", directory="new.example", state="queued")], "2026-10-19")
 check("Q1 create row is appended with state and no url", [d for d in o["directories"] if d["domain"] == "new.example"][0]["state"] == "needs-human" and len(o["directories"]) == len(base["directories"]) + 1)
 
+# Exercise the production writer boundary without any outbound calls.
+class CapturePortal:
+    def __init__(self):
+        self.writes = {}
+    def upsert_snapshot(self, client_id, captured_day, payload):
+        self.writes[client_id] = copy.deepcopy(payload)
+        return {"client_id": client_id, "source": P.SOURCE, "captured_day": captured_day}
+
+nm_checks = [dict(c, biz="NM") for c in checks]
+capture = CapturePortal()
+P.write_run(checks + nm_checks, "2026-10-19", capture)
+scc_payload = capture.writes[P.ALLOWED["SCC"]]
+check("Q1 write_run loads queue and publishes all 5 needs-human states",
+      all(d["state"] == "needs-human" for d in scc_payload["directories"] if d["domain"] in domains)
+      and sum(d["domain"] in domains for d in scc_payload["directories"]) == 5)
+check("Q1 write_run leaves NM payload unchanged", capture.writes[P.ALLOWED["NM"]] == P.build_payload(nm_checks, "2026-10-19"))
+check("Q1 write_run preserves SCC metrics and has no BrightLocal score",
+      all(scc_payload[k] == base[k] for k in base if k != "directories") and scc_payload["keyScore"] is None)
+
 login = lambda item: {"user": "u", "pw": "p"}
 r0 = copy.deepcopy(rows[0]); r0["vaultwarden_item"] = "SCC Bing"
 check("Q2 mike_approval null cannot submit", raises(lambda: Q.submit_row(r0, login), Q.SubmitRefused))
