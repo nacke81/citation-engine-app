@@ -54,12 +54,14 @@ check("P1 NM counts: 11 = 2 + 9, not found 1, couldn't check 13", (pn["found"], 
 check("P1 Found = Correct + NAP errors for both", all(p["found"] == p["correct"] + p["withNapErrors"] for p in (ps, pn)))
 check("P1 all 25 directories, each with domain/url/napConsistent/issues/status", len(ps["directories"]) == 25 and all(set(d) >= {"domain", "url", "napConsistent", "issues", "status"} for d in ps["directories"]))
 check("P1 site diff is reported as issue 'website'", any(d["issues"] == ["website"] for d in ps["directories"]))
+psd = P.build_payload(NM, "2026-10-18")
+check("P1 rows carry name/state/stateDate in the portal contract (live/absent/couldnt_check)", all(d["name"] and d["stateDate"] == "2026-10-18" for d in psd["directories"]) and sorted({d["state"] for d in psd["directories"]}) == ["absent", "couldnt_check", "live"] and sum(d["state"] == "live" for d in psd["directories"]) == 11)
 check("P1 keyScore null (no BrightLocal score)", ps["keyScore"] is None)
 
 # successful write, readback
 fp = FakePortal()
 res = P.write_run(SCC + NM, "2026-10-16", fp)
-check("P1 write_run writes both businesses with source citation-engine and the run day", sorted((v["client_id"], v["source"], v["captured_day"]) for v in res.values()) == sorted((i, "citation-engine", "2026-10-16") for i in P.ALLOWED.values()))
+check("P1 write_run writes both businesses with source citation_engine and the run day", sorted((v["client_id"], v["source"], v["captured_day"]) for v in res.values()) == sorted((i, "citation_engine", "2026-10-16") for i in P.ALLOWED.values()))
 check("P1 only footprint_snapshot is touched", all("footprint_snapshot" in u for _, u in fp.calls))
 
 # P2

@@ -1,4 +1,4 @@
-"""Portal writer: one footprint_snapshot row per business (SCC, NM), source='citation-engine', from a run's ce_checks rows.
+"""Portal writer: one footprint_snapshot row per business (SCC, NM), source='citation_engine', from a run's ce_checks rows.
 
 Only two portal clients can ever be written (ALLOWED, in code). The client id comes from the business code here, never from a caller,
 and is checked before any network call. The prod service-role key is read in place from the portal repo's .env.prod.local; it is never
@@ -7,7 +7,7 @@ copied, printed or logged, and error text is scrubbed of it. No Directory traffi
 import json, os, re, urllib.request
 
 PORTAL_ENV_PTR = os.path.expandvars("%LOCALAPPDATA%/citation-engine/portal_env_path.txt")  # one line: path of the portal repo's .env.prod.local (outside this repo)
-SOURCE = "citation-engine"
+SOURCE = "citation_engine"  # underscore: the key the prod portal reader uses (Nate 2026-10-19)
 ALLOWED = {
     "SCC": "e1fb5abd-8d7f-4d83-8cde-18934d149bb5",  # SCC client (prod lookup by slug, 2026-10-16)
     "NM": "fe3062b5-c956-4358-9e77-840e18be9f85",   # NM client
@@ -53,12 +53,16 @@ def _status(c):
     return "unavailable"  # unsearchable
 
 
-def build_payload(checks):
+STATE = {"found": "live", "absent": "absent"}  # everything else -> couldnt_check
+
+
+def build_payload(checks, captured_day=""):
     """checks: ce_checks-shaped dicts for ONE business. Counts follow the build app: Found = Correct + With NAP errors."""
     dirs = []
     for c in sorted(checks, key=lambda x: x["directory"]):
         issues = _issues(c.get("diffs")) if c["result"] == "found" else []
         dirs.append({
+            "name": c["directory"], "state": STATE.get(c["result"], "couldnt_check"), "stateDate": captured_day,
             "domain": c["directory"], "authority": None,
             "napConsistent": c["result"] == "found" and not issues,
             "url": (c.get("url") or None) if c["result"] == "found" else None,
@@ -126,7 +130,7 @@ def write_run(checks, captured_day, portal=None):
     portal = portal or Portal(*load_portal_env())
     out = {}
     for b, cs in by.items():
-        p = build_payload(cs)
+        p = build_payload(cs, captured_day)
         row = portal.upsert_snapshot(ids[b], captured_day, p)
         out[b] = {"client_id": row["client_id"], "source": row["source"], "captured_day": row["captured_day"],
                   "found": p["found"], "correct": p["correct"], "withNapErrors": p["withNapErrors"], "notFound": p["notFound"], "couldntCheck": p["couldntCheck"]}
