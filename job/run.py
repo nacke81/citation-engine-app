@@ -129,7 +129,10 @@ def build(rows, texts, linkmap=None):
         if res == "found" and src:
             fl = judge.nap_flags(src)
             u = src.get("url") or ""
-            c.update(url=u, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
+            import listing
+            lurl, _k = listing.resolve(d, u, linkmap.get(u), IDENT["BIZ"][b]["name"], IDENT["BIZ"][b].get("phones") or ())
+            c["_page"] = u   # the page the match was made on (local only; stripped before any write)
+            c.update(url=lurl, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
                      method=src.get("method"), nap_shown=nap_lines(texts.get(u, ""), b) if texts.get(u) else None,
                      note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""),
                      diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b, u, labels=True, links=linkmap.get(u)))
@@ -159,7 +162,9 @@ def backfill(run_dir):
 
 
 def main():
-    if "--portal-backfill" in sys.argv: return portal_backfill(sys.argv[sys.argv.index("--portal-backfill") + 1])
+    if "--portal-backfill" in sys.argv:
+        pd = sys.argv[sys.argv.index("--pages") + 1] if "--pages" in sys.argv else None
+        return portal_backfill(sys.argv[sys.argv.index("--portal-backfill") + 1], pd)
     if "--backfill" in sys.argv: return backfill(sys.argv[sys.argv.index("--backfill") + 1])
     dry = "--dry" in sys.argv
     if "--from-rows" in sys.argv:
@@ -178,7 +183,8 @@ def main():
     # local artifacts: the decisive real pages (real NAP, stays on this PC, input for scrubbed fixtures) + the summary
     pages = []
     for c in checks:
-        if c["result"] == "found" and texts.get(c["url"]): pages.append(dict(biz=c["biz"], directory=c["directory"], url=c["url"], text=texts[c["url"]], links=[l for l in linkmap.get(c["url"], []) if l.get("text") or l.get("aria")][:200]))
+        pu = c.get("_page")
+        if c["result"] == "found" and texts.get(pu): pages.append(dict(biz=c["biz"], directory=c["directory"], url=pu, text=texts[pu], links=[l for l in linkmap.get(pu, []) if l.get("text") or l.get("aria")][:200]))
     for r in rows:
         if r.get("kind") == "hardneg" and texts.get(r.get("url")): pages.append(dict(biz="SCC", directory=r["dir"], url=r["url"], text=texts[r["url"]], hardneg=True))
     json.dump(pages, open(os.path.join(RUN_DIR, "pages.local.json"), "w", encoding="utf-8"))
@@ -193,7 +199,7 @@ def main():
                   "finished_at": datetime.now(timezone.utc).isoformat(), "status": status,
                   "chrome_before": wc["before"], "chrome_during": wc["during"], "chrome_after": wc["after"], "chrome_equal": wc["equal"],
                   "owned_alive_after": wc["owned_alive_after"], "guards": guards, "counts": n, "score": summary["score"], "error": wc["error"]})[0]
-    db.call("POST", "ce_checks", [dict(c, owner=db.owner, run_id=run["id"], checked_on=datetime.now().date().isoformat()) for c in checks])
+    db.call("POST", "ce_checks", [dict({k: v for k, v in c.items() if not k.startswith("_")}, owner=db.owner, run_id=run["id"], checked_on=datetime.now().date().isoformat()) for c in checks])
     print("wrote run", run["id"], status, len(checks), "checks", flush=True)
     portal_ok = portal_publish(checks, datetime.now().date().isoformat())
     return 0 if (ok_run and portal_ok) else 1
@@ -212,12 +218,28 @@ def portal_publish(checks, day, portal=None):
         return False
 
 
-def portal_backfill(run_id):
+def reresolve_urls(checks, pages_dir):
+    """Replace stored found-row URLs with the listing permalink linked from the saved matched page (pages.local.json). No network."""
+    import listing
+    pages = json.load(open(os.path.join(pages_dir, "pages.local.json"), encoding="utf-8"))
+    links = {(p["biz"], p["directory"]): (p["url"], p.get("links") or []) for p in pages if not p.get("hardneg")}
+    out = []
+    for c in checks:
+        c = dict(c)
+        if c["result"] == "found":
+            pu, lk = links.get((c["biz"], c["directory"]), (c.get("url"), []))
+            c["url"], _k = listing.resolve(c["directory"], c.get("url") or pu, lk, IDENT["BIZ"][c["biz"]]["name"], IDENT["BIZ"][c["biz"]].get("phones") or ())
+        out.append(c)
+    return out
+
+
+def portal_backfill(run_id, pages_dir=None):
     """Write the portal rows for an already-saved build-DB run (read-only on the build DB, no Directory traffic)."""
     db = DB(load_env())
     run = db.call("GET", "ce_runs?select=id,status&id=eq.%s" % run_id)[0]
     ch = db.call("GET", "ce_checks?select=biz,directory,result,url,method,note,diffs,checked_on&run_id=eq.%s" % run_id)
     day = max(c["checked_on"] for c in ch)
+    if pages_dir: ch = reresolve_urls(ch, pages_dir)
     print("backfill portal from run", run["id"], run["status"], len(ch), "checks, day", day)
     return 0 if portal_publish(ch, day) else 1
 
