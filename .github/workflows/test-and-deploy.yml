@@ -37,6 +37,8 @@ jobs:
         run: python tests/golden.py
       - name: Portal writer (SCC + NM allow-list, counts, failure handling)
         run: python tests/portal_test.py
+      - name: Create-queue discovery (absent only with a positive control)
+        run: python tests/create_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
