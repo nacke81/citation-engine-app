@@ -50,9 +50,9 @@ def _tupalo(n):
 
 # Per Directory. search: the Directory's own site-search URL builder (None = no public own-search found 2026-10-19).
 # zero / one: regexes proving the results page was understood (0 results / >=1 result); None = no verified marker, so never `absent`.
-# signup_url / cost / login_needed come from the live pages read 2026-10-19 (see handoff); cost free|paid|unknown.
+# signup_url / cost / login_needed come re-read live 2026-10-19 (checked_on, GET only, nothing submitted); cost free|paid|unknown.
 CREATE_DIRS = {
-    "caring.com": dict(cost_class="unknown", search=None, zero=None, one=None, signup_url="https://www.caring.com/", cost="unknown", login_needed="unknown (no public add-business link on the homepage)"),
+    "caring.com": dict(cost_class="free", search=None, zero=None, one=None, signup_url="https://www.caring.com/partners/get-listed", cost="free (page: 'Claim Your Free Caring.com Listing'; it edits an existing community listing, so fit for a consultant is unconfirmed; partner referrals are a separate sign-in at partner-portal.caring.com, cost not published)", login_needed="no login stated on the get-listed form; partner portal needs sign-in"),
     "citysquares.com": dict(cost_class="free", search=_citysquares, zero=None, one=None, signup_url="https://citysquares.com/add_business", cost="free (page: 'add it now, for free'; Premium is $9/month, optional)", login_needed="yes: account sign-up first"),
     "botw.org": dict(cost_class="unknown", search=None, zero=None, one=None, signup_url="https://botw.org/", cost="unknown", login_needed="unknown (Cloudflare wall, not read)"),
     "enrollbusiness.com": dict(cost_class="unknown", search=None, zero=None, one=None, signup_url="https://www.enrollbusiness.com/", cost="unknown", login_needed="unknown (Cloudflare wall, not read)"),
@@ -64,6 +64,13 @@ CREATE_DIRS = {
     "freelistingusa.com": dict(cost_class="free", search=_fla, zero=None, one=None, signup_url="https://www.freelistingusa.com/create-listing", cost="free (site describes itself as a free listing site)", login_needed="yes: pre-register / register"),
     "tupalo.com": dict(cost_class="unknown", search=_tupalo, zero=None, one=None, signup_url="https://www.tupalo.com/en/users/signin", cost="unknown", login_needed="yes: sign in"),
 }
+
+
+SIGNUP_CHECKED_ON = "2026-10-19"   # signup_url / cost / login re-read by GET on this date (rebase attempt); bump when re-read
+SIGNUP_NOTES = {"ibegin.com": "signup page returned 403 to a plain GET on re-read 2026-10-19; cost/login text is from the earlier read",
+                "botw.org": "Cloudflare wall on re-read; not read", "enrollbusiness.com": "Cloudflare wall on re-read; not read", "storeboard.com": "Cloudflare wall on re-read; not read"}
+for _k, _v in CREATE_DIRS.items():
+    _v["checked_on"] = SIGNUP_CHECKED_ON; _v["signup_note"] = SIGNUP_NOTES.get(_k, "re-read live by GET")
 
 
 def search_urls(key, name):
@@ -115,7 +122,37 @@ def create_row(key, d, day):
     return dict(id="create-" + key.split(".")[0], directory=key, kind="create", state="queued", mike_approval=None, found_on=day,
                 proof_of_absence=dict(method="Directory's own site search, GET, name + city (same method as the weekly 25); zero results page recognised",
                                       queries=d["queries"], control_url=d["control_url"], control_business=CTRL_NAME),
-                signup_url=cfg["signup_url"], cost=cfg["cost"], cost_class=cfg["cost_class"], login_needed=cfg["login_needed"])
+                signup_url=cfg["signup_url"], cost=cfg["cost"], cost_class=cfg["cost_class"], login_needed=cfg["login_needed"],
+                checked_on=cfg["checked_on"], signup_note=cfg["signup_note"])
+
+
+def merge_create_queue(queue, decisions, rows, day):
+    """Merge discovery output into queue['create_queue'] (a dict; 'rows' list). Idempotent by row id.
+    Never overwrites an existing row's state / mike_approval / any field; a Directory that now reads found or couldnt keeps its queued row
+    and only gains last_seen_state. Does not touch fix_queue or anything else. Returns the same queue dict."""
+    cq = queue.get("create_queue")
+    if not isinstance(cq, dict): cq = {} if cq is None else {"legacy": cq}
+    cq.setdefault("rows", []); cq.setdefault("last_seen", {})
+    have = {r["id"]: r for r in cq["rows"]}
+    for r in rows:
+        if r["id"] not in have:
+            cq["rows"].append(r); have[r["id"]] = r
+    for key, d in decisions.items():
+        rid = "create-" + key.split(".")[0]
+        cq["last_seen"][key] = dict(state=d["state"], why=d["why"], on=day)
+        if rid in have and d["state"] != "absent": have[rid]["last_seen_state"] = dict(state=d["state"], why=d["why"], on=day)
+    cq["status"] = "Discovery runs weekly on the 10 Directories in create_discovery.CREATE_DIRS (positive control required). %d queued create row(s); last run %s. Rows never change state here; Mike approval is set by hand." % (len(cq["rows"]), day)
+    queue["create_queue"] = cq
+    return queue
+
+
+def weekly_merge(queue_path, fetcher=None, day=None):
+    """Weekly-run hook (after the 25): GET-only discovery, then merge into the SCC queue file. No portal call, no payload schema change."""
+    dec, rows = run_all(fetcher, day); day = day or date.today().isoformat()
+    q = json.load(open(queue_path, encoding="utf-8"))
+    merge_create_queue(q, dec, rows, day)
+    tmp = queue_path + ".tmp"; json.dump(q, open(tmp, "w", encoding="utf-8"), indent=1); os.replace(tmp, queue_path)
+    return dec, rows
 
 
 def run_all(fetcher=None, day=None):
@@ -133,6 +170,8 @@ def run_all(fetcher=None, day=None):
 
 
 if __name__ == "__main__":
+    if "--merge-into" in sys.argv:  # merge into a copy/queue file: python job/create_discovery.py --merge-into PATH
+        dec, rows = weekly_merge(sys.argv[sys.argv.index("--merge-into") + 1]); print("merged", len(rows), "absent rows"); sys.exit(0)
     out = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else "create-queue.json"
     dec, rows = run_all()
     json.dump(dict(business=S(BIZ_KEY)["name"], generated=date.today().isoformat(), decisions=dec, create_queue=rows), open(out, "w", encoding="utf-8"), indent=1)

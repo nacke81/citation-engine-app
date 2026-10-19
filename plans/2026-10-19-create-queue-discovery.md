@@ -13,5 +13,11 @@ Latest lesson read: none exists (no docs/lessons in this repo). Prior plan: plan
 - self-check: a control-less "absent" is rejected.
 - module source has no `portal` import, no POST/PUT/DELETE, no login/signup URL fetched.
 
+## Round 2 (review changes requested, 2026-10-19)
+- Rebased onto main befad5f; workflow keeps queue_test and create_test steps.
+- Step 4 without a portal schema change: run.create_queue_step (after the 25, non-fatal) calls create_discovery.weekly_merge, which merges into a create_queue section of the SCC queue file. Idempotent by row id, never overwrites state/mike_approval/fields, adds last_seen_state when a Directory later reads found/couldnt. Tests M1-M7.
+- Signup URL / cost / login re-read by GET 2026-10-19, checked_on per Directory. caring.com: https://www.caring.com/partners/get-listed ("Claim Your Free Caring.com Listing", edits an existing community listing); partner-portal sign-in is separate, cost not published. Search stays couldnt (no own-site search).
+- Lesson: none exists in the repo yet.
+
 ## Not done / limits
 - No signup, submit, spend or login. Paid rows listed only.

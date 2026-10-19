@@ -196,7 +196,20 @@ def main():
     db.call("POST", "ce_checks", [dict(c, owner=db.owner, run_id=run["id"], checked_on=datetime.now().date().isoformat()) for c in checks])
     print("wrote run", run["id"], status, len(checks), "checks", flush=True)
     portal_ok = portal_publish(checks, datetime.now().date().isoformat())
+    create_queue_step()  # after the 25; GET-only, never changes the exit code or the portal payload
     return 0 if (ok_run and portal_ok) else 1
+
+
+def create_queue_step(merge=None, path=None):
+    """Weekly create-queue discovery on the 10 extra Directories, merged into the SCC queue file. Failure is loud but non-fatal."""
+    try:
+        import create_discovery as CD, buildqueue
+        dec, rows = (merge or CD.weekly_merge)(path or buildqueue.QUEUE_PATH)
+        print("CREATE QUEUE OK", json.dumps({k: v["state"] for k, v in dec.items()}), len(rows), "absent now", flush=True)
+        return True
+    except Exception as e:
+        print("CREATE QUEUE FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
 
 
 def portal_publish(checks, day, portal=None):
