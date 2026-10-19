@@ -56,26 +56,50 @@ def _status(c):
 STATE = {"found": "live", "absent": "absent"}  # everything else -> couldnt_check
 
 
+CATALOG_TOTAL = 86      # Catalog Directories; the weekly scan covers 25 of them
+SCANNED = 25
+
+
+def _errors(diffs):
+    out = []
+    for d in diffs or []:
+        f = "website" if d.get("field") == "site" else d.get("field")
+        if f: out.append({"field": f, "live": d.get("live"), "right": d.get("canonical")})
+    return out
+
+
 def build_payload(checks, captured_day=""):
-    """checks: ce_checks-shaped dicts for ONE business. Counts follow the build app: Found = Correct + With NAP errors."""
+    """checks: ce_checks-shaped dicts for ONE business. Found = Correct + With NAP errors.
+    Unchecked rows carry napConsistent None (never False). pctFound is over checked rows only (found + notFound).
+    A found row's url is a listing permalink or None with urlKind 'search' (never a search, category or guessed-slug URL)."""
+    import listing
     dirs = []
     for c in sorted(checks, key=lambda x: x["directory"]):
-        issues = _issues(c.get("diffs")) if c["result"] == "found" else []
+        isf = c["result"] == "found"
+        errs = _errors(c.get("diffs")) if isf else []
+        issues = _issues(c.get("diffs")) if isf else []
+        url, kind = None, None
+        if isf:
+            if c.get("url") and listing.is_permalink(c["directory"], c["url"]): url, kind = c["url"], "listing"
+            else: kind = "search"
+        reason, text = listing.reason_for(c["directory"], c["result"], c.get("note"))
         dirs.append({
             "name": c["directory"], "state": STATE.get(c["result"], "couldnt_check"), "stateDate": captured_day,
             "domain": c["directory"], "authority": None,
-            "napConsistent": c["result"] == "found" and not issues,
-            "url": (c.get("url") or None) if c["result"] == "found" else None,
-            "issues": issues, "status": _status(c), "httpStatus": None, "method": c.get("method") if c["result"] == "found" else None,
+            "napConsistent": (not issues) if isf else None,
+            "url": url, "urlKind": kind,
+            "issues": issues, "napErrors": errs, "status": _status(c), "httpStatus": None, "method": c.get("method") if isf else None,
+            "reason": reason, "reasonText": text,
         })
     found = sum(1 for c in checks if c["result"] == "found")
-    correct = sum(1 for d in dirs if d["status"] == "nap" and d["napConsistent"])
+    correct = sum(1 for d in dirs if d["state"] == "live" and d["napConsistent"] is True)
     not_found = sum(1 for c in checks if c["result"] == "absent")
     cant = sum(1 for c in checks if c["result"] in ("couldnt_check", "unsearchable"))
     denom = found + not_found
     return {"keyScore": None, "keyScoreMax": 100, "found": found, "notFound": not_found, "correct": correct,
-            "withNapErrors": found - correct, "couldntCheck": cant,
-            "pctFound": 0 if denom == 0 else round(found / denom * 100), "directories": dirs}
+            "withNapErrors": found - correct, "couldntCheck": cant, "checked": denom,
+            "catalogTotal": CATALOG_TOTAL, "directoriesChecked": SCANNED,
+            "pctFound": None if denom == 0 else round(found / denom * 100), "pctFoundBasis": "checked", "directories": dirs}
 
 
 def load_portal_env(path=None):
