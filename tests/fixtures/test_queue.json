@@ -1,0 +1,9 @@
+{
+  "fix_queue": [
+    {"id": "fix-a", "directory": "a.example", "listing_url": "https://a.example/x", "wrong_field": "phone", "live_value": "5025550102", "right_value": "5025550101", "fix_method": "claim", "cost": "free", "login": "missing", "state": "queued", "mike_approval": null},
+    {"id": "fix-b", "directory": "b.example", "listing_url": "https://b.example/x", "wrong_field": "name", "live_value": "Alder Care", "right_value": "Alder Care Consulting & Solutions", "fix_method": "claim", "cost": "free (unverified)", "login": "missing", "state": "queued", "mike_approval": null},
+    {"id": "fix-c", "directory": "c.example", "listing_url": "https://c.example/x", "wrong_field": "name", "live_value": "Alder Care", "right_value": "Alder Care Consulting & Solutions", "fix_method": "claim", "cost": "free (unverified)", "login": "missing", "state": "queued", "mike_approval": null},
+    {"id": "fix-d", "directory": "d.example", "listing_url": "https://d.example/x", "wrong_field": "name", "live_value": "Alder Care", "right_value": "Alder Care Consulting & Solutions", "fix_method": "same record as c", "cost": "free (unverified)", "login": "missing", "state": "queued", "mike_approval": null},
+    {"id": "fix-e", "directory": "e.example", "listing_url": "https://e.example/x", "wrong_field": "name", "live_value": "Alder Care", "right_value": "Alder Care Consulting & Solutions", "fix_method": "same record as c", "cost": "free (unverified)", "login": "missing", "state": "queued", "mike_approval": null}
+  ]
+}

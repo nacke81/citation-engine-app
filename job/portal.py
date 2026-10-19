@@ -119,7 +119,7 @@ class Portal:
         return rows[0]
 
 
-def write_run(checks, captured_day, portal=None):
+def write_run(checks, captured_day, portal=None, queue_rows=None):
     """Write both businesses. Validates every id BEFORE the first network call. Returns {biz: readback summary}."""
     by = {b: [c for c in checks if c["biz"] == b] for b in ALLOWED}
     for b in {c["biz"] for c in checks}:
@@ -131,6 +131,9 @@ def write_run(checks, captured_day, portal=None):
     out = {}
     for b, cs in by.items():
         p = build_payload(cs, captured_day)
+        if b == "SCC":  # fix/create queue state is shown on SCC only
+            import buildqueue
+            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_rows(), captured_day)
         row = portal.upsert_snapshot(ids[b], captured_day, p)
         out[b] = {"client_id": row["client_id"], "source": row["source"], "captured_day": row["captured_day"],
                   "found": p["found"], "correct": p["correct"], "withNapErrors": p["withNapErrors"], "notFound": p["notFound"], "couldntCheck": p["couldntCheck"]}
