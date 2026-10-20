@@ -45,6 +45,8 @@ jobs:
         run: python tests/create_test.py
       - name: Listing URLs, NAP errors, honest states
         run: python tests/listing_test.py
+      - name: Claim status (positive marker only, missing marker is unknown)
+        run: python tests/claim_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
