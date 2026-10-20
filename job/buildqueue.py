@@ -65,7 +65,7 @@ def approval_ok(row):
     return isinstance(a, dict) and a.get("approved_by") == "mike" and bool(a.get("at")) and a.get("row_id") == row.get("id")
 
 
-def submit_row(row, get_login, free_only=True):
+def submit_row(row, get_login, free_only=True, record=None):
     """DRY RUN of one submit. Returns the intended transition; never contacts a Directory."""
     if not approval_ok(row):
         raise SubmitRefused("no Mike approval recorded for row %s" % row.get("id"))
@@ -82,4 +82,12 @@ def submit_row(row, get_login, free_only=True):
         raise SubmitRefused("Vaultwarden read failed for row %s" % row.get("id")) from None
     if not cred:
         raise SubmitRefused("Vaultwarden item missing for row %s" % row.get("id"))
-    return {"id": row["id"], "dry_run": True, "directory": row["directory"], "field": row["wrong_field"], "to": row["right_value"], "next_state": "submitted"}
+    res = {"id": row["id"], "dry_run": True, "directory": row["directory"], "field": row["wrong_field"], "to": row["right_value"], "next_state": "submitted"}
+    # Success path: record the submitted state (queue + Local SEO + gated Activities). submit_row is still a dry run (no Directory adapter
+    # exists), so recording is opt-in via CE_RECORD_TRANSITIONS=1 or an injected record(); once a live adapter lands, flip the default.
+    if record is None and os.environ.get("CE_RECORD_TRANSITIONS") == "1":
+        import transitions
+        record = transitions.record_transition
+    if record:
+        res["recorded"] = record("SCC", row["id"], "submitted", row.get("listing_url"), "submitted via build queue")
+    return res

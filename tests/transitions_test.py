@@ -1,0 +1,143 @@
+"""Transition tests. Run: python tests/transitions_test.py (CI). No network: portal and activities are in-memory fakes."""
+import os, sys, copy, json, tempfile, shutil
+HERE = os.path.dirname(os.path.abspath(__file__))
+os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+os.environ.pop("CE_ACTIVITIES_WRITE", None)
+sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import buildqueue as Q
+import portal as P
+import transitions as T
+
+ok = []
+def check(n, c, d=""):
+    ok.append(bool(c)); print(("PASS " if c else "FAIL ") + n + (f"  [{d}]" if d else ""), flush=True)
+
+SRC = os.path.join(HERE, "fixtures", "test_queue.json")
+TMP = tempfile.mkdtemp()
+SCC = P.ALLOWED["SCC"]
+DAY = "2026-10-20"
+
+class FakePortal:
+    def __init__(self):
+        self.snaps, self.calls = {}, []
+    def latest_snapshot(self, cid):
+        return {"payload": copy.deepcopy(self.snaps[cid])} if cid in self.snaps else None
+    def upsert_snapshot(self, cid, day, payload):
+        self.snaps[cid] = copy.deepcopy(payload); self.calls.append(("snap", day))
+    def call(self, method, path, body=None, prefer=None):
+        self.calls.append((method, path, body))
+
+def fresh(state="queued", approval=None):
+    p = os.path.join(TMP, "q.json"); shutil.copy(SRC, p)
+    q = json.load(open(p)); r = q["fix_queue"][0]; r["state"] = state; r["mike_approval"] = approval
+    json.dump(q, open(p, "w")); return p, r["id"], r["directory"]
+
+def portal_with(domain):
+    fp = FakePortal()
+    fp.snaps[SCC] = {"found": 1, "directories": [{"name": domain, "domain": domain, "state": "live", "url": None, "urlKind": "search"}]}
+    return fp
+
+def rec(path, rid, new, ev="https://a.example/listing/1", fp=None, **kw):
+    return T.record_transition("SCC", rid, new, ev, "n", queue_path=path, today=DAY, portal=fp or portal_with("a.example"), **kw)
+
+def refused(path, rid, new, ev="https://a.example/listing/1"):
+    before = open(path, "rb").read(); fp = portal_with("a.example")
+    try: rec(path, rid, new, ev, fp)
+    except T.TransitionRefused: return open(path, "rb").read() == before and not fp.calls
+    return False
+
+# allowed matrix
+ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted", "live"), ("pending-verify", "live"),
+           ("queued", "rejected"), ("submitted", "rejected"), ("pending-verify", "rejected"), ("live", "rejected"), ("needs-human", "rejected"),
+           ("queued", "needs-human"), ("submitted", "needs-human"), ("pending-verify", "needs-human"), ("live", "needs-human"), ("rejected", "needs-human")]
+for old, new in ALLOWED:
+    p, rid, d = fresh(old)
+    try: r = rec(p, rid, new); good = r["to"] == new and json.load(open(p))["fix_queue"][0]["state"] == new
+    except Exception as e: good = False
+    check("T1 allowed %s -> %s" % (old, new), good)
+
+# refused matrix: everything not allowed, incl. same-state and bogus
+STATES = list(T.STATES)
+for old in STATES:
+    for new in STATES + ["bogus"]:
+        if (old, new) in ALLOWED: continue
+        p, rid, d = fresh(old)
+        check("T2 refused %s -> %s (file untouched, no portal call)" % (old, new), refused(p, rid, new))
+p, rid, d = fresh("submitted")
+check("T2 live without evidence refused (real)", refused(p, rid, "live", None))
+check("T2 evidence with credentials refused", refused(p, rid, "live", "https://u:pw@a.example/x"))
+check("T2 evidence non-http refused", refused(p, rid, "live", "javascript:alert(1)"))
+p, rid, d = fresh("queued")
+try: T.record_transition("NM", rid, "submitted", None, None, queue_path=p, portal=FakePortal()); nm = False
+except T.TransitionRefused: nm = True
+check("T2 non-SCC client refused", nm)
+check("T2 unknown row id refused", refused(p, "nope", "submitted"))
+
+# queue content
+p, rid, d = fresh("queued")
+rec(p, rid, "submitted")
+row = json.load(open(p))["fix_queue"][0]
+check("T3 queue row has state, evidence_url, dated history entry",
+      row["state"] == "submitted" and row["evidence_url"] == "https://a.example/listing/1"
+      and row["history"] == [{"at": DAY, "from": "queued", "to": "submitted", "evidence_url": "https://a.example/listing/1", "note": "n"}])
+check("T3 other rows untouched", json.load(open(p))["fix_queue"][1:] == json.load(open(SRC))["fix_queue"][1:])
+
+# mike_approval survives
+ap = {"approved_by": "mike", "at": "2026-10-19T16:00:00", "row_id": None}
+for new in ("submitted", "rejected", "needs-human"):
+    p, rid, d = fresh("queued", dict(ap, row_id="x")); a0 = json.load(open(p))["fix_queue"][0]["mike_approval"]
+    rec(p, rid, new)
+    check("T4 mike_approval unchanged after queued -> %s" % new, json.load(open(p))["fix_queue"][0]["mike_approval"] == a0 and a0 is not None)
+p, rid, d = fresh("queued"); rec(p, rid, "submitted")
+check("T4 null mike_approval stays null (a transition never grants approval)", json.load(open(p))["fix_queue"][0]["mike_approval"] is None)
+
+# portal
+p, rid, d = fresh("queued"); fp = portal_with(d); before = copy.deepcopy(fp.snaps[SCC])
+r = rec(p, rid, "submitted", fp=fp)
+snap = fp.snaps[SCC]
+check("T5 portal snapshot upserted same day with the new state on that directory",
+      r["portal_written"] and fp.calls[0] == ("snap", DAY) and snap["directories"][0]["state"] == "submitted" and snap["directories"][0]["stateDate"] == DAY)
+check("T5 portal counts unchanged", snap["found"] == before["found"])
+check("T5 portal failure is reported, queue still written",
+      (lambda x: x["portal_written"] is False and x["errors"] and json.load(open(p))["fix_queue"][0]["state"] == "pending-verify")(
+          rec(p, rid, "pending-verify", fp=type("B", (), {"latest_snapshot": lambda s, c: None, "upsert_snapshot": lambda *a: None})())))
+
+# activities gate
+p, rid, d = fresh("queued"); fp = portal_with(d)
+r = rec(p, rid, "submitted", fp=fp)
+check("T6 activities skipped when flag off (default): no deliverables call", r["activities_written"] is False and not any(c[0] == "POST" for c in fp.calls))
+p, rid, d = fresh("queued"); fp = portal_with(d); acts = FakePortal()
+r = rec(p, rid, "submitted", fp=fp, activities=acts, activities_flag=True)
+b = acts.calls[0][2][0]
+check("T6 flag on writes one client-voiced row", r["activities_written"] and len(acts.calls) == 1 and acts.calls[0][1].startswith("deliverables") and b["title"] == "Submitted your business listing to a.example"
+      and b["client_id"] == SCC and b["source"] == "citation_engine" and b["source_ref"] == "citation-transition:%s:submitted" % rid)
+check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.STATES[1:]) and set(b) <= {"client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref"})
+os.environ["CE_ACTIVITIES_WRITE"] = "1"
+p, rid, d = fresh("queued"); acts = FakePortal(); r = rec(p, rid, "submitted", fp=portal_with(d), activities=acts)
+os.environ.pop("CE_ACTIVITIES_WRITE")
+check("T6 env flag CE_ACTIVITIES_WRITE=1 turns it on", r["activities_written"] is True)
+
+# dry run: no writes
+p, rid, d = fresh("queued"); fp = portal_with(d); b0 = open(p, "rb").read()
+r = rec(p, rid, "submitted", fp=fp, dry_run=True)
+check("T7 dry run writes nothing and shows payloads", open(p, "rb").read() == b0 and not fp.calls and r["portal_request"]["row"]["directory_patch"][0]["state"] == "submitted"
+      and "skipped" in r["activities_request"])
+
+# submit_row wiring
+rows = Q.load_rows(SRC) if False else None
+p, rid, d = fresh("queued"); q = json.load(open(p)); row = q["fix_queue"][0]
+row["mike_approval"] = {"approved_by": "mike", "at": "2026-10-19T16:00:00", "row_id": rid}; row["vaultwarden_item"] = "x"; row["cost"] = "free"; json.dump(q, open(p, "w"))
+row = json.load(open(p))["fix_queue"][0]
+calls = []
+res = Q.submit_row(row, lambda i: {"u": 1}, record=lambda *a: calls.append(a) or "ok")
+check("T8 submit_row success path calls record_transition-shaped hook with submitted", calls and calls[0][:3] == ("SCC", rid, "submitted") and res["recorded"] == "ok")
+res = Q.submit_row(row, lambda i: {"u": 1})
+check("T8 no hook and no env flag: nothing recorded", "recorded" not in res)
+try: Q.submit_row(dict(row, mike_approval=None), lambda i: {"u": 1}, record=lambda *a: calls.append("bad")); rf = False
+except Q.SubmitRefused: rf = "bad" not in calls
+check("T8 refused submit records nothing", rf)
+
+src = open(os.path.join(HERE, "..", "job", "buildqueue.py"), encoding="utf-8").read()
+check("T9 buildqueue.py still has no network import", not any(w in src for w in ("urllib", "requests", "subprocess", "socket")))
+shutil.rmtree(TMP, ignore_errors=True)
+print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
