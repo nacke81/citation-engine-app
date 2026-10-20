@@ -132,6 +132,11 @@ class Portal:
         except Exception as e:
             raise PortalWriteError(self._scrub("portal %s %s failed: %s: %s" % (method, path.split("?")[0], type(e).__name__, e)))
 
+    def latest_snapshot(self, client_id):
+        check_client(client_id)
+        rows = self.call("GET", "footprint_snapshot?select=client_id,source,captured_day,payload&client_id=eq.%s&source=eq.%s&order=captured_day.desc&limit=1" % (client_id, SOURCE))
+        return rows[0] if rows else None
+
     def upsert_snapshot(self, client_id, captured_day, payload):
         check_client(client_id)
         self.call("POST", "footprint_snapshot?on_conflict=client_id,source,captured_day",
