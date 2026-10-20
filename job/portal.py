@@ -83,6 +83,7 @@ def build_payload(checks, captured_day=""):
             if c.get("url") and listing.is_permalink(c["directory"], c["url"]): url, kind = c["url"], "listing"
             else: kind = "search"
         reason, text = listing.reason_for(c["directory"], c["result"], c.get("note"))
+        cl = (c.get("_claim") or {}) if isf else {}
         dirs.append({
             "name": c["directory"], "state": STATE.get(c["result"], "couldnt_check"), "stateDate": captured_day,
             "domain": c["directory"], "authority": None,
@@ -90,6 +91,7 @@ def build_payload(checks, captured_day=""):
             "url": url, "urlKind": kind,
             "issues": issues, "napErrors": errs, "status": _status(c), "httpStatus": None, "method": c.get("method") if isf else None,
             "reason": reason, "reasonText": text,
+            "claim_status": cl.get("claim_status", "unknown"), "claim_evidence": cl.get("claim_evidence"),   # extra fields; portal rendering ignores them for now
         })
     found = sum(1 for c in checks if c["result"] == "found")
     correct = sum(1 for d in dirs if d["state"] == "live" and d["napConsistent"] is True)
