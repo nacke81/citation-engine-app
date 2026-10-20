@@ -97,7 +97,8 @@ def discover_live():
     before = window_count(); t0 = time.time()
     err = None
     try:
-        discover.discover_all(on_chrome)
+        discover.discover_all(on_chrome, on_complete=lambda fetcher: read_claim_pages(
+            load_rows(os.environ["CE_ROWS"]), texts, linkmap, fetcher))
     except BaseException as e:
         err = f"{type(e).__name__}: {str(e)[:200]}"
     time.sleep(2)
@@ -116,6 +117,50 @@ def cant_reason(rows, b, d):
     if any("blocked" in (r.get("log") or "") or r.get("blocked_on_purpose") for r in rs): return "blocked"
     if any(str(r.get("note") or "").startswith("error") for r in rs): return "error"
     return "no usable result"
+
+
+
+def read_claim_pages(rows, texts, linkmap, fetcher):
+    """Open each missing resolved record once, using the still-live discovery fetcher.
+
+    Read-only. Offline recombines never call this. Failed/blocked reads leave no
+    marker text. Redirects to a different page are not evidence for this record.
+    """
+    import claim, listing
+    combined = judge.combine(rows, DIRS, set(IDENT.get("UNSEARCHABLE", [])))
+    attempted = set()
+    for (b, d), (result, src) in combined.items():
+        if b == "FAKE" or result != "found" or not src or d not in claim.RULES:
+            continue
+        u = src.get("url") or ""
+        biz = IDENT["BIZ"][b]
+        lurl, _ = listing.resolve(d, u, linkmap.get(u), biz["name"], biz.get("phones") or ())
+        if not lurl or lurl == u or lurl in attempted:
+            continue
+        cu, ct = claim.pick_page(d, u, lurl, texts)
+        if cu == lurl and ct:
+            continue
+        attempted.add(lurl)
+        old_texts, old_links = dict(texts), dict(linkmap)
+        try:
+            r = fetcher.fetch(lurl, f"{d} {b} claim record read-only")
+        except Exception:
+            r = None
+        # Undo the discovery wrapper's cache write before validating this response.
+        # A failed redirect must not overwrite the original matched-page evidence.
+        if r is not None:
+            for cache, before in ((texts, old_texts), (linkmap, old_links)):
+                if r.url in before:
+                    cache[r.url] = before[r.url]
+                else:
+                    cache.pop(r.url, None)
+        texts[lurl] = ""
+        if r is not None and r.status == 200 and not r.err:
+            # pick_page permits harmless query/fragment/trailing slash differences only.
+            _, text = claim.pick_page(d, "", lurl, {r.url: r.text})
+            if text:
+                texts[lurl] = text
+                linkmap[lurl] = r.links or []
 
 
 def build(rows, texts, linkmap=None):
