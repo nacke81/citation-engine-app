@@ -55,8 +55,8 @@ def overlay_directories(payload, rows, day):
             out["directories"].append(d)
             by[r["directory"]] = d
         d["state"], d["stateDate"] = st, day
-        if st != "live":
-            d["url"] = None
+        if st != "live" and d.get("urlKind") != "listing":
+            d["url"] = None  # a resolved listing permalink is kept; anything else is cleared
     return out
 
 

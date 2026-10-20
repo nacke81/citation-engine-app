@@ -39,8 +39,13 @@ jobs:
         run: python tests/portal_test.py
       - name: Queue tests (approval gate, fail-closed login)
         run: python tests/queue_test.py
+<<<<<<< HEAD
       - name: Create-queue discovery (absent only with a positive control)
         run: python tests/create_test.py
+=======
+      - name: Listing URLs, NAP errors, honest states
+        run: python tests/listing_test.py
+>>>>>>> origin/main
       - name: Leak check with planted control
         run: python tests/leak_check.py
 

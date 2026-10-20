@@ -31,6 +31,14 @@ for s in Q.PORTAL_STATES:
 o = Q.overlay_directories(base, [dict(id="create-x", directory="new.example", state="queued")], "2026-10-19")
 check("Q1 create row is appended with state and no url", [d for d in o["directories"] if d["domain"] == "new.example"][0]["state"] == "needs-human" and len(o["directories"]) == len(base["directories"]) + 1)
 
+ov_urls = {d["domain"]: d for d in ov["directories"]}
+check("Q1 queued rows with a resolved listing keep url and urlKind listing", all(ov_urls[d]["url"] == "https://%s/x" % d and ov_urls[d]["urlKind"] == "listing" for d in domains), str([(d, ov_urls[d]["url"], ov_urls[d]["urlKind"]) for d in domains]))
+sr = copy.deepcopy(base)
+sr["directories"][[d["domain"] for d in sr["directories"]].index(domains[0])].update(url=None, urlKind="search")
+o = Q.overlay_directories(sr, rows, "2026-10-19")
+o0 = [d for d in o["directories"] if d["domain"] == domains[0]][0]
+check("Q1 queued row with no permalink stays url null, urlKind search", o0["url"] is None and o0["urlKind"] == "search")
+
 # Exercise the production writer boundary without any outbound calls.
 class CapturePortal:
     def __init__(self):
