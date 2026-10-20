@@ -85,7 +85,7 @@ def own_search_box(ctx, rec, d, b, tag):
         except Exception: pass
     return Result(200 if text else None, u, text, links, None if text else "no-text"), shot, ";".join(note)
 
-def discover_all(on_chrome=lambda oc: None):
+def discover_all(on_chrome=lambda oc: None, on_complete=lambda fetcher: None):
     os.makedirs(os.environ.get('CE_SHOTS') or os.path.join(HERE, 'shots'), exist_ok=True)
     open(OUT, 'w').close()
     rec = NullRec()
@@ -146,3 +146,8 @@ def discover_all(on_chrome=lambda oc: None):
                           status="claimed" if ok else ("rejected" if c == "ok" else "couldnt"), url=r.url, http=r.status, ev=ev, nap=nap_compare(r.text, "SCC"),
                           louisville_on_page=bool(re.search(r"(?i)louisville", r.text)), why=why,
                           snippet=" | ".join(l for l in r.text.split("\n") if re.search(r"(?i)don allen|905[\s.\-)]*2290|louisville", l))[:300]))
+
+            # The weekly claim read must use this fetcher while its owned context is alive.
+            F.block = None
+            F.caption = "[CE weekly | claim read-only]"
+            on_complete(F)
