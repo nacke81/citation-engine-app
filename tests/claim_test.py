@@ -104,5 +104,76 @@ check("C7 read_claim makes exactly one call, with the page url only", calls == [
 src = open(os.path.join(HERE, "..", "job", "claim.py"), encoding="utf-8").read()
 check("C7 http_get sends no body and no non-GET method", "data=" not in src and "method=" not in src and "POST" not in src)
 
+# C8 t_35c123fc: superpages + n49 unclaimed markers, yellowpages unclaimed side, n49 'Business Claimed' is never claimed
+URL.update({"superpages.com": "https://www.superpages.com/exampleton-ky/bpp/alder-care-123456789",
+            "n49.com": "https://www.n49.com/biz/1234567/alder-care-ky-exampleton/"})
+for d, name, want, quote in (("yellowpages.com", "yellowpages-unclaimed.html", "unclaimed", "Is this your business? / Claim This Business"),
+                             ("superpages.com", "superpages-unclaimed.html", "unclaimed", "Are you the business owner? / Claim This Business"),
+                             ("n49.com", "n49-unclaimed.html", "unclaimed", "Own this Business / Get Verified")):
+    r = det(d, name); e = r["claim_evidence"] or {}
+    check("C8 %s %s -> %s" % (d, name, want), r["claim_status"] == want, r)
+    check("C8 %s evidence is the exact text, url, date, directory" % d, e == {"text": quote, "url": URL[d], "date": DAY, "directory": d}, e)
+check("C8 superpages with only the site-wide footer -> unknown", det("superpages.com", "superpages-no-marker.html") == {"claim_status": "unknown", "claim_evidence": None})
+check("C8 n49 'Business Claimed / Update your Business' is NOT claimed", det("n49.com", "n49-business-claimed.html") == {"claim_status": "unknown", "claim_evidence": None})
+check("C8 n49 with no marker at all -> unknown", C.detect("n49.com", URL["n49.com"], "Alder Care Consulting\nWrite a Review", IDENT, "SCC", DAY)["claim_status"] == "unknown")
+check("C8 yellowpages footer 'Manage your free listing / Claim Your Listing' alone -> unknown", det("yellowpages.com", "yellowpages-no-marker.html")["claim_status"] == "unknown")
+check("C8 yellowpages: claimed badge AND unclaimed call to action together -> unknown (conflict)", C.detect("yellowpages.com", URL["yellowpages.com"], "Alder Care\nClaimed\nIs this your business?\nClaim This Business", IDENT, "SCC", DAY)["claim_status"] == "unknown")
+check("C8 a stray 'Claim This Business' button without its head line -> unknown", C.detect("superpages.com", URL["superpages.com"], "Alder Care\nClaim This Business", IDENT, "SCC", DAY)["claim_status"] == "unknown")
+check("C8 superpages search page is never read", C.detect("superpages.com", "https://www.superpages.com/search?search_terms=x", fx("superpages-unclaimed.html"), IDENT, "SCC", DAY)["claim_status"] == "unknown")
+check("C8 n49 non-record page is never read", C.detect("n49.com", "https://www.n49.com/add-business", fx("n49-unclaimed.html"), IDENT, "SCC", DAY)["claim_status"] == "unknown")
+# the 5 still-unverified Directories: their saved real-shape page text gives unknown, and the missing marker never becomes claimed
+sec = {}
+cur = None
+for l in open(os.path.join(HERE, "fixtures", "claim", "unverified-pages.txt"), encoding="utf-8").read().split("\n"):
+    if l.startswith("== "):
+        cur = l.strip("= ").strip(); sec[cur] = []
+    elif cur and l.strip():
+        sec[cur].append(l)
+check("C8 5 unverified Directories have a saved page text", sorted(sec) == sorted(C.UNVERIFIED), sorted(sec))
+PERM = {"dexknows.com": "https://www.dexknows.com/exampleton-ky/bp/alder-care-123456789", "bing.com": "https://www.bing.com/maps?ss=id.local_ypid%3A%22YN1%22",
+        "google.com": "https://www.google.com/maps/place/Alder+Care", "maps.apple.com": "https://maps.apple.com/place?q=x&place-id=I1", "cybo.com": "https://www.cybo.com/US-biz/alder-care"}
+for d in C.UNVERIFIED:
+    r = C.detect(d, PERM[d], "\n".join(sec[d]), IDENT, "SCC", DAY)
+    check("C8 %s: no verified marker -> unknown, no evidence" % d, r == {"claim_status": "unknown", "claim_evidence": None}, r)
+
+# C9 weekly run reads the resolved record permalink (lurl), not the search page
+SRCH = "https://www.superpages.com/search?search_terms=alder"
+texts = {SRCH: "Alder Care\nSearch results", URL["superpages.com"]: fx("superpages-unclaimed.html")}
+u, t = C.pick_page("superpages.com", SRCH, URL["superpages.com"], texts)
+check("C9 pick_page prefers the read permalink text over the search page", u == URL["superpages.com"] and "Claim This Business" in t)
+check("C9 search-page match plus a read permalink -> unclaimed", C.detect("superpages.com", u, t, IDENT, "SCC", DAY)["claim_status"] == "unclaimed")
+u2, t2 = C.pick_page("superpages.com", SRCH, URL["superpages.com"], {SRCH: texts[SRCH]})
+check("C9 permalink never opened -> falls back to the matched page", u2 == SRCH and t2 == texts[SRCH])
+check("C9 ...and that search page gives unknown", C.detect("superpages.com", u2, t2, IDENT, "SCC", DAY)["claim_status"] == "unknown")
+u3, t3 = C.pick_page("superpages.com", SRCH, URL["superpages.com"] + "?x=1#top", texts)
+check("C9 permalink text found even with a query or fragment on the url", t3 == texts[URL["superpages.com"]])
+check("C9 no url, no text -> ('', empty)", C.pick_page("superpages.com", None, None, {}) == (None, ""))
+run_src = open(os.path.join(HERE, "..", "job", "run.py"), encoding="utf-8").read()
+check("C9 run.py detects on pick_page(lurl), not on the matched page alone", "claim.pick_page(d, u, lurl, texts)" in run_src and "claim.detect(d, cu, ct" in run_src)
+
+# C10 queue: structured evidence replaces the string, state and approval untouched
+# C11 Chrome rendered text (blank lines, double space) reads the same as the GET html for hotfrog and merchantcircle
+chs, cur = {}, None
+for l in open(os.path.join(HERE, "fixtures", "claim", "chrome-rendered.txt"), encoding="utf-8").read().split("\n"):
+    if l.startswith("== "):
+        cur = l.strip("= ").strip(); chs[cur] = []
+    elif cur is not None:
+        chs[cur].append(l)
+r = C.detect("hotfrog.com", URL["hotfrog.com"], "\n".join(chs["hotfrog.com"]), IDENT, "SCC", DAY)
+check("C11 hotfrog Chrome text (double space) -> unclaimed", r["claim_status"] == "unclaimed" and r["claim_evidence"]["text"] == "Is this your business? / Claim this business", r)
+r = C.detect("merchantcircle.com", URL["merchantcircle.com"], "\n".join(chs["merchantcircle.com"]), IDENT, "SCC", DAY)
+check("C11 merchantcircle Chrome text (blurb between head and button) -> unclaimed", r["claim_status"] == "unclaimed", r)
+r = C.detect("merchantcircle.com", URL["merchantcircle.com"], "\n".join(chs["merchantcircle.com no marker"]), IDENT, "SCC", DAY)
+check("C11 merchantcircle Chrome text with only the footer 'Claim your Business' -> unknown", r == {"claim_status": "unknown", "claim_evidence": None}, r)
+
+# C10 queue: structured evidence replaces the string, state and approval untouched
+qy = {"fix_queue": [{"id": "fix-yellowpages", "directory": "yellowpages.com", "state": "queued", "mike_approval": {"approved_by": "mike"}, "fix_method": "claim (x)",
+                     "login": "l", "claim_status": "unclaimed", "claim_evidence": "Mike manual page check"}]}
+cy = det("yellowpages.com", "yellowpages-unclaimed.html")
+qy2 = C.merge_into_queue(copy.deepcopy(qy), {"yellowpages.com": cy})
+row = qy2["fix_queue"][0]
+check("C10 yellowpages string evidence becomes {text,url,date,directory}", isinstance(row["claim_evidence"], dict) and sorted(row["claim_evidence"]) == ["date", "directory", "text", "url"], row["claim_evidence"])
+check("C10 state and mike_approval untouched", row["state"] == "queued" and row["mike_approval"] == {"approved_by": "mike"})
+
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

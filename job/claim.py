@@ -22,7 +22,8 @@ LOGIN_CLAIMED = "client account needed"
 
 
 def page_lines(text):
-    return [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
+    # whitespace inside a line is collapsed: Chrome's rendered text can carry a double space ("Is this your  business?")
+    return [re.sub(r"\s+", " ", l).strip() for l in (text or "").replace(chr(13), "").replace("\xa0", " ").split("\n") if l.strip()]
 
 
 def html_to_text(html):
@@ -48,18 +49,51 @@ def _merchantcircle(lines, ctx):
     for i, l in enumerate(lines[:-1]):
         if l == "Is this your business?" and lines[i + 1] == "Claim your business now":
             return "unclaimed", "Is this your business? / Claim your business now"
-    return None
+    # Chrome rendered form (read 2026-10-20): head, one blurb line, then the button
+    return _cta(lines, ("Is this your business?",), ("Claim your business to updated business information, add photos and more.",),
+                "Claim this business", "Is this your business? / Claim this business")
 
 
 def _yellowpages(lines, ctx):
-    # record page: a "Claimed" badge in the listing header, on its own line or glued to the category line ("ClaimedSenior ...").
-    # Positive marker only: this rule can return claimed, never unclaimed (the unclaimed page was a 403 wall, not verified).
+    # record page. Claimed: a "Claimed" badge in the listing header, on its own line or glued to the category line ("ClaimedSenior ...").
+    # Unclaimed (verified by Chrome read 2026-10-20): the header block "Is this your business?" / ["Customize this page."] / "Claim This Business".
+    # The footer "Manage your free listing / Claim Your Listing" is site-wide and never counts. Both markers on one page is a conflict: unknown.
+    claimed = None
     for l in lines[:40]:
         if l == "Claimed":
-            return "claimed", l
+            claimed = ("claimed", l); break
         if re.match(r"^Claimed(?=[A-Z])", l):
-            return "claimed", "Claimed"
+            claimed = ("claimed", "Claimed"); break
+    cta = _cta(lines, ("Is this your business?",), ("Customize this page.",), "Claim This Business", "Is this your business? / Claim This Business")
+    if claimed and cta:
+        return None
+    return claimed or cta
+
+
+def _cta(lines, heads, optional, button, quote):
+    """A call to action: a head line, optional filler lines, then the button line, all consecutive (so a stray button never counts)."""
+    for i, l in enumerate(lines):
+        if l not in heads:
+            continue
+        j = i + 1
+        while j < len(lines) and lines[j] in optional:
+            j += 1
+        if j < len(lines) and lines[j] == button:
+            return "unclaimed", quote
     return None
+
+
+def _superpages(lines, ctx):
+    # record page (/bpp/...): "Are you the business owner?" directly followed by "Claim This Business" (verified by Chrome read 2026-10-20).
+    # superpages answers a plain GET with 403, so this is read from the engine's Chrome text. Footer "Claim Your Business / Claim Your Listing" is ignored.
+    # Only the unclaimed side is proven: a page without the pair stays unknown, never claimed.
+    return _cta(lines, ("Are you the business owner?",), (), "Claim This Business", "Are you the business owner? / Claim This Business")
+
+
+def _n49(lines, ctx):
+    # record page (/biz/<id>): the unclaimed control is "Own this Business" followed by "Get Verified" (the owner call to action).
+    # "Business Claimed / Update your Business" is NOT read as claimed: see UNVERIFIED note on n49.
+    return _cta(lines, ("Own this Business",), (), "Get Verified", "Own this Business / Get Verified")
 
 
 def _hotfrog(lines, ctx):
@@ -85,16 +119,43 @@ def _hotfrog(lines, ctx):
     return None
 
 
-RULES = {"mapquest.com": _mapquest, "merchantcircle.com": _merchantcircle, "yellowpages.com": _yellowpages, "hotfrog.com": _hotfrog}
+RULES = {"mapquest.com": _mapquest, "merchantcircle.com": _merchantcircle, "yellowpages.com": _yellowpages, "hotfrog.com": _hotfrog,
+         "superpages.com": _superpages, "n49.com": _n49}
 # Hotfrog's own results page carries the listing card with its call to action; every other rule needs a record permalink.
 RESULTS_PAGE_OK = ("hotfrog.com",)
-# Not verified on 2026-10-20. Always unknown. Reasons:
-#   superpages, dexknows: 403 bot wall on GET (the weekly job's Chrome text had only a site-wide footer link, which is not a listing marker)
-#   bing, google: results shell with no readable text on GET; the engine's own saved text has no claim marker
-#   maps.apple.com: "Claim This Place" seen only on a place page of another business; the SCC match is a search page. No SCC place link to verify
-#   cybo: "Claim Business" is shown, but the page strings also say "This business is already claimed", so the button may show on claimed pages too
-#   n49: "Business Claimed" next to "Verified by Yext" with no unclaimed page to compare; a Yext feed is not an owner claim
-UNVERIFIED = ("superpages.com", "dexknows.com", "bing.com", "google.com", "maps.apple.com", "cybo.com", "n49.com")
+# Not verified. Always unknown. Reasons (Chrome rendered-text reads, 2026-10-20, t_35c123fc):
+#   dexknows: Chrome read loads (200) but the record page carries no claim control at all, on the SCC page or on two other businesses' pages.
+#             No marker, so nothing to key on. A Thryv record shared with Yellowpages/Superpages is a guess, not a marker.
+#   bing: the maps page renders a result list and map with no claim or manage control in its text (SCC page and a second business).
+#   google: the rendered place page has no "Claim this business" control on SCC or on three other places. The SCC page shows "From the owner",
+#           which is owner-posted content, not a claim badge. No unclaimed control was found anywhere, so there is no control pair.
+#   maps.apple.com: "Manage Your Business" is site-wide navigation on every page and the SCC match is a search page (no place-id link), so no listing marker.
+#   cybo: "Claim Business" shows on every open listing read (8 pages, SCC included). No claimed page was found to compare, and the page strings also
+#         say "This business is already claimed", so the button may show on claimed pages too. Not a safe unclaimed marker.
+#   n49 (claimed side): "Business Claimed / Update your Business" shows on the SCC listing, yet the SCC queue records that SCC has no Directory logins
+#         (Mike 2026-10-20). The page names Yext only as a listing-partner footer link, and no on-page text says who claimed the record, so the badge
+#         is not proof of an owner claim. It is never `claimed`. n49 keeps only its unclaimed rule (Own this Business / Get Verified).
+UNVERIFIED = ("dexknows.com", "bing.com", "google.com", "maps.apple.com", "cybo.com")
+N49_FEED_NOTE = "n49.com 'Business Claimed' is not proof of an owner claim; read as unknown"
+
+
+def pick_page(directory, page_url, listing_url, texts):
+    """Weekly-run helper: -> (url, text). Prefer the resolved record permalink's text when it was read, else the matched page's.
+    A permalink the job never opened gives the matched page, which detect() reads as unknown unless that page is itself a record page."""
+    def look(u):
+        if not u:
+            return None
+        if texts.get(u):
+            return texts[u]
+        key = re.sub(r"[?#].*$", "", u).rstrip("/")
+        for k, v in texts.items():
+            if v and re.sub(r"[?#].*$", "", k).rstrip("/") == key:
+                return v
+        return None
+    t = look(listing_url)
+    if t:
+        return listing_url, t
+    return page_url, look(page_url) or ""
 
 
 def detect(directory, page_url, text, ident=None, biz=None, day=None):
@@ -130,12 +191,13 @@ def http_get(url):
         return 0, ""
 
 
-def read_claim(directory, page_url, ident, biz, getter=None, day=None):
-    """GET-only re-read of one page -> claim fields. A page that does not load gives unknown."""
+def read_claim(directory, page_url, ident, biz, getter=None, day=None, rendered=False):
+    """Read-only re-read of one page -> claim fields. A page that does not load gives unknown.
+    rendered=True: the getter returns the Chrome rendered text already (no html_to_text)."""
     if not page_url:
         return {"claim_status": "unknown", "claim_evidence": None}
     code, html = (getter or http_get)(page_url)
-    return detect(directory, page_url, html_to_text(html) if code == 200 else "", ident, biz, day)
+    return detect(directory, page_url, (html if rendered else html_to_text(html)) if code == 200 else "", ident, biz, day)
 
 
 def apply_to_queue_row(row, claim):
