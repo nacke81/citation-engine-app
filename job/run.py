@@ -133,7 +133,8 @@ def build(rows, texts, linkmap=None):
             lurl, _k = listing.resolve(d, u, linkmap.get(u), IDENT["BIZ"][b]["name"], IDENT["BIZ"][b].get("phones") or ())
             c["_page"] = u   # the page the match was made on (local only; stripped before any write)
             import claim
-            c["_claim"] = claim.detect(d, u, texts.get(u, ""), IDENT, b)   # claim_status + claim_evidence; local key, rides to the portal payload only
+            cu, ct = claim.pick_page(d, u, lurl, texts)   # the resolved record permalink's text when the job read it, else the matched page
+            c["_claim"] = claim.detect(d, cu, ct, IDENT, b)   # claim_status + claim_evidence; local key, rides to the portal payload only
             c.update(url=lurl, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
                      method=src.get("method"), nap_shown=nap_lines(texts.get(u, ""), b) if texts.get(u) else None,
                      note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""),
