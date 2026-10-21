@@ -26,7 +26,7 @@ STATES = ("queued",) + Q.PORTAL_STATES  # queued, submitted, pending-verify, nee
 ALLOWED_FROM = {
     "submitted": {"queued"},
     "pending-verify": {"submitted"},
-    "live": {"submitted", "pending-verify"},
+    "live": {"submitted", "pending-verify", "needs-human"},  # needs-human: a row parked for phone/sms/postcard verification goes live once verified
 }
 ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
@@ -253,7 +253,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         try:
             ver = verification or portal or P.Portal(*P.load_portal_env())
             if ver_rec:
-                ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=merge-duplicates,return=minimal")
+                ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=ignore-duplicates,return=minimal")  # existing row untouched: no deadline restart, a live row is not flipped back
             else:
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 ver.call("PATCH", ver_patch_path, {"state": "live", "verified_at": now, "updated_at": now}, prefer="return=minimal")

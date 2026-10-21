@@ -25,7 +25,7 @@ class FakePortal:
     def upsert_snapshot(self, cid, day, payload):
         self.snaps[cid] = copy.deepcopy(payload); self.calls.append(("snap", day))
     def call(self, method, path, body=None, prefer=None):
-        self.calls.append((method, path, body))
+        t = (method, path, body); self.calls.append(t); self.pref = getattr(self, "pref", {}); self.pref[id(t)] = prefer
 
 def fresh(state="queued", approval=None):
     p = os.path.join(TMP, "q.json"); shutil.copy(SRC, p)
@@ -47,7 +47,7 @@ def refused(path, rid, new, ev="https://a.example/listing/1"):
     return False
 
 # allowed matrix
-ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted", "live"), ("pending-verify", "live"),
+ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted", "live"), ("pending-verify", "live"), ("needs-human", "live"),
            ("queued", "rejected"), ("submitted", "rejected"), ("pending-verify", "rejected"), ("live", "rejected"), ("needs-human", "rejected"),
            ("queued", "needs-human"), ("submitted", "needs-human"), ("pending-verify", "needs-human"), ("live", "needs-human"), ("rejected", "needs-human")]
 for old, new in ALLOWED:
@@ -157,6 +157,17 @@ check("T11 live sets verification row live with verified_at (PATCH scoped to cli
       and vc[0][2]["state"] == "live" and vc[0][2]["verified_at"] and r["verification_written"])
 p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "pending-verify", fp=fp)
 check("T11 non-live transition: no verification call", not vcalls(fp))
+p, rid, d = fresh("submitted"); fp = portal_with(d)
+rec(p, rid, "needs-human", fp=fp, verify_type="postcard")
+r = rec(p, rid, "live", fp=fp); vc = vcalls(fp)
+check("T12 park with --verify-type then live on the same row: upsert then PATCH live with verified_at",
+      len(vc) == 2 and vc[0][0] == "POST" and vc[1][0] == "PATCH" and vc[1][2]["state"] == "live" and vc[1][2]["verified_at"]
+      and ("directory=eq." + d) in vc[1][1] and r["verification_written"] and json.load(open(p))["fix_queue"][0]["state"] == "live")
+p, rid, d = fresh("submitted"); fp = portal_with(d)
+rec(p, rid, "needs-human", fp=fp, verify_type="postcard"); rec(p, rid, "live", fp=fp); rec(p, rid, "needs-human", fp=fp, verify_type="postcard")
+posts = [(c, fp.pref[id(c)]) for c in fp.calls if len(c) == 3 and c[0] == "POST" and str(c[1]).startswith("citation_verification")]
+check("T12 re-park: every upsert is ignore-duplicates (existing deadline and live state never overwritten)",
+      len(posts) == 2 and all("ignore-duplicates" in pr and "merge-duplicates" not in pr for _, pr in posts))
 p, rid, d = fresh("submitted"); fp = portal_with(d); b0 = open(p, "rb").read()
 r = rec(p, rid, "needs-human", fp=fp, verify_type="postcard", dry_run=True)
 check("T11 dry run shows verification request, writes nothing", open(p, "rb").read() == b0 and not fp.calls and r["verification_request"]["body"][0]["deadline"] == "2026-11-19")
