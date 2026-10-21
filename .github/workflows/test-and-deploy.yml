@@ -39,7 +39,7 @@ jobs:
         run: python tests/portal_test.py
       - name: Queue tests (approval gate, fail-closed login)
         run: python tests/queue_test.py
-      - name: Citation state transitions (matrix, approval survives, gated Activities)
+      - name: Citation state transitions (matrix, approval survives, Activities default-on, verification queue)
         run: python tests/transitions_test.py
       - name: Create-queue discovery (absent only with a positive control)
         run: python tests/create_test.py

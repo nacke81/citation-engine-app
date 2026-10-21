@@ -105,23 +105,67 @@ check("T5 portal failure is reported, queue still written",
 # activities gate
 p, rid, d = fresh("queued"); fp = portal_with(d)
 r = rec(p, rid, "submitted", fp=fp)
-check("T6 activities skipped when flag off (default): no deliverables call", r["activities_written"] is False and not any(c[0] == "POST" for c in fp.calls))
+check("T6 activities ON by default: deliverables row written, approved_at never set", r["activities_written"] is True and any(str(c[1]).startswith("deliverables") for c in fp.calls if c[0] == "POST")
+      and all("approved_at" not in b for c in fp.calls if c[0] == "POST" and str(c[1]).startswith("deliverables") for b in c[2]))
+os.environ["CE_ACTIVITIES_WRITE"] = "0"
+p, rid, d = fresh("queued"); fp = portal_with(d); r = rec(p, rid, "submitted", fp=fp)
+os.environ.pop("CE_ACTIVITIES_WRITE")
+check("T6 opt-out CE_ACTIVITIES_WRITE=0: no deliverables call", r["activities_written"] is False and not any(c[0] == "POST" for c in fp.calls))
+for st in ("submitted", "pending-verify", "live", "rejected", "needs-human"):
+    old = "queued" if st == "submitted" else "submitted"
+    p, rid, d = fresh(old); fp = portal_with(d); r = rec(p, rid, st, fp=fp)
+    wrote = any(c[0] == "POST" and str(c[1]).startswith("deliverables") for c in fp.calls)
+    check("T6 activity row for %s: %s" % (st, "skipped" if st == "needs-human" else "written"), wrote == (st != "needs-human") and r["activities_written"] == wrote)
 p, rid, d = fresh("queued"); fp = portal_with(d); acts = FakePortal()
 r = rec(p, rid, "submitted", fp=fp, activities=acts, activities_flag=True)
 b = acts.calls[0][2][0]
 check("T6 flag on writes one client-voiced row", r["activities_written"] and len(acts.calls) == 1 and acts.calls[0][1].startswith("deliverables") and b["title"] == "Submitted your business listing to a.example"
       and b["client_id"] == SCC and b["source"] == "citation_engine" and b["source_ref"] == "citation-transition:%s:submitted" % rid)
-check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.STATES[1:]) and set(b) <= {"client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref"})
+check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.ACTIVITY_STATES) and set(b) <= {"client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref"})
 os.environ["CE_ACTIVITIES_WRITE"] = "1"
 p, rid, d = fresh("queued"); acts = FakePortal(); r = rec(p, rid, "submitted", fp=portal_with(d), activities=acts)
 os.environ.pop("CE_ACTIVITIES_WRITE")
-check("T6 env flag CE_ACTIVITIES_WRITE=1 turns it on", r["activities_written"] is True)
+check("T6 env flag CE_ACTIVITIES_WRITE=1 still on", r["activities_written"] is True)
+
+# verification queue
+def vcalls(fp): return [c for c in fp.calls if len(c) == 3 and str(c[1]).startswith("citation_verification")]
+for vt in ("phone-call", "sms", "postcard"):
+    p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "needs-human", fp=fp, verify_type=vt)
+    vc = vcalls(fp); b = vc[0][2][0] if vc else {}
+    qrow = json.load(open(p))["fix_queue"][0]
+    check("T10 %s: one upsert on_conflict client_id,directory, state requires_verification" % vt,
+          len(vc) == 1 and vc[0][0] == "POST" and "on_conflict=client_id,directory" in vc[0][1] and b["client_id"] == SCC and b["directory"] == d
+          and b["verification_type"] == vt and b["state"] == "requires_verification" and r["verification_written"])
+    check("T10 %s: deadline only for postcard (30d), parked_at/verified_at never sent" % vt,
+          (b.get("deadline") == "2026-11-19") == (vt == "postcard") and ("deadline" in b) == (vt == "postcard") and "parked_at" not in b and "verified_at" not in b)
+    check("T10 %s: queue row needs-human, blocker note, no activity" % vt, qrow["state"] == "needs-human" and qrow["history"][-1]["note"] == "parked for client verification (%s)" % vt and not r["activities_written"])
+p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type="sms")
+p2, rid2, d2 = fresh("submitted"); fp2 = portal_with(d); rec(p2, rid2, "needs-human", fp=fp2, verify_type="sms")
+check("T10 idempotent: repeat sends same merge-duplicates upsert on the (client, directory) key",
+      vcalls(fp)[0][2] == vcalls(fp2)[0][2] and vcalls(fp)[0][1] == vcalls(fp2)[0][1])
+p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp)
+check("T10 no verify type: no verification call", not vcalls(fp))
+for bad_new, bad_vt in (("submitted", "sms"), ("needs-human", "email"), ("live", "phone-call")):
+    p, rid, d = fresh("queued" if bad_new == "submitted" else "submitted"); b0 = open(p, "rb").read(); fp = portal_with(d)
+    try: rec(p, rid, bad_new, fp=fp, verify_type=bad_vt); rf = False
+    except T.TransitionRefused: rf = open(p, "rb").read() == b0 and not fp.calls
+    check("T10 refused verify_type=%s with %s" % (bad_vt, bad_new), rf)
+p, rid, d = fresh("pending-verify"); fp = portal_with(d); r = rec(p, rid, "live", fp=fp)
+vc = vcalls(fp)
+check("T11 live sets verification row live with verified_at (PATCH scoped to client+directory+requires_verification)",
+      len(vc) == 1 and vc[0][0] == "PATCH" and ("directory=eq." + d) in vc[0][1] and "state=eq.requires_verification" in vc[0][1]
+      and vc[0][2]["state"] == "live" and vc[0][2]["verified_at"] and r["verification_written"])
+p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "pending-verify", fp=fp)
+check("T11 non-live transition: no verification call", not vcalls(fp))
+p, rid, d = fresh("submitted"); fp = portal_with(d); b0 = open(p, "rb").read()
+r = rec(p, rid, "needs-human", fp=fp, verify_type="postcard", dry_run=True)
+check("T11 dry run shows verification request, writes nothing", open(p, "rb").read() == b0 and not fp.calls and r["verification_request"]["body"][0]["deadline"] == "2026-11-19")
 
 # dry run: no writes
 p, rid, d = fresh("queued"); fp = portal_with(d); b0 = open(p, "rb").read()
 r = rec(p, rid, "submitted", fp=fp, dry_run=True)
 check("T7 dry run writes nothing and shows payloads", open(p, "rb").read() == b0 and not fp.calls and r["portal_request"]["row"]["directory_patch"][0]["state"] == "submitted"
-      and "skipped" in r["activities_request"])
+      and r["activities_request"]["method"] == "POST" and "approved_at" not in r["activities_request"]["body"][0])
 
 # submit_row wiring
 rows = Q.load_rows(SRC) if False else None

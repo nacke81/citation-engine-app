@@ -7,9 +7,12 @@ Everything else is refused before anything is written. mike_approval is never re
 Sinks (all injectable so tests and the dry run make no network call):
   queue     the SCC queue JSON (atomic replace; state, evidence_url, dated history entry)
   portal    footprint_snapshot via portal.Portal (same-day snapshot, one directory row overlaid; counts unchanged)
-  activities  one client-voiced deliverables row per transition. The deliverables table has NO draft or pending-approval state
-            (read from the portal repo migrations on 2026-10-20), so a written row is client-visible at once. The write is therefore OFF
-            unless CE_ACTIVITIES_WRITE=1 (or activities_enabled=True) is set by a person who owns the Mike gate.
+  activities  one client-voiced deliverables row for submitted, pending-verify, live and rejected (never needs-human: an internal blocker
+            is not client news). ON by default (Mike, 2026-10-21). Rows land with approved_at null and the portal hides them until Mike
+            approves (migration 20261020000002); the engine never sets approved_at. Opt out with CE_ACTIVITIES_WRITE=0 (tests, dry runs).
+  verification  needs-human with verify_type phone-call|sms|postcard upserts one citation_verification row (idempotent per client+directory)
+            for the client's Your Turn page and the batch trigger. A later live transition marks that row live with verified_at.
+            Email verifications never use this path.
 """
 import copy, datetime, json, os, re, sys, tempfile
 from urllib.parse import urlsplit
@@ -28,6 +31,10 @@ ALLOWED_FROM = {
 ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
 FLAG = "CE_ACTIVITIES_WRITE"
+ACTIVITY_STATES = ("submitted", "pending-verify", "live", "rejected")  # needs-human is internal, never client news
+VERIFY_TYPES = ("phone-call", "sms", "postcard")
+POSTCARD_DEADLINE_DAYS = 30
+VERIFY_UPSERT_PATH = "citation_verification?on_conflict=client_id,directory"
 
 
 class TransitionRefused(Exception):
@@ -65,13 +72,35 @@ def activity_title(new, directory):
         "pending-verify": "Your %s listing is awaiting verification",
         "live": "Your %s listing is live",
         "rejected": "%s did not accept your listing, we are following up",
-        "needs-human": "Your %s listing needs a manual step from our team",
     }[new]
     return t % directory
 
 
 def activities_enabled(explicit=None):
-    return bool(explicit) if explicit is not None else os.environ.get(FLAG) == "1"
+    """Default ON. CE_ACTIVITIES_WRITE=0 (or activities_flag=False) turns it off."""
+    return bool(explicit) if explicit is not None else os.environ.get(FLAG) != "0"
+
+
+def verification_note(verify_type):
+    return "parked for client verification (%s)" % verify_type
+
+
+def check_verify_type(verify_type, new):
+    if verify_type in (None, ""):
+        return None
+    if verify_type not in VERIFY_TYPES:
+        raise TransitionRefused("verify type must be one of %s, got %r (email verifications never use this path)" % ("/".join(VERIFY_TYPES), verify_type))
+    if new != "needs-human":
+        raise TransitionRefused("verify type only applies to a needs-human transition")
+    return verify_type
+
+
+def build_verification_record(client_id, directory, verify_type, day, deadline_days=POSTCARD_DEADLINE_DAYS):
+    """One citation_verification row. parked_at is left to the table default and never resent, so a re-park does not restart the 14-day clock."""
+    r = {"client_id": client_id, "directory": directory, "verification_type": verify_type, "state": "requires_verification"}
+    if verify_type == "postcard":
+        r["deadline"] = (datetime.date.fromisoformat(day) + datetime.timedelta(days=deadline_days)).isoformat()
+    return r
 
 
 def _read(path):
@@ -133,10 +162,12 @@ def build_activity_record(client_id, row, new, evidence_url, day):
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
-                      dry_run=False, activities=None, activities_flag=None, directories=None):
+                      dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
+    verify_type: phone-call|sms|postcard with new_state needs-human; upserts a citation_verification row via `verification` (default: the Portal).
     directories: object with .owner and call(method, path, body, prefer) for the Directory database (default: DirDB from the weekly job env;
     CE_DIRECTORIES_WRITE=0 turns the sink off)."""
     if client != "SCC":
@@ -150,6 +181,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     old = row["state"]
     check_transition(old, new_state)
     evidence_url = check_evidence(evidence_url, new_state)
+    verify_type = check_verify_type(verify_type, new_state)
+    if verify_type: note = verification_note(verify_type)
 
     approval_before = copy.deepcopy(row.get("mike_approval"))
     new_row = copy.deepcopy(row)
@@ -161,11 +194,15 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     assert new_row.get("mike_approval") == approval_before  # never touched
 
     out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "errors": []}
-    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day)
+    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day) if new_state in ACTIVITY_STATES else None
     out["activity_record"] = rec
     out["activities_written"] = False
-    use_act = activities_enabled(activities_flag)
+    use_act = activities_enabled(activities_flag) and new_state in ACTIVITY_STATES
     out["activities_flag_on"] = use_act
+    ver_rec = build_verification_record(client_id, row["directory"], verify_type, day, verify_deadline_days) if verify_type else None
+    out["verification_record"] = ver_rec
+    out["verification_written"] = False
+    ver_patch_path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, row["directory"])
 
     if dry_run:
         pp = portal_payload_for(None, new_row, day)
@@ -175,7 +212,11 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
                                          "payload": "latest snapshot payload, directories patched with:",
                                          "directory_patch": pp["directories"]}}
         out["activities_request"] = ({"method": "POST", "path": "deliverables?on_conflict=client_id,source_ref", "body": [rec]} if use_act
-                                     else "skipped: %s is not 1 (the deliverables table has no draft state)" % FLAG)
+                                     else "skipped: %s=0 or state %s is not client news" % (FLAG, new_state))
+        out["verification_request"] = (
+            {"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]} if ver_rec else
+            {"method": "PATCH", "path": ver_patch_path, "body": {"state": "live", "verified_at": "<now>"}} if new_state == "live"
+            else "skipped: no verification step")
         return out
 
     # 1 queue file (source of truth). Replace the row in place, preserving the rest of the file.
@@ -207,6 +248,19 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         except Exception as e:
             out["errors"].append("activities: %s" % e)
 
+    # 3b verification queue (phone/sms/postcard). Never blocks the queue write above.
+    if ver_rec or new_state == "live":
+        try:
+            ver = verification or portal or P.Portal(*P.load_portal_env())
+            if ver_rec:
+                ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=merge-duplicates,return=minimal")
+            else:
+                now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                ver.call("PATCH", ver_patch_path, {"state": "live", "verified_at": now, "updated_at": now}, prefer="return=minimal")
+            out["verification_written"] = True
+        except Exception as e:
+            out["errors"].append("verification: %s" % e)
+
     # 4 Directory database (ce_directory_status + needs-human blocker on ce_directories). Never blocks the queue write above.
     out["directories_written"] = False
     if directories is not None or D.enabled():
@@ -226,12 +280,13 @@ def main(argv=None):
     a.add_argument("--to", required=True, dest="new_state")
     a.add_argument("--evidence", default=None)
     a.add_argument("--note", default=None)
+    a.add_argument("--verify-type", default=None, choices=VERIFY_TYPES, help="needs-human only: stopped at a phone call, SMS or postcard; writes the portal verification queue")
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)
     n = a.parse_args(argv)
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run)
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type)
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1
