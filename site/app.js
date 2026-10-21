@@ -1,10 +1,11 @@
 import { BIZ } from './logic.js';
 import { overviewHtml, bizHtml, esc } from './render.js';
+import { directoriesHtml, tabsHtml, DEFAULT_FILTERS } from './directories.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const app = document.getElementById('app');
-let user = null, data = { runs: [], checks: [] };
+let user = null, data = { runs: [], checks: [], dirs: [], dirStatus: [] };
 
 async function load() {
   const must = ({ data: d, error }) => { if (error) throw error; return d; };
@@ -12,21 +13,47 @@ async function load() {
     sb.from('ce_runs').select('*').order('started_at', { ascending: false }).limit(26).then(must),
     sb.from('ce_checks').select('*').order('checked_on', { ascending: false }).limit(200).then(must),
   ]);
-  data = { runs, checks };
+  // The Directory database is additive: if the migration is not applied yet, the check pages still load.
+  const [dirs, dirStatus] = await Promise.all([
+    sb.from('ce_directories').select('*').order('priority').then(must).catch(() => []),
+    sb.from('ce_directory_biz').select('*').then(must).catch(() => []),
+  ]);
+  data = { runs, checks, dirs, dirStatus };
 }
 
-function home() { app.innerHTML = overviewHtml(data.runs, data.checks); }
+function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks); }
 
 function bizView(b) {
   const h = bizHtml(data.runs, data.checks, b);
   if (h === null) { home(); return; }
-  app.innerHTML = h;
+  app.innerHTML = tabsHtml(b, data.runs) + h;
 }
 
-function route() { if (!user) return; const h = location.hash.slice(1); BIZ[h] ? bizView(h) : home(); window.scrollTo(0, 0); }
+// Directories tab: filter, sort and the open row live in memory (the list is 86 rows; no query per tap).
+let dirFilters = { ...DEFAULT_FILTERS }, dirOpen = '';
+function dirView(keepScroll) {
+  const y = window.scrollY;
+  app.innerHTML = tabsHtml('directories', data.runs) + directoriesHtml(data.dirs, data.dirStatus, dirFilters, dirOpen);
+  app.querySelectorAll('[data-filter]').forEach((el) => {
+    el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => {
+      dirFilters = { ...dirFilters, [el.dataset.filter]: el.value };
+      dirView(true);
+      if (el.tagName === 'INPUT') { const i = app.querySelector('[data-filter="q"]'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    });
+  });
+  app.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => { dirOpen = dirOpen === el.dataset.open ? '' : el.dataset.open; dirView(true); }));
+  if (keepScroll) window.scrollTo(0, y);
+}
+
+function route() {
+  if (!user) return;
+  const h = location.hash.slice(1);
+  if (h === 'directories') dirView(); else if (BIZ[h]) bizView(h); else home();
+  if (h !== 'directories') window.scrollTo(0, 0);
+}
 
 function loginView() {
-  user = null; data = { runs: [], checks: [] };
+  user = null; data = { runs: [], checks: [], dirs: [], dirStatus: [] };
   document.getElementById('me').textContent = '';
   app.innerHTML = `<form class="card" id="lf" novalidate><p>Sign in with your email. We'll send a 6-digit code.</p>
     <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com">
