@@ -33,6 +33,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Worksheet authority 100 (2026-10-06).",
   "last_verified": "2026-10-06"
  },
@@ -68,6 +69,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Worksheet authority 99 (2026-10-06).",
   "last_verified": "2026-10-06"
  },
@@ -105,6 +107,7 @@
   "agent_access": "blocked",
   "agent_blocker": "Microsoft signup anti-abuse check blocks agent signups (2026-10-21 run).",
   "agent_blocker_seen_on": "2026-10-21",
+  "agent_blocker_source": "manual",
   "notes": null,
   "last_verified": "2026-10-21"
  },
@@ -138,6 +141,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Worksheet authority 93 (2026-10-06).",
   "last_verified": "2026-10-06"
  },
@@ -171,6 +175,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -204,6 +209,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -237,6 +243,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Claim markers read in job/claim_rules.py. Worksheet authority 87 (2026-10-06).",
   "last_verified": "2026-10-06"
  },
@@ -270,6 +277,7 @@
   "agent_access": "blocked",
   "agent_blocker": "Cloudflare block on the agent's visit (2026-10-21 run).",
   "agent_blocker_seen_on": "2026-10-21",
+  "agent_blocker_source": "manual",
   "notes": "Claim markers read in job/claim_rules.py.",
   "last_verified": "2026-10-21"
  },
@@ -303,6 +311,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -336,6 +345,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -369,6 +379,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Claim markers read in job/claim_rules.py.",
   "last_verified": null
  },
@@ -402,6 +413,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -435,6 +447,7 @@
   "agent_access": "blocked",
   "agent_blocker": "Thryv claim page answers 403 (2026-10-21 run). Thryv also runs DexKnows; not yet seen there.",
   "agent_blocker_seen_on": "2026-10-21",
+  "agent_blocker_source": "manual",
   "notes": "Claim markers read in job/claim_rules.py.",
   "last_verified": "2026-10-21"
  },
@@ -468,6 +481,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -501,6 +515,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -534,6 +549,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Thryv-owned like Superpages; the Superpages claim page 403 may apply. Not yet seen here.",
   "last_verified": null
  },
@@ -567,6 +583,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Claim markers read in job/claim_rules.py.",
   "last_verified": null
  },
@@ -600,6 +617,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -633,6 +651,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: Cloudflare wall on re-read; not read (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -666,6 +685,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Worksheet authority 55 (2026-10-06).",
   "last_verified": "2026-10-06"
  },
@@ -699,6 +719,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -732,6 +753,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -765,6 +787,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: Cloudflare wall on re-read; not read (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -798,6 +821,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Worksheet authority 49 (2026-10-06).",
   "last_verified": "2026-10-06"
  },
@@ -831,6 +855,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -864,6 +889,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -897,6 +923,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -930,6 +957,7 @@
   "agent_access": "blocked",
   "agent_blocker": "Signup page is behind a Turnstile CAPTCHA (2026-10-21 run).",
   "agent_blocker_seen_on": "2026-10-21",
+  "agent_blocker_source": "manual",
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
   "last_verified": "2026-10-21"
  },
@@ -963,6 +991,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -996,6 +1025,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1029,6 +1059,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1062,6 +1093,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1095,6 +1127,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1128,6 +1161,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1161,6 +1195,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1194,6 +1229,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1227,6 +1263,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1260,6 +1297,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Claim markers read in job/claim_rules.py.",
   "last_verified": null
  },
@@ -1293,6 +1331,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: Cloudflare wall on re-read; not read (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -1326,6 +1365,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1359,6 +1399,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1392,6 +1433,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1425,6 +1467,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1458,6 +1501,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1491,6 +1535,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1524,6 +1569,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1557,6 +1603,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1590,6 +1637,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1623,6 +1671,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1656,6 +1705,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1689,6 +1739,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -1722,6 +1773,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -1755,6 +1807,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1788,6 +1841,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1821,6 +1875,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1854,6 +1909,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1887,6 +1943,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1920,6 +1977,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1953,6 +2011,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -1986,6 +2045,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2019,6 +2079,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2052,6 +2113,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2085,6 +2147,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2118,6 +2181,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2151,6 +2215,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2184,6 +2249,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2217,6 +2283,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2250,6 +2317,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2283,6 +2351,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2316,6 +2385,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2349,6 +2419,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2382,6 +2453,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2415,6 +2487,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2448,6 +2521,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2481,6 +2555,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2514,6 +2589,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2547,6 +2623,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2580,6 +2657,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2613,6 +2691,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2646,6 +2725,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2679,6 +2759,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2712,6 +2793,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2745,6 +2827,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -2778,6 +2861,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": "Signup page: signup page returned 403 to a plain GET on re-read 2026-10-19; cost/login text is from the earlier read (read 2026-10-19).",
   "last_verified": "2026-10-19"
  },
@@ -2811,6 +2895,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  },
@@ -2844,6 +2929,7 @@
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
+  "agent_blocker_source": null,
   "notes": null,
   "last_verified": null
  }

@@ -42,6 +42,9 @@ create table if not exists public.ce_directories (
   updated_at          timestamptz not null default now()
 );
 
+-- a table built from an older draft of this migration gets the column too
+alter table public.ce_directories add column if not exists agent_blocker_source text check (agent_blocker_source in ('manual', 'weekly', 'transition'));
+
 create table if not exists public.ce_directory_status (
   id               uuid primary key default gen_random_uuid(),
   owner            uuid not null default auth.uid() references auth.users(id) on delete cascade,

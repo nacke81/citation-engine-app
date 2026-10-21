@@ -150,13 +150,16 @@ def main():
     print("wrote", len(rows), "rows;", sum(r["checked_weekly"] for r in rows), "checked weekly;", sum(r["agent_access"] == "blocked" for r in rows), "blocked")
 
 
-def write_sql(rows):
+def build_sql(rows):
     tpl = open(TEMPLATE, encoding="utf-8").read()
     blob = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
     assert "$seed$" not in blob
-    sql = tpl.replace("@@SEED_JSON@@", blob)
+    return tpl.replace("@@SEED_JSON@@", blob)
+
+
+def write_sql(rows):
     with open(MIGRATION, "w", encoding="utf-8", newline="\n") as f:
-        f.write(sql)
+        f.write(build_sql(rows))
 
 
 if __name__ == "__main__":

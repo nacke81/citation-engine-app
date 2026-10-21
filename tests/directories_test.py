@@ -164,6 +164,32 @@ except T.TransitionRefused: rf = open(p, "rb").read() == b0
 check("D5 an unknown id is still refused with the file untouched", rf)
 check("D5 before the fix this id was unreachable (old lookup keys only)", all(CROW["id"] not in [r.get("id") for r in (q2.get(k) or [])] for q2 in [dict(SRC, create_queue={"rows": [CROW]})] for k in ("fix_queue", "create_rows")))
 
+# D7 drift: the committed migration must be what the generator makes, and every column the job writes must exist in it
+sys.path.insert(0, os.path.join(ROOT, "db"))
+import gen_directories_seed as G
+gen_sql = G.build_sql(SEED)
+check("D7 committed 002_directories.sql equals template + committed seed, byte for byte", open(os.path.join(ROOT, "db", "002_directories.sql"), encoding="utf-8", newline="").read().replace("\r\n", "\n") == gen_sql.replace("\r\n", "\n"))
+check("D7 every seed row carries agent_blocker_source", all("agent_blocker_source" in r for r in SEED))
+def table_cols(name):
+    body = re.search(r"create table if not exists public\.%s \((.*?)\n\);" % name, sql, re.S).group(1)
+    return {ln.split()[0] for ln in body.split("\n") if ln.strip() and ln.split()[0] not in ("unique", "primary", "constraint")}
+cols_dir, cols_stat = table_cols("ce_directories"), table_cols("ce_directory_status")
+cols_dir |= set(re.findall(r"add column if not exists (\w+)", sql))
+seen_dir, seen_stat = set(), set()
+fdb7 = FakeDB(dirs={"yelp.com": {"agent_access": "unknown"}})
+D.sync_run(checks, DAY, queue=queue, db=fdb7)
+D.sync_run([dict(biz="SCC", directory="hotfrog.com", result="couldnt_check", note="blocked"), dict(biz="NM", directory="hotfrog.com", result="couldnt_check", note="blocked")], DAY, db=fdb7)
+for c in db.calls + db2.calls + fdb7.calls:
+    if c[0] == "GET":
+        seen_dir |= set(re.search(r"select=([\w,]+)", c[1]).group(1).split(","))
+    elif c[0] == "PATCH":
+        seen_dir |= set(c[2])
+    elif c[0] == "POST":
+        for r in c[2]: seen_stat |= set(r)
+check("D7 job reads and PATCHes only ce_directories columns that the migration creates", seen_dir and "agent_blocker_source" in seen_dir and seen_dir <= cols_dir, sorted(seen_dir - cols_dir))
+check("D7 job upserts only ce_directory_status columns that the migration creates", seen_stat and seen_stat <= cols_stat, sorted(seen_stat - cols_stat))
+check("D7 migration adds agent_blocker_source for older tables", "add column if not exists agent_blocker_source" in sql)
+
 src = open(os.path.join(ROOT, "job", "directories.py"), encoding="utf-8").read()
 check("D6 directories.py makes no Directory request (only the Supabase REST host)", src.count("urlopen") == 1 and "/rest/v1/" in src)
 shutil.rmtree(TMP, ignore_errors=True)
