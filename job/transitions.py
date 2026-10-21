@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buildqueue as Q
 import portal as P
+import directories as D
 
 STATES = ("queued",) + Q.PORTAL_STATES  # queued, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
@@ -91,12 +92,31 @@ def _write_atomic(path, data):
         raise
 
 
+def _row_lists(q):
+    """(key, kind, list) for every list that holds queue rows. The weekly create discovery writes create rows under
+    create_queue.rows (a dict); create_rows is the older flat list. Lists are returned live so callers can replace rows in place."""
+    out = [("fix_queue", "fix", q.get("fix_queue") or []), ("create_rows", "create", q.get("create_rows") or [])]
+    cq = q.get("create_queue")
+    if isinstance(cq, dict):
+        out.append(("create_queue", "create", cq.get("rows") or []))
+    elif isinstance(cq, list):
+        out.append(("create_queue", "create", cq))
+    return out
+
+
 def _find(q, row_id):
-    for key in ("fix_queue", "create_rows"):
-        for r in q.get(key, []):
+    for _key, _kind, rows in _row_lists(q):
+        for r in rows:
             if r.get("id") == row_id:
                 return r
     raise TransitionRefused("no queue row with id %r" % (row_id,))
+
+
+def _kind_of(q, row_id):
+    for _key, kind, rows in _row_lists(q):
+        if any(r.get("id") == row_id for r in rows):
+            return kind
+    return "fix"
 
 
 def portal_payload_for(base, row, day):
@@ -113,10 +133,12 @@ def build_activity_record(client_id, row, new, evidence_url, day):
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
-                      dry_run=False, activities=None, activities_flag=None):
+                      dry_run=False, activities=None, activities_flag=None, directories=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
-    activities: object with call(method, path, body, prefer) (default: the same Portal)."""
+    activities: object with call(method, path, body, prefer) (default: the same Portal).
+    directories: object with .owner and call(method, path, body, prefer) for the Directory database (default: DirDB from the weekly job env;
+    CE_DIRECTORIES_WRITE=0 turns the sink off)."""
     if client != "SCC":
         raise TransitionRefused("queue transitions are SCC only, got %r" % (client,))
     client_id = P.client_for(client)
@@ -157,9 +179,10 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         return out
 
     # 1 queue file (source of truth). Replace the row in place, preserving the rest of the file.
-    for key in ("fix_queue", "create_rows"):
-        for i, r in enumerate(q.get(key, [])):
-            if r.get("id") == row_id: q[key][i] = new_row
+    kind = _kind_of(q, row_id)
+    for _key, _kind, rows in _row_lists(q):
+        for i, r in enumerate(rows):
+            if r.get("id") == row_id: rows[i] = new_row
     _write_atomic(path, q)
     out["queue_written"] = path
 
@@ -183,6 +206,15 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             out["activities_written"] = True
         except Exception as e:
             out["errors"].append("activities: %s" % e)
+
+    # 4 Directory database (ce_directory_status + needs-human blocker on ce_directories). Never blocks the queue write above.
+    out["directories_written"] = False
+    if directories is not None or D.enabled():
+        try:
+            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories)
+            out["directories_written"] = True
+        except Exception as e:
+            out["errors"].append("directories: %s" % e)
     return out
 
 

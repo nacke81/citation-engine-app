@@ -251,7 +251,23 @@ def main():
     print("wrote run", run["id"], status, len(checks), "checks", flush=True)
     portal_ok = portal_publish(checks, datetime.now().date().isoformat())
     create_queue_step()  # after the 25; GET-only, never changes the exit code or the portal payload
+    directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
     return 0 if (ok_run and portal_ok) else 1
+
+
+def directories_step(checks, day, db=None, queue=None):
+    """Upsert this run's check results, claim_status, queue state and create-discovery verdicts into the Directory database. Non-fatal."""
+    try:
+        import directories as D, buildqueue
+        if queue is None:
+            try: queue = json.load(open(buildqueue.QUEUE_PATH, encoding="utf-8"))
+            except Exception: queue = None   # no queue file: check results still sync
+        res = D.sync_run(checks, day, queue=queue, db=db)
+        print("DIRECTORIES OK", json.dumps(res), flush=True)
+        return True
+    except Exception as e:
+        print("DIRECTORIES FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
 
 
 def create_queue_step(merge=None, path=None):

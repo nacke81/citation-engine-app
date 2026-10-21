@@ -29,6 +29,14 @@
   .chip.lbl { background:#6b6b6b; } .chip.stale { background:#c5221f; } .sec { margin:18px 0 6px; } .sec .n { font-size:.85rem; color:#555; font-weight:400; }
   .kv { display:flex; gap:8px; font-size:.9rem; margin:2px 0; } .kv span { min-width:76px; color:#555; } summary { cursor:pointer; padding:10px 0; color:#0b57d0; }
   .err { color:#c5221f; font-size:.85rem; min-height:18px; margin-top:6px; }
+  .tabs { display:flex; gap:6px; margin:0 0 10px; overflow-x:auto; } .tab { flex:1 0 auto; text-align:center; padding:10px 12px; border-radius:8px; background:#e3e5e8; color:#1a1a1a; text-decoration:none; font-size:.9rem; font-weight:600; word-break:normal; min-height:44px; } .tab.on { background:#1b1f24; color:#fff; }
+  .filters { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; } .filters input[type=search] { grid-column:1 / -1; } .fl span { display:block; font-size:.75rem; color:#555; } .fl select { width:100%; font:inherit; padding:9px 6px; border:1px solid #bbb; border-radius:8px; background:#fff; }
+  .dir { padding:0; } .dirhead { display:block; width:100%; text-align:left; background:none; border:0; font:inherit; padding:10px; cursor:pointer; color:inherit; min-height:44px; } .dn { font-weight:700; display:block; } .dd { font-size:.8rem; color:#555; display:block; margin-bottom:4px; }
+  .chips .chip { margin:0 4px 4px 0; } .rt { background:#0b57d0; } .cs { background:#6b6b6b; } .wk { background:#4a4a8a; } .ac-ok { background:#1e8e3e; } .ac-blocked { background:#c5221f; } .ac-unknown { background:#6b6b6b; }
+  .q-queued { background:#6b6b6b; } .q-submitted, .q-pending-verify { background:#b06000; } .q-needs-human { background:#c5221f; } .q-live { background:#1e8e3e; } .q-rejected { background:#8a1c1c; }
+  .bzs { display:flex; gap:12px; flex-wrap:wrap; font-size:.85rem; } .muted { color:#777; }
+  .detail { border-top:1px solid #e3e5e8; padding:8px 10px 10px; } .detail .kv { flex-wrap:wrap; } .detail .kv span { min-width:110px; } .detail .kv b { font-weight:500; overflow-wrap:anywhere; min-width:0; flex:1 1 160px; } .detail code { font-size:.78rem; word-break:break-all; }
+  .bizstat { background:#f5f6f8; border-radius:8px; padding:8px; margin-top:8px; } .bizstat h4 { margin:0 0 4px; font-size:.95rem; }
 </style>
 </head>
 <body>
