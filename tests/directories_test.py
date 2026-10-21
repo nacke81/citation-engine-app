@@ -179,7 +179,11 @@ seen_dir, seen_stat = set(), set()
 fdb7 = FakeDB(dirs={"yelp.com": {"agent_access": "unknown"}})
 D.sync_run(checks, DAY, queue=queue, db=fdb7)
 D.sync_run([dict(biz="SCC", directory="hotfrog.com", result="couldnt_check", note="blocked"), dict(biz="NM", directory="hotfrog.com", result="couldnt_check", note="blocked")], DAY, db=fdb7)
-for c in db.calls + db2.calls + fdb7.calls:
+fdb7t = FakeDB()
+D.sync_transition("SCC", {"id": "fix-a", "directory": "a.example"}, "needs-human", "Signup is behind a CAPTCHA", DAY, db=fdb7t)
+D.sync_transition("SCC", {"id": "fix-a", "directory": "a.example"}, "submitted", None, DAY, db=fdb7t)
+check("D7 transition scan covers the needs-human PATCH", any(c[0] == "PATCH" and c[2].get("agent_blocker_source") == "transition" for c in fdb7t.calls))
+for c in db.calls + db2.calls + fdb7.calls + fdb7t.calls:
     if c[0] == "GET":
         seen_dir |= set(re.search(r"select=([\w,]+)", c[1]).group(1).split(","))
     elif c[0] == "PATCH":
