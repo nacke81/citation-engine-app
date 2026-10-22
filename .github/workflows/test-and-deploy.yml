@@ -53,6 +53,8 @@ jobs:
         run: python tests/directories_test.py
       - name: Weekly Proof writer (match goes live and counts, mismatch waits, couldn't check writes nothing)
         run: python tests/proof_test.py
+      - name: Weekly self-update (fast-forward, fails closed, never destructive)
+        run: python tests/update_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
