@@ -1,15 +1,17 @@
 // Pure HTML for the overview and business pages. No DOM, no network: tests import this and check the real markup.
+import { builderRows, builderStats, checkedStat } from './builder.js';
 import { BIZ, bizLabel, LABEL, statusOf, latestFor, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel } from './logic.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
 
-export function overviewHtml(runs, checks) {
+export function overviewHtml(runs, checks, dbs = {}) {
   const { run } = latestFor(runs, checks, 'SCC');
   if (!run) return '<div class="card" data-testid="empty"><b>No weekly check has run yet.</b></div>';
   const when = new Date(run.finished_at || run.started_at).toLocaleString();
   const cards = Object.keys(BIZ).map((b) => {
     const l = latestFor(runs, checks, b), s = stats(l.checks);
+    const t = builderStats(builderRows(l.checks, (dbs.dirStatus || []).filter((r) => r.biz === b), dbs.dirs));
     return `<a class="card biz" href="#${b}" data-testid="biz-${b}"><h2>${esc(bizLabel(l.run, b))}</h2>
       <div class="stats">
         <div class="stat" data-testid="stat-found"><b>${s.found}</b><span>Found</span></div>
@@ -17,6 +19,19 @@ export function overviewHtml(runs, checks) {
         <div class="stat good" data-testid="stat-correct"><b class="ok">${s.correct}</b><span class="ok">Correct</span></div>
         <div class="stat bad" data-testid="stat-errors"><b class="no">${s.withErrors}</b><span class="no">With NAP errors</span></div>
         <div class="stat" data-testid="stat-cant"><b>${s.couldntCheck}</b><span>Couldn't check</span></div>
+        <div class="stat" data-testid="stat-checked"><b>${esc(checkedStat(l.checks, dbs.dirs))}</b><span>Checked</span></div>
+      </div>
+      <div class="bhead">In flight</div>
+      <div class="stats">
+        <div class="stat" data-testid="stat-tobuild"><b>${t.toBuild}</b><span>To build</span><small>${t.toBuildNew} new · ${t.toBuildClaim} claim · ${t.toBuildFix} fix</small></div>
+        <div class="stat" data-testid="stat-waiting"><b>${t.waiting}</b><span>Waiting on directory</span></div>
+        <div class="stat" data-testid="stat-needsperson"><b>${t.needsPerson}</b><span>Needs a person</span></div>
+      </div>
+      <div class="bhead">Results</div>
+      <div class="stats">
+        <div class="stat good" data-testid="stat-newlive"><b class="ok">${t.newLive}</b><span class="ok">New listings live</span></div>
+        <div class="stat good" data-testid="stat-claimed"><b class="ok">${t.claimed}</b><span class="ok">Claimed</span></div>
+        <div class="stat good" data-testid="stat-fixed"><b class="ok">${t.fixed}</b><span class="ok">Fixed</span></div>
       </div></a>`;
   }).join('');
   return `<div class="note" data-testid="runline">Last weekly check ${esc(when)} · ${esc(run.status)}</div>${cards}`;

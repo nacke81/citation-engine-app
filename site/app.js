@@ -21,7 +21,7 @@ async function load() {
   data = { runs, checks, dirs, dirStatus };
 }
 
-function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks); }
+function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks, data); }
 
 function bizView(b) {
   const h = bizHtml(data.runs, data.checks, b);
