@@ -26,6 +26,8 @@ def verdict(c):
         return None
     if c.get("name_match") is None and c.get("match") is None:
         return None
+    if not str(c.get("nap_shown") or "").strip():
+        return None   # no NAP text to quote: cannot prove it; a live row without proof_nap would never count or be re-checked
     url = c.get("url")
     if not (url and L.is_permalink(c["directory"], url)):
         return None   # found but no record page to cite: cannot prove, cannot call a mismatch either
@@ -46,7 +48,7 @@ def _waiting_rows(queue):
     for _key, kind, rows in T._row_lists(queue):
         for r in rows:
             if r.get("state") in WAITING and r.get("directory"):
-                out.setdefault(r["directory"], (kind, r))
+                out.setdefault(r["directory"], []).append((kind, r))
     return out
 
 
@@ -67,20 +69,24 @@ def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None):
     for c in checks:
         d = c.get("directory")
         if c.get("biz") != "SCC" or d not in waiting: continue
-        kind, row = waiting[d]
         v = verdict(c)
         if v is None:
             out["untouched"].append(d); continue
-        try:
-            if v == "mismatch":
+        if v == "mismatch":
+            try:
                 D._upsert_status(db, [D._status_row(db, "SCC", d, day, proof_nap_match=False, proof_url=None, proof_nap=None, proof_at=None, build_action=None)])
-                out["mismatched"].append(d); continue
-            action = build_action(kind, row, (c.get("_claim") or {}).get("claim_status"))
-            D._upsert_status(db, [D._status_row(db, "SCC", d, day, proof_url=c["url"], proof_nap=c.get("nap_shown"), proof_at=stamp,
-                                                proof_nap_match=True, build_action=action)])
-            res = record("SCC", row["id"], "live", c["url"], "weekly re-check: listing live, NAP matches canonical", queue_path=path, today=day)
-            if res.get("errors"): out["errors"].append("%s: %s" % (d, "; ".join(res["errors"])[:200]))
-            out["moved"].append({"row": row["id"], "directory": d, "proof_url": c["url"], "build_action": action})
-        except Exception as e:
-            out["errors"].append("%s: %s" % (d, str(e)[:200] or type(e).__name__))
+                out["mismatched"].append(d)
+            except Exception as e:
+                out["errors"].append("%s: %s" % (d, str(e)[:200] or type(e).__name__))
+            continue
+        for kind, row in waiting[d]:   # every waiting row on this Directory moves, not just the first
+            try:
+                action = build_action(kind, row, (c.get("_claim") or {}).get("claim_status"))
+                D._upsert_status(db, [D._status_row(db, "SCC", d, day, proof_url=c["url"], proof_nap=c.get("nap_shown"), proof_at=stamp,
+                                                    proof_nap_match=True, build_action=action)])
+                res = record("SCC", row["id"], "live", c["url"], "weekly re-check: listing live, NAP matches canonical", queue_path=path, today=day)
+                if res.get("errors"): out["errors"].append("%s: %s" % (d, "; ".join(res["errors"])[:200]))
+                out["moved"].append({"row": row["id"], "directory": d, "proof_url": c["url"], "build_action": action})
+            except Exception as e:
+                out["errors"].append("%s: %s" % (d, str(e)[:200] or type(e).__name__))
     return out

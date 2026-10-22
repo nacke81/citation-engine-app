@@ -252,7 +252,7 @@ def main():
     portal_ok = portal_publish(checks, datetime.now().date().isoformat())
     create_queue_step()  # after the 25; GET-only, never changes the exit code or the portal payload
     directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
-    proof_step_run(checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
+    proof_step_if_ok(ok_run, checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
     return 0 if (ok_run and portal_ok) else 1
 
 
@@ -269,6 +269,13 @@ def directories_step(checks, day, db=None, queue=None):
     except Exception as e:
         print("DIRECTORIES FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
         return False
+
+
+def proof_step_if_ok(ok_run, checks, day, **kw):
+    """Only a run that passed every guard and the Chrome check may move rows to live; otherwise skip loudly."""
+    if not ok_run:
+        print("PROOF SKIPPED: run failed guards", flush=True); return None
+    return proof_step_run(checks, day, **kw)
 
 
 def proof_step_run(checks, day, **kw):

@@ -119,6 +119,33 @@ def boom(*a, **k): raise T.TransitionRefused("no")
 res = PR.proof_step([chk()], DAY, queue_path=p, db=db, record=boom)
 check("transition failure: waiting, error reported, not moved", qstate(p) == "submitted" and res["errors"] and not res["moved"])
 
+# R2-1 a match with no NAP text shown writes nothing (no live row without proof_nap)
+for label, nap in (("None", None), ("blank", "   ")):
+    p, rid = fresh("submitted"); before = open(p, "rb").read(); c = chk(); c["nap_shown"] = nap
+    res, db, fp = run(p, [c])
+    check("R2-1 nap_shown %s writes nothing, stays submitted" % label, not db.calls and not fp.calls and open(p, "rb").read() == before and not res["moved"] and res["untouched"] == ["a.example"], res)
+
+# R2-2 a failed run (guards / Chrome check) never writes Proof or moves rows
+sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import io, contextlib
+import run as RUN
+calls = []
+orig = RUN.proof_step_run
+RUN.proof_step_run = lambda *a, **k: calls.append(a) or True
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf): r_bad = RUN.proof_step_if_ok(False, [chk()], DAY)
+check("R2-2 failed run: proof step skipped, loud", r_bad is None and not calls and "PROOF SKIPPED: run failed guards" in buf.getvalue())
+RUN.proof_step_if_ok(True, [chk()], DAY)
+check("R2-2 passing run: proof step runs", len(calls) == 1)
+RUN.proof_step_run = orig
+rsrc = open(os.path.join(HERE, "..", "job", "run.py"), encoding="utf-8").read()
+check("R2-2 main() calls the gated wrapper only", "proof_step_if_ok(ok_run," in rsrc and "proof_step_run(checks, datetime" not in rsrc)
+
+# nit: two waiting rows on one Directory both move
+p, rid = fresh("submitted"); q = json.load(open(p)); r2 = copy.deepcopy(q["fix_queue"][0]); r2["id"] = rid + "-b"; q["fix_queue"].append(r2); json.dump(q, open(p, "w"))
+res, db, fp = run(p, [chk()])
+check("two waiting rows on one Directory both move", len(res["moved"]) == 2 and all(r["state"] == "live" for r in json.load(open(p))["fix_queue"] if r["id"] in (rid, rid + "-b")), res)
+
 # source rules: no Directory traffic in the module
 src = open(os.path.join(HERE, "..", "job", "proof.py"), encoding="utf-8").read()
 check("proof.py has no network or browser code", not any(w in src for w in ("urlopen", "requests", "fetcher", "owned_chrome", "submit_row")))
