@@ -180,6 +180,15 @@ def build(rows, texts, linkmap=None):
             import claim
             cu, ct = claim.pick_page(d, u, lurl, texts)   # the resolved record permalink's text when the job read it, else the matched page
             c["_claim"] = claim.detect(d, cu, ct, IDENT, b)   # claim_status + claim_evidence; local key, rides to the portal payload only
+            if lurl and lurl != u:   # proof_url is lurl, so the NAP we quote and the verdict must come from lurl's own text (kanban t_2971077b)
+                pt = ct if cu == lurl else ""
+                if (pt or "").strip():
+                    import core
+                    pev = core.evidence(pt, b); pfl = judge.nap_flags({"ev": pev})
+                    c["_proof"] = dict(nap_shown=nap_lines(pt, b), name_match=pfl["name_match"], street_match=pfl["street_match"], phone_match=pfl["phone_match"], match=pfl["match"],
+                                       diffs=fixlist.diffs_for(pt, pev, IDENT, b, lurl, labels=True, links=linkmap.get(lurl)))
+                else:
+                    c["_proof"] = dict(nap_shown=None)   # permalink never read: nothing to quote, so Proof writes nothing
             c.update(url=lurl, name_match=fl["name_match"], street_match=fl["street_match"], phone_match=fl["phone_match"], match=fl["match"],
                      method=src.get("method"), nap_shown=nap_lines(texts.get(u, ""), b) if texts.get(u) else None,
                      note=("stale phone shown" if fl["stale_phone"] else "") + ("; old street shown" if fl["old_street"] else ""),
