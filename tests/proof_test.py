@@ -146,6 +146,49 @@ p, rid = fresh("submitted"); q = json.load(open(p)); r2 = copy.deepcopy(q["fix_q
 res, db, fp = run(p, [chk()])
 check("two waiting rows on one Directory both move", len(res["moved"]) == 2 and all(r["state"] == "live" for r in json.load(open(p))["fix_queue"] if r["id"] in (rid, rid + "-b")), res)
 
+# t_2971077b: proof_nap is quoted from the proof_url (permalink) page, not the matched page
+MATCHED_NAP = "MATCHED-PAGE Alder Care | 9 Old Rd | 502-555-0199"
+PERMA_NAP = "PERMALINK Alder Care | 1 Main St | 502-555-0101"
+def lchk(perma):
+    c = chk(); c["nap_shown"] = MATCHED_NAP; c["_page"] = "https://a.example/search?q=alder"; c["_proof"] = perma; return c
+p, rid = fresh("submitted")
+res, db, fp = run(p, [lchk(dict(nap_shown=PERMA_NAP))])
+s = db.status.get(("SCC", "a.example"), {})
+check("L1 u != lurl, permalink matches: proof_nap comes from the permalink", s.get("proof_nap") == PERMA_NAP and s.get("proof_url") == LISTING and qstate(p) == "live" and counts_as_result(s), s)
+for label, perma in (("missing", dict(nap_shown=None)), ("blank", dict(nap_shown="  "))):
+    p, rid = fresh("submitted"); before = open(p, "rb").read()
+    res, db, fp = run(p, [lchk(perma)])
+    check("L2 u != lurl, permalink text %s: nothing written" % label, not db.calls and not fp.calls and open(p, "rb").read() == before and not res["moved"] and res["untouched"] == ["a.example"], res)
+p, rid = fresh("submitted")
+res, db, fp = run(p, [lchk(dict(nap_shown=PERMA_NAP, name_match=True, street_match=False, phone_match=True, match=False, diffs=[]))])
+check("L1b permalink NAP differs though matched page was clean: mismatch, not live", qstate(p) == "submitted" and res["mismatched"] == ["a.example"] and db.status[("SCC", "a.example")]["proof_nap_match"] is False, res)
+p, rid = fresh("submitted")
+res, db, fp = run(p, [chk()])   # L3 u == lurl: no _proof, behaves as before
+s = db.status.get(("SCC", "a.example"), {})
+check("L3 u == lurl: same as today", s.get("proof_nap") == "Alder Care | 1 Main St | 502-555-0101" and qstate(p) == "live", s)
+
+# end-to-end through run.build(): the matched page u differs from the permalink lurl
+import listing as LST, judge as J
+_orig_resolve, _orig_combine = LST.resolve, J.combine
+U = "https://a.example/search?q=alder"
+TXT_U = "Alder Care Consulting & Solutions\nOld Rd\n502-555-0102"
+TXT_L = "Alder Care Consulting & Solutions\n100 Example\nExampleton, KY 40000\n(502) 555-0101"
+ev_ok = {"name": True, "street": True, "phones": ["5025550101"], "old_street": False, "stale_phone": False}
+row_ev = {"biz": "SCC", "dir": "a.example", "kind": "dir", "status": "claimed", "url": U, "ev": ev_ok}
+try:
+    LST.resolve = lambda d, u, links, name, phones=(): (LISTING, "permalink")
+    J.combine = lambda rows, dirs, uns: {("SCC", "a.example"): ("found", {"url": U, "ev": ev_ok, "method": "t"})}
+    _, cks = RUN.build([row_ev], {U: TXT_U, LISTING: TXT_L}, {})
+    c1 = cks[0]
+    check("L4 build(): permalink text -> _proof carries the permalink's NAP, not the matched page's", "100 Example" in c1["_proof"]["nap_shown"] and "Old Rd" not in c1["_proof"]["nap_shown"] and c1["_proof"]["match"] is True, c1.get("_proof"))
+    _, cks = RUN.build([row_ev], {U: TXT_U}, {})
+    check("L5 build(): no permalink text -> _proof has no NAP; proof writes nothing", cks[0]["_proof"].get("nap_shown") is None and PR.verdict(cks[0]) is None, cks[0].get("_proof"))
+    J.combine = lambda rows, dirs, uns: {("SCC", "a.example"): ("found", {"url": LISTING, "ev": ev_ok, "method": "t"})}
+    _, cks = RUN.build([row_ev], {LISTING: TXT_L}, {})
+    check("L6 build(): u == lurl -> no _proof (unchanged)", "_proof" not in cks[0] and "100 Example" in cks[0]["nap_shown"], cks[0])
+finally:
+    LST.resolve, J.combine = _orig_resolve, _orig_combine
+
 # source rules: no Directory traffic in the module
 src = open(os.path.join(HERE, "..", "job", "proof.py"), encoding="utf-8").read()
 check("proof.py has no network or browser code", not any(w in src for w in ("urlopen", "requests", "fetcher", "owned_chrome", "submit_row")))

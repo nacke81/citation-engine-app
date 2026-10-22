@@ -20,8 +20,15 @@ WAITING = ("submitted", "pending-verify", "needs-human")
 PROOF_COLS = ("build_action", "proof_url", "proof_nap", "proof_at", "proof_nap_match")
 
 
+def effective(c):
+    """When the matched page differs from the cited permalink, build() hands us the permalink's own NAP/flags as `_proof`; those replace the matched page's."""
+    p = c.get("_proof")
+    return dict(c, **p) if p is not None else c
+
+
 def verdict(c):
     """'match' | 'mismatch' | None (couldn't tell: write nothing). Pure."""
+    c = effective(c)
     if c.get("biz") != "SCC" or c.get("result") != "found":
         return None
     if c.get("name_match") is None and c.get("match") is None:
@@ -69,6 +76,7 @@ def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None):
     for c in checks:
         d = c.get("directory")
         if c.get("biz") != "SCC" or d not in waiting: continue
+        c = effective(c)   # NAP quoted and verdict both come from the proof_url page
         v = verdict(c)
         if v is None:
             out["untouched"].append(d); continue
