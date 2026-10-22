@@ -26,3 +26,6 @@ Also: pending-verify and needs-human move; live/queued/rejected rows are ignored
 
 ## Out of scope
 Directory traffic, submits, portal seed, page changes, migrations.
+
+## Round 2 amendment (2026-10-22, review comment 289)
+Latest lesson read: none exist (no docs/lessons). Fixes: (1) verdict() needs a non-blank nap_shown for a match, else writes nothing; (2) run.py calls the Proof step only when ok_run is true (proof_step_if_ok), printing "PROOF SKIPPED: run failed guards" otherwise; (3) nit: every waiting row on a Directory moves, not just the first. Tests added for all three. Nit not done: preferring texts[lurl] for proof_nap needs page text that proof_step never sees (it only gets checks); left for a follow-up.
