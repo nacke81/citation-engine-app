@@ -37,6 +37,10 @@
   .bzs { display:flex; gap:12px; flex-wrap:wrap; font-size:.85rem; } .muted { color:#777; }
   .detail { border-top:1px solid #e3e5e8; padding:8px 10px 10px; } .detail .kv { flex-wrap:wrap; } .detail .kv span { min-width:110px; } .detail .kv b { font-weight:500; overflow-wrap:anywhere; min-width:0; flex:1 1 160px; } .detail code { font-size:.78rem; word-break:break-all; }
   .bizstat { background:#f5f6f8; border-radius:8px; padding:8px; margin-top:8px; } .bizstat h4 { margin:0 0 4px; font-size:.95rem; }
+  .stat { overflow-wrap:normal; word-break:normal; hyphens:none; min-width:0; } .stat span { overflow-wrap:normal; word-break:normal; hyphens:none; }
+  a.biz { word-break:normal; overflow-wrap:break-word; } .biz .stat { word-break:normal; overflow-wrap:normal; } .stat small { display:block; font-size:.7rem; color:#555; margin-top:2px; }
+  .biz .stats { grid-template-columns:repeat(3,minmax(0,1fr)); } .bhead { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:12px 0 0; }
+  @media (max-width:420px) { .stat small { font-size:.62rem; white-space:nowrap; } .biz .stat span { font-size:.68rem; } .biz .stat { padding:8px 3px; } }
 </style>
 </head>
 <body>
