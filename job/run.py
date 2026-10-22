@@ -252,6 +252,7 @@ def main():
     portal_ok = portal_publish(checks, datetime.now().date().isoformat())
     create_queue_step()  # after the 25; GET-only, never changes the exit code or the portal payload
     directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
+    proof_step_run(checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
     return 0 if (ok_run and portal_ok) else 1
 
 
@@ -267,6 +268,18 @@ def directories_step(checks, day, db=None, queue=None):
         return True
     except Exception as e:
         print("DIRECTORIES FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
+
+
+def proof_step_run(checks, day, **kw):
+    """Write Proof + move matching waiting SCC rows to live (job/proof.py). Read-only toward Directories. Non-fatal."""
+    try:
+        import proof
+        res = proof.proof_step(checks, day, **kw)
+        print("PROOF " + ("OK" if not res["errors"] else "PARTIAL"), json.dumps(res), flush=True)
+        return not res["errors"]
+    except Exception as e:
+        print("PROOF FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
         return False
 
 
