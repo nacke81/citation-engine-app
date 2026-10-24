@@ -42,6 +42,7 @@ REASON_TEXT = {
     "bot wall": "This directory blocked our automated visit with a security check. We do not get around it.",
     "no usable result": "We searched, but the page gave no result we could read.",
     "page error": "The directory page failed to load.",
+    "no permalink": "We found a search or category page for this business, but not its own listing page, so we do not count it as found.",
 }
 
 
@@ -52,7 +53,7 @@ def reason_for(directory, result, note):
     r = REASON_BY_DIR.get(directory)
     if not r:
         n = (note or "")
-        r = "bot wall" if n == "blocked" else "page error" if n == "error" else "unsearchable" if result == "unsearchable" else "no usable result"
+        r = "no permalink" if n == "no permalink" else "bot wall" if n == "blocked" else "page error" if n == "error" else "unsearchable" if result == "unsearchable" else "no usable result"
     return r, REASON_TEXT[r]
 
 

@@ -86,7 +86,7 @@ def build_payload(checks, captured_day=""):
         cl = (c.get("_claim") or {}) if isf else {}
         dirs.append({
             "name": c["directory"], "state": STATE.get(c["result"], "couldnt_check"), "stateDate": captured_day,
-            "domain": c["directory"], "authority": None,
+            "domain": c["directory"], "authority": None, "permalinkUnverified": bool(isf and c.get("_permalink_unverified")),
             "napConsistent": (not issues) if isf else None,
             "url": url, "urlKind": kind,
             "issues": issues, "napErrors": errs, "status": _status(c), "httpStatus": None, "method": c.get("method") if isf else None,

@@ -55,6 +55,8 @@ jobs:
         run: python tests/proof_test.py
       - name: Weekly self-update (fast-forward, fails closed, never destructive)
         run: python tests/update_test.py
+      - name: Permalink gate (found rows store a listing URL, never search or category)
+        run: python tests/permalink_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 

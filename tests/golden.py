@@ -101,9 +101,9 @@ check("G5 name variant on the page -> field name", [d["field"] for d in fixlist.
 check("G5 exact name -> no name diff", fixlist.diffs_for("1. Birch Media\n", dict(EV_OK), IDENT, "NM") == [])
 # only found rows get diffs in the job output; couldn't-check / absent / unsearchable rows carry none
 import run as jobrun  # noqa: E402
-fr = [row(biz="NM", dir=DIRS[0], status="found", url="u1", ev=EV_STALE, method="chrome-pattern"),
+fr = [row(biz="NM", dir=DIRS[0], status="found", url="https://www.google.com/maps/place/Birch+Media", ev=EV_STALE, method="chrome-pattern"),
       row(biz="NM", dir=DIRS[1], status="noresult"), row(biz="NM", dir=DIRS[2], status="couldnt")]
-_, built = jobrun.build(fr, {"u1": TXT_STALE})
+_, built = jobrun.build(fr, {"https://www.google.com/maps/place/Birch+Media": TXT_STALE})
 byd = {c["directory"]: c for c in built if c["biz"] == "NM"}
 check("G5 job: found stale row carries a phone diff", [d["field"] for d in byd[DIRS[0]]["diffs"]] == ["phone"])
 check("G5 job: couldn't-check cell has no diffs and is never absent", byd[DIRS[2]]["diffs"] is None and byd[DIRS[2]]["result"] == "couldnt_check")

@@ -8,6 +8,8 @@ the list comes from identity.json (Mike-confirmed, never by the engine).
 import math, re
 from collections import defaultdict
 
+import permalink
+
 
 def _norm(r, found_dirs_by_method):
     if r["status"] == "found":
@@ -32,6 +34,7 @@ def combine(rows, dirs, unsearchable=(), bizs=("SCC", "NM", "FAKE")):
         for d in dirs:
             c = [r for r in disc if r["biz"] == b and r["dir"] == d]
             f = [r for r in c if r["result"] == "found"]
+            f.sort(key=lambda r: 0 if permalink.is_permalink(d, r.get("url"))[0] else 1)   # dedup: the method whose URL passes the permalink gate wins (stable otherwise)
             a = [r for r in c if r["result"] == "absent"]
             if d in unsearchable and b != "FAKE":
                 out[(b, d)] = ("unsearchable", None)
