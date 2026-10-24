@@ -75,6 +75,8 @@ def apply_gate(c):
             c["_permalink_unverified"] = True
         return c
     c["_rejected_url"] = c.get("url") or c.get("_page")
+    if why == "empty url" and c.get("_page"):
+        why = is_permalink(c.get("directory"), c.get("_page"))[1] or why   # say why the matched page was not a listing
     c["_permalink_reason"] = why
     c.update(result="couldnt_check", url=None, note=NO_PERMALINK, name_match=None, street_match=None, phone_match=None,
              match=None, nap_shown=None, diffs=None)
