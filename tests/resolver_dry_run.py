@@ -19,6 +19,7 @@ runs = os.path.normcase(os.path.expandvars("%LOCALAPPDATA%/citation-engine/runs"
 if os.path.normcase(OUT).startswith(runs) or os.path.normcase(HERE).startswith(os.path.normcase(os.path.expandvars("%LOCALAPPDATA%/citation-engine/app"))):
     print("refusing: output or code is under the runtime clone / real runs folder"); sys.exit(2)
 os.makedirs(OUT, exist_ok=True)
+os.environ["CE_RUNS"] = OUT  # anything that imports run.py stays inside --out
 os.environ["CE_ROWS"] = os.path.join(OUT, "rows.jsonl")
 os.environ["CE_SHOTS"] = os.path.join(OUT, "shots")
 os.makedirs(os.environ["CE_SHOTS"], exist_ok=True)

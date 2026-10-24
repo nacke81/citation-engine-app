@@ -8,6 +8,7 @@ P6 dedup: the method whose URL passes the gate wins     P7 no Directory, portal 
 import json, os, sys, re
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+import tempfile as _tf; os.environ["CE_RUNS"] = _tf.mkdtemp(prefix="ce-runs-")  # run.py makes dirs on import; never the real runs folder
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 
 ok = []
