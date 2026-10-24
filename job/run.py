@@ -195,6 +195,10 @@ def build(rows, texts, linkmap=None):
                      diffs=fixlist.diffs_for(texts.get(u, ""), src.get("ev"), IDENT, b, u, labels=True, links=linkmap.get(u)))
         if res == "couldnt_check": c["note"] = cant_reason(rows, b, d)
         elif res == "unsearchable": c["note"] = "unsearchable"
+        if res == "found":
+            import permalink
+            permalink.apply_gate(c)   # the one choke point: a found row never leaves build() with a search/category/guessed URL
+            if c["result"] != "found": comb[(b, d)] = ("couldnt_check", None)   # guards and score must see the flip too
         out.append(c)
     return comb, out
 
