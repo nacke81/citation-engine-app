@@ -9,6 +9,7 @@
 import os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+import tempfile as _tf; os.environ["CE_RUNS"] = _tf.mkdtemp(prefix="ce-runs-")  # run.py makes dirs on import; never the real runs folder
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import create_discovery as cd  # noqa: E402
 from core import Result  # noqa: E402

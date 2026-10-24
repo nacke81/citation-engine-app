@@ -5,6 +5,7 @@ Prints found counts per business before and after the gate, and each row that fl
 import json, os, sys
 from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
+import tempfile as _tf; os.environ["CE_RUNS"] = _tf.mkdtemp(prefix="ce-runs-")  # run.py makes dirs on import; never the real runs folder
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import run as jobrun  # noqa: E402
 import judge  # noqa: E402

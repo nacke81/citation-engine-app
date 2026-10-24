@@ -59,6 +59,8 @@ jobs:
         run: python tests/permalink_test.py
       - name: Resolver (Edith's playbooks on saved fixtures, no network)
         run: python tests/resolver_test.py
+      - name: Tests never touch the real runs folder (CE_RUNS set before import run)
+        run: python tests/runs_dir_check.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
