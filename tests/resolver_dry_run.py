@@ -1,7 +1,7 @@
 """Supervised live dry run of the resolver. READ ONLY. SCC only. In-scope Directories only. Owned Chrome (job/owned_chrome.py), no login, no submit.
 Run from a scratch clone, never the runtime clone. Output goes to --out (a workspace folder), never the real runs folder.
 
-  python tests/resolver_dry_run.py --out <dir> [--pin superpages.com=consltng] [--only yellowpages.com,cybo.com]
+  python tests/resolver_dry_run.py --out <dir> [--pin <directory>=<word>] [--only yellowpages.com,cybo.com] [--edith <json>]
 
 Writes <out>/dry_run.json and <out>/dry_run.md (table: Directory, resolved URL, NAP read, matches Edith's URL).
 """
@@ -38,18 +38,8 @@ for p in (opt("--pin") or "").split(","):
 if pins:
     ident["RESOLVER_WORDS"] = {B: pins}
 
-# Edith's URLs, scc-listing-playbooks-2026-10-22 (final listing URL column). Prefix compare for google (lat/lng suffix varies).
-EDITH = {
-    "yellowpages.com": "https://www.yellowpages.com/madisonville-ky/mip/senior-care-consltng-solutions-577699341",
-    "superpages.com": "https://www.superpages.com/madisonville-ky/bpp/senior-care-consltng-solutions-577699341",
-    "dexknows.com": "https://www.dexknows.com/madisonville-ky/bp/senior-care-consltng-solutions-577699341",
-    "google.com": "https://www.google.com/maps/place/Senior+Care+Consulting+%26+Solutions/",
-    "merchantcircle.com": "https://www.merchantcircle.com/senior-care-consulting-solutions-madisonville-ky",
-    "hotfrog.com": "https://www.hotfrog.com/company/AJmUlmc9eCWOLXeAF1UiwA/senior-care-consulting-solutions/madisonville/hospice-home-health-care",
-    "cybo.com": "https://www.cybo.com/US-biz/senior-care-consulting-solutions",
-    "n49.com": None,          # Edith: CloudFront 403 on the search URL, Canada-only home page; no listing proven
-    "yellowbot.com": None,    # Edith: couldn't confirm
-}
+# Edith's proven URLs (scc-listing-playbooks-2026-10-22) hold the real business identity, so they live OUTSIDE the repo: --edith <json file>. Prefix compare for google.
+EDITH = json.load(open(opt("--edith"), encoding="utf-8")) if opt("--edith") else {}
 
 
 def nap_read(text):
