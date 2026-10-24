@@ -12,6 +12,7 @@ Local keys start with "_" and are stripped before any database write, so there i
 import re
 from urllib.parse import urlparse
 
+import listing
 from fixlist import SEARCHY_URL_RE
 
 NO_PERMALINK = "no permalink"
@@ -57,6 +58,9 @@ def is_permalink(directory, url):
     if SEARCHY_URL_RE.search(url) and not is_bing_place:
         return False, "searchy url"
     if shape is None:
+        # no known shape: still never a category page (listing.SEARCHY carries /category|/categories; one regex, reused)
+        if listing.SEARCHY.search(_path(url)):
+            return False, "category url"
         return True, ""
     target = url if directory == "bing.com" else _path(url)
     if not re.search(shape, target):

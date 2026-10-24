@@ -97,8 +97,10 @@ def discover_live():
     before = window_count(); t0 = time.time()
     err = None
     try:
-        discover.discover_all(on_chrome, on_complete=lambda fetcher: read_claim_pages(
-            load_rows(os.environ["CE_ROWS"]), texts, linkmap, fetcher))
+        def on_complete(fetcher):
+            resolver_step(os.environ["CE_ROWS"], fetcher, texts, linkmap, discover)   # before the claim read, so claim reads the resolved permalink
+            read_claim_pages(load_rows(os.environ["CE_ROWS"]), texts, linkmap, fetcher)
+        discover.discover_all(on_chrome, on_complete=on_complete)
     except BaseException as e:
         err = f"{type(e).__name__}: {str(e)[:200]}"
     time.sleep(2)
@@ -106,6 +108,27 @@ def discover_live():
     alive = chrome_procs_with(state.get("profile"))
     return dict(before=before, during=state.get("during"), after=after, equal=(before == after), owned_alive_after=alive,
                 seconds=int(time.time() - t0), error=err), texts, linkmap
+
+
+def resolver_step(rows_path, fetcher, texts, linkmap, discover_mod, resolve_rows=None):
+    """Follow gate-failing found rows to the real listing page (job/resolver.py, Edith's proven playbooks). Read only, in-scope Directories only.
+    Appends 'chrome-resolver' rows to rows.jsonl; judge.combine then prefers the row whose URL passes the gate. Loud but non-fatal. CE_RESOLVER=0 turns it off."""
+    if os.environ.get("CE_RESOLVER", "1") == "0":
+        print("RESOLVER OFF (CE_RESOLVER=0)", flush=True); return 0
+    try:
+        import resolver
+        def search_box(d, b):   # n49: the existing own-search form, location suggestion PICKED
+            return discover_mod.own_search_box(fetcher.ctx, discover_mod.NullRec(), d, b, "resolver-" + d.split(".")[0] + "-" + b)[0]
+        new = (resolve_rows or resolver.resolve_found_rows)(load_rows(rows_path), fetcher, IDENT, DIRS, search_box)
+        with open(rows_path, "a", encoding="utf-8") as f:
+            for r in new:
+                if r.get("url") and r.get("_text"): texts[r["url"]] = r["_text"]   # the listing page's own text: build() reads NAP and claim from it
+                f.write(json.dumps({k: v for k, v in r.items() if not k.startswith("_")}) + "\n")
+        print("RESOLVER OK", json.dumps([(r["biz"], r["dir"], r["url"]) for r in new]), flush=True)
+        return len(new)
+    except Exception as e:
+        print("RESOLVER FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return 0
 
 
 def load_rows(p): return [json.loads(l) for l in open(p, encoding="utf-8") if l.strip()]

@@ -71,6 +71,20 @@ c = {"result": "found", "directory": "manta.com", "url": "https://www.manta.com/
 PL.apply_gate(c)
 check("P3 apply_gate on unknown host keeps found + _permalink_unverified", c["result"] == "found" and c.get("_permalink_unverified") is True)
 
+# P3b no-shape hosts also fail on a category path (one regex reused: listing.SEARCHY)
+NOSHAPE = ["nextdoor.com", "manta.com", "foursquare.com", "bizapedia.com", "brownbook.net", "localstack.com", "yellowbook.com", "ezlocal.com", "showmelocal.com"]
+check("P3b the 9 no-shape hosts really have no shape", all(not PL.is_verified_shape(h) for h in NOSHAPE))
+for h in NOSHAPE:
+    for cu in (f"https://www.{h}/category/plumbers", f"https://www.{h}/categories/plumbers/exampleton-ky"):
+        r = PL.is_permalink(h, cu)
+        check(f"P3b no-shape category fails: {h} {cu[-34:]}", r[0] is False and r[1], str(r))
+    check(f"P3b no-shape record url still passes: {h}", PL.is_permalink(h, f"https://www.{h}/c/m0abc12/alder-care")[0] is True)
+cx = {"result": "found", "directory": "manta.com", "url": "https://x.com/category/y"}
+PL.apply_gate(cx)
+check("P3b apply_gate flips a no-shape category row to couldnt_check no permalink", cx["result"] == "couldnt_check" and cx["note"] == "no permalink" and cx["_rejected_url"] == "https://x.com/category/y" and "_permalink_unverified" not in cx, str(cx))
+_pl_src = "\n".join(l for l in open(os.path.join(HERE, "..", "job", "permalink.py"), encoding="utf-8").read().splitlines() if not l.strip().startswith("#"))
+check("P3b one regex reused (listing.SEARCHY), no third category regex in permalink.py", "listing.SEARCHY" in _pl_src and not re.search(r"re\.compile\(.*categor", _pl_src) and "|/categor" not in _pl_src)
+
 # P4 saved-run fixture
 fx = [json.loads(l) for l in open(os.path.join(HERE, "fixtures", "found-rows-20261018-1100.jsonl"), encoding="utf-8") if l.strip()]
 check("P4 fixture has the SCC + NM found rows", len(fx) == 34 and {r["biz"] for r in fx} == {"SCC", "NM"}, str(len(fx)))

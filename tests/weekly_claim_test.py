@@ -167,7 +167,9 @@ with patch.dict(sys.modules, discover=fake_discover, owned_chrome=fake_owned), \
         links.update(copy.deepcopy(LINKS))
         real_read(rows, texts, links, fetcher)
     read.side_effect = read_with_links
-    wc, captured, links = R.discover_live()
+    os.environ["CE_RESOLVER"] = "0"   # this test isolates the claim-read hook; the resolver has its own test
+    try: wc, captured, links = R.discover_live()
+    finally: os.environ.pop("CE_RESOLVER", None)
 check("discover_live invokes actual discovery completion hook inside live context", read.call_count == 1 and f.calls == [RECORD] and not active)
 check("discovery cleanup/window evidence stays valid", wc["error"] is None and wc["equal"] and wc["owned_alive_after"] == [])
 _, checks = R.build([ROW], captured, links)
