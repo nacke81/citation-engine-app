@@ -194,5 +194,14 @@ check("T8 refused submit records nothing", rf)
 
 src = open(os.path.join(HERE, "..", "job", "buildqueue.py"), encoding="utf-8").read()
 check("T9 buildqueue.py still has no network import", not any(w in src for w in ("urllib", "requests", "subprocess", "socket")))
+# T13 (t_568f1ee6): history carries verify_type, not only the note text
+for vt in ("phone-call", "sms", "postcard"):
+    p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type=vt)
+    h = json.load(open(p))["fix_queue"][0]["history"][-1]
+    check("T13 %s: queue history entry has verify_type=%s" % (vt, vt), h.get("verify_type") == vt and len(vcalls(fp)) == 1)
+p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp)
+check("T13 no verify type: history entry has no verify_type key", "verify_type" not in json.load(open(p))["fix_queue"][0]["history"][-1])
+p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "needs-human", fp=fp, verify_type="sms", dry_run=True)
+check("T13 dry run shows verify_type in the history entry", r["history_entry"].get("verify_type") == "sms")
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

@@ -189,6 +189,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     new_row["state"] = new_state
     if evidence_url: new_row["evidence_url"] = evidence_url
     entry = {"at": day, "from": old, "to": new_state, "evidence_url": evidence_url, "note": note or None}
+    if verify_type: entry["verify_type"] = verify_type  # history carries the type, not only the note text (t_568f1ee6)
     new_row.setdefault("history", [])
     new_row["history"] = list(new_row["history"]) + [entry]
     assert new_row.get("mike_approval") == approval_before  # never touched

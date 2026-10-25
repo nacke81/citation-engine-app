@@ -80,9 +80,14 @@ def _make_kill_job():
     return job
 
 class OwnedChrome:
-    def __init__(self): self.proc = None; self.profile = None; self.port = None; self.job = None
+    def __init__(self, profile=None, port=None):
+        """profile=None -> throwaway temp profile, deleted on close. profile=<dir> -> persistent profile, kept on close (cookies/logins survive).
+        port=None -> free random port."""
+        self.proc = None; self.profile = None; self.port = port; self.job = None; self._persist = profile is not None; self._want = profile
     def __enter__(self):
-        self.profile = tempfile.mkdtemp(prefix="ce-s3-chrome-"); self.port = _free_port()
+        if self._persist: os.makedirs(self._want, exist_ok=True); self.profile = self._want
+        else: self.profile = tempfile.mkdtemp(prefix="ce-s3-chrome-")
+        self.port = self.port or _free_port()
         self.job = _make_kill_job()
         args = [CHROME, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile}", "--window-position=40,40",
                 "--window-size=1400,900", "--no-first-run", "--no-default-browser-check", "about:blank"]
@@ -107,7 +112,7 @@ class OwnedChrome:
             try: self.proc.wait(timeout=15)
             except Exception: pass
             self.proc = None
-        if self.profile:
+        if self.profile and not self._persist:
             for _ in range(10):
                 shutil.rmtree(self.profile, ignore_errors=True)
                 if not os.path.exists(self.profile): break
