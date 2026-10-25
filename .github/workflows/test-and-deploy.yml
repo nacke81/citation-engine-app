@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile job
-        run: python -m py_compile job/*.py
+        run: python -m py_compile job/*.py job/playbooks/*.py
       - name: Golden tests 1-4 on scrubbed fixtures
         run: python tests/golden.py
       - name: Portal writer (SCC + NM allow-list, counts, failure handling)
@@ -51,6 +51,10 @@ jobs:
         run: python tests/weekly_claim_test.py
       - name: Directory database (seed 86, upserts, create-row fix, migration shape)
         run: python tests/directories_test.py
+      - name: Catalog helpers (paid-row cost + period, dead flag) and migration 004
+        run: python tests/catalog_test.py
+      - name: Hotfrog playbook (network, browser and mailbox mocked)
+        run: python tests/hotfrog_test.py
       - name: Weekly Proof writer (match goes live and counts, mismatch waits, couldn't check writes nothing)
         run: python tests/proof_test.py
       - name: Weekly self-update (fast-forward, fails closed, never destructive)

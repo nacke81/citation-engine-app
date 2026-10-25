@@ -37,19 +37,22 @@ def portal_with(domain):
     fp.snaps[SCC] = {"found": 1, "directories": [{"name": domain, "domain": domain, "state": "live", "url": None, "urlKind": "search"}]}
     return fp
 
-def rec(path, rid, new, ev="https://a.example/listing/1", fp=None, **kw):
-    return T.record_transition("SCC", rid, new, ev, "n", queue_path=path, today=DAY, portal=fp or portal_with("a.example"), **kw)
+def rec(path, rid, new, ev="https://a.example/listing/1", fp=None, note="n", **kw):
+    return T.record_transition("SCC", rid, new, ev, note, queue_path=path, today=DAY, portal=fp or portal_with("a.example"), **kw)
 
-def refused(path, rid, new, ev="https://a.example/listing/1"):
+def refused(path, rid, new, ev="https://a.example/listing/1", note=None):  # no note by default: same-state moves need one
     before = open(path, "rb").read(); fp = portal_with("a.example")
-    try: rec(path, rid, new, ev, fp)
+    try: rec(path, rid, new, ev, fp, note=note)
     except T.TransitionRefused: return open(path, "rb").read() == before and not fp.calls
     return False
 
 # allowed matrix
 ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted", "live"), ("pending-verify", "live"), ("needs-human", "live"),
            ("queued", "rejected"), ("submitted", "rejected"), ("pending-verify", "rejected"), ("live", "rejected"), ("needs-human", "rejected"),
-           ("queued", "needs-human"), ("submitted", "needs-human"), ("pending-verify", "needs-human"), ("live", "needs-human"), ("rejected", "needs-human")]
+           ("queued", "needs-human"), ("submitted", "needs-human"), ("pending-verify", "needs-human"), ("live", "needs-human"), ("rejected", "needs-human"),
+           # fix 1 (t_e0abca7d): found state, needs-human can move forward
+           ("queued", "found"), ("found", "submitted"), ("found", "pending-verify"), ("found", "live"), ("found", "needs-human"), ("found", "rejected"),
+           ("needs-human", "submitted"), ("needs-human", "pending-verify")]
 for old, new in ALLOWED:
     p, rid, d = fresh(old)
     try: r = rec(p, rid, new); good = r["to"] == new and json.load(open(p))["fix_queue"][0]["state"] == new
@@ -203,5 +206,23 @@ p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", 
 check("T13 no verify type: history entry has no verify_type key", "verify_type" not in json.load(open(p))["fix_queue"][0]["history"][-1])
 p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "needs-human", fp=fp, verify_type="sms", dry_run=True)
 check("T13 dry run shows verify_type in the history entry", r["history_entry"].get("verify_type") == "sms")
+# T14 found state + same-state note refresh (t_e0abca7d)
+p, rid, d = fresh("needs-human")
+r = rec(p, rid, "needs-human", None, note="hCaptcha after Continue")
+h = json.load(open(p))["fix_queue"][0]["history"][-1]
+check("T14 needs-human -> needs-human with a note is recorded", r["to"] == "needs-human" and h["note"] == "hCaptcha after Continue" and h["from"] == "needs-human")
+check("T14 note refresh makes no client activity", r["activity_record"] is None and r["activities_written"] is False)
+p, rid, d = fresh("found")
+r = rec(p, rid, "found", None, note="still unclaimed")
+check("T14 found -> found with a note is recorded", r["to"] == "found")
+check("T14 found -> found without a note refused", refused(*fresh("found"), "found"))
+check("T14 needs-human -> needs-human without a note refused", refused(*fresh("needs-human"), "needs-human"))
+check("T14 live -> live refused even with a note", refused(*fresh("live"), "live", note="x"))
+check("T14 needs-human -> found refused (found only from queued)", refused(*fresh("needs-human"), "found", note="x"))
+p, rid, d = fresh("queued"); fp = portal_with(d)
+r = rec(p, rid, "found", None, fp, note="listed, unclaimed")
+check("T14 queued -> found: no client activity row", r["activity_record"] is None and not any(c[0] == "POST" and "deliverables" in str(c[1]) for c in fp.calls))
+check("T14 found maps to portal needs-human and is not an activity state", Q.QUEUE_TO_PORTAL["found"] == "needs-human" and "found" not in T.ACTIVITY_STATES)
+check("T14 parse_rows accepts a found row", Q.parse_rows(json.load(open(p))) is not None)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

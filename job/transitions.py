@@ -1,7 +1,9 @@
 """Citation state transitions: one call records a state change in the SCC queue file, the SCC Local SEO portal snapshot, and (gated) Activities.
 
 record_transition(client, row_id, new_state, evidence_url, note) accepts only:
-  queued -> submitted, submitted -> pending-verify, submitted|pending-verify -> live, any -> rejected, any -> needs-human.
+  queued -> found, queued|found|needs-human -> submitted|pending-verify, found|submitted|pending-verify|needs-human -> live,
+  any -> rejected, any -> needs-human. found (SCC already listed, claim not done) is internal: no client activity.
+  found -> found and needs-human -> needs-human are accepted only with a note (note refresh on a parked row).
 Everything else is refused before anything is written. mike_approval is never read for writing and never changed.
 
 Sinks (all injectable so tests and the dry run make no network call):
@@ -22,11 +24,12 @@ import buildqueue as Q
 import portal as P
 import directories as D
 
-STATES = ("queued",) + Q.PORTAL_STATES  # queued, submitted, pending-verify, needs-human, live, rejected
+STATES = ("queued", "found") + Q.PORTAL_STATES  # queued, found, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
-    "submitted": {"queued"},
-    "pending-verify": {"submitted"},
-    "live": {"submitted", "pending-verify", "needs-human"},  # needs-human: a row parked for phone/sms/postcard verification goes live once verified
+    "found": {"queued"},  # internal: SCC already listed, claim not done; no client activity
+    "submitted": {"queued", "found", "needs-human"},
+    "pending-verify": {"submitted", "found", "needs-human"},
+    "live": {"found", "submitted", "pending-verify", "needs-human"},  # needs-human: a row parked for phone/sms/postcard verification goes live once verified
 }
 ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
@@ -41,11 +44,16 @@ class TransitionRefused(Exception):
     pass
 
 
-def check_transition(old, new):
+NOTE_ONLY_STATES = ("found", "needs-human")  # a same-state move is a note refresh on a parked row; needs a note
+
+
+def check_transition(old, new, note=None):
     if new not in STATES or new == "queued":
         raise TransitionRefused("unknown or unsupported target state %r" % (new,))
     if old not in STATES:
         raise TransitionRefused("row has unknown current state %r" % (old,))
+    if old == new and new in NOTE_ONLY_STATES and note:
+        return
     if new in ANY_FROM:
         if old == new:
             raise TransitionRefused("row is already %s" % new)
@@ -179,7 +187,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     Q.parse_rows(q)
     row = _find(q, row_id)
     old = row["state"]
-    check_transition(old, new_state)
+    check_transition(old, new_state, note)
     evidence_url = check_evidence(evidence_url, new_state)
     verify_type = check_verify_type(verify_type, new_state)
     if verify_type: note = verification_note(verify_type)

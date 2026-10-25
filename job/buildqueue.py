@@ -10,7 +10,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # The real queue holds the client's identity, so it lives outside the repo (like the identity file). Tests point CE_QUEUE at a placeholder fixture.
 QUEUE_PATH = os.environ.get("CE_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/queue/scc-fix-create-queue.json")
 PORTAL_STATES = ("submitted", "pending-verify", "needs-human", "live", "rejected")
-QUEUE_TO_PORTAL = {"queued": "needs-human"}
+# found = SCC is already listed and the claim is not done. Internal only: the client sees needs-human, like queued.
+QUEUE_TO_PORTAL = {"queued": "needs-human", "found": "needs-human"}
 for _s in PORTAL_STATES:
     QUEUE_TO_PORTAL[_s] = _s
 
