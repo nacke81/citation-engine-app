@@ -9,6 +9,7 @@ import json, os
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The real queue holds the client's identity, so it lives outside the repo (like the identity file). Tests point CE_QUEUE at a placeholder fixture.
 QUEUE_PATH = os.environ.get("CE_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/queue/scc-fix-create-queue.json")
+LISTING_STATES = ("live", "pending-verify", "submitted")
 PORTAL_STATES = ("submitted", "pending-verify", "needs-human", "live", "rejected")
 # found = SCC is already listed and the claim is not done. Internal only: the client sees needs-human, like queued.
 QUEUE_TO_PORTAL = {"queued": "needs-human", "found": "needs-human"}
@@ -58,6 +59,11 @@ def overlay_directories(payload, rows, day):
         d["state"], d["stateDate"] = st, day
         if st != "live" and d.get("urlKind") != "listing":
             d["url"] = None  # a resolved listing permalink is kept; anything else is cleared
+        if str(r.get("id", "")).startswith("create-") and st in LISTING_STATES and d.get("urlKind") != "listing":
+            import listing  # a create row carries its evidence URL; shown only when it is a listing permalink (never search / signup / success)
+            ev = r.get("evidence_url")
+            if ev and listing.is_permalink(r["directory"], ev):
+                d["url"], d["urlKind"] = ev, "listing"
     return out
 
 

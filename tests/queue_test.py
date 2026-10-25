@@ -39,6 +39,18 @@ o = Q.overlay_directories(sr, rows, "2026-10-19")
 o0 = [d for d in o["directories"] if d["domain"] == domains[0]][0]
 check("Q1 queued row with no permalink stays url null, urlKind search", o0["url"] is None and o0["urlKind"] == "search")
 
+BZ = "https://www.bizapedia.com/ky/senior-care-consulting-and-solutions-llc.html"
+def _row(o, dom): return [d for d in o["directories"] if d["domain"] == dom][0]
+for s in ("live", "pending-verify", "submitted"):
+    bz = _row(Q.overlay_directories(base, [dict(id="create-bizapedia", directory="bizapedia.com", state=s, evidence_url=BZ)], "2026-10-25"), "bizapedia.com")
+    check("Q1 create row %s puts url + urlKind listing in the payload" % s, bz["url"] == BZ and bz["urlKind"] == "listing", str(bz.get("url")))
+bb = _row(Q.overlay_directories(base, [dict(id="create-bbb", directory="bbb.org", state="submitted", evidence_url="https://www.bbb.org/get-listed/success")], "2026-10-25"), "bbb.org")
+check("Q1 create row with a signup/success URL gets no url", bb["url"] is None and bb.get("urlKind") != "listing", str(bb.get("url")))
+bb = _row(Q.overlay_directories(base, [dict(id="create-bbb", directory="bbb.org", state="submitted", evidence_url="https://www.bbb.org/search?find_text=x")], "2026-10-25"), "bbb.org")
+check("Q1 create row with a search URL gets no url", bb["url"] is None)
+bz = _row(Q.overlay_directories(base, [dict(id="create-bizapedia", directory="bizapedia.com", state="needs-human", evidence_url=BZ)], "2026-10-25"), "bizapedia.com")
+check("Q1 create row still needs-human gets no url", bz["url"] is None)
+
 # Exercise the production writer boundary without any outbound calls.
 class CapturePortal:
     def __init__(self):
