@@ -1,0 +1,51 @@
+"""Build browser for Lis (citation-submitter): the owned REAL Chrome, headful, with a persistent build profile.
+
+Same launcher as the finder (owned_chrome.OwnedChrome: Job Object kills the whole tree on exit or crash, never attaches to an
+existing Chrome). Difference: the profile is persistent (%LOCALAPPDATA%/citation-engine/build-profile) so Directory logins and
+cookies survive between batches, and the CDP port is fixed (default 9333) so the submitter can be pointed at it.
+This is an ordinary Chrome. No spoofing, no stealth flags, no CAPTCHA handling. A human still solves any challenge.
+
+  python job/build_chrome.py                 # start, print cdp_url, run until Ctrl+C
+  python job/build_chrome.py --seconds 600   # start, run 10 minutes, close
+Output lines: cdp_url=..., windows_before/during/after. Window count before must equal after.
+"""
+import os, sys, time, argparse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from owned_chrome import OwnedChrome, window_count
+
+PROFILE = os.environ.get("CE_BUILD_PROFILE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/build-profile")
+PORT = 9333
+
+
+def build_chrome(profile=None, port=None):
+    """OwnedChrome on the persistent build profile and the fixed build port. Use as a context manager."""
+    return OwnedChrome(profile=profile or PROFILE, port=port or PORT)
+
+
+def main(argv=None):
+    a = argparse.ArgumentParser(description="Start the owned real Chrome for Lis (persistent profile, CDP port)")
+    a.add_argument("--port", type=int, default=PORT)
+    a.add_argument("--profile", default=PROFILE)
+    a.add_argument("--seconds", type=int, default=0, help="close after N seconds (0 = until Ctrl+C)")
+    n = a.parse_args(argv)
+    before = window_count()
+    print("windows_before=%d" % before, flush=True)
+    try:
+        with build_chrome(n.profile, n.port) as oc:
+            print("cdp_url=%s" % oc.cdp_url, flush=True)
+            print("profile=%s (persistent, kept on exit)" % oc.profile, flush=True)
+            print("windows_during=%d" % window_count(oc.job), flush=True)
+            end = time.time() + n.seconds if n.seconds else None
+            try:
+                while end is None or time.time() < end: time.sleep(1)
+            except KeyboardInterrupt:
+                pass
+    finally:
+        time.sleep(1)
+        after = window_count()
+        print("windows_after=%d  %s" % (after, "OK" if after == before else "MISMATCH"), flush=True)
+    return 0 if after == before else 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

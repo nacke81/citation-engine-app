@@ -63,6 +63,10 @@ jobs:
         run: python tests/runs_dir_check.py
       - name: Build rows (one per Directory, idempotent, no clobber, blanket approval stamp)
         run: python tests/buildrows_test.py
+      - name: Build Chrome (persistent profile, fixed port, proof classifier, no form code)
+        run: python tests/build_chrome_test.py
+      - name: Signup URLs (only two fields, backup first, no clobber)
+        run: python tests/signup_urls_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
