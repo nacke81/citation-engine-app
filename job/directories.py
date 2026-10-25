@@ -14,7 +14,7 @@ import json, os, urllib.request
 ENV_FILE = os.path.expandvars("%LOCALAPPDATA%/hermes/.env")
 BIZS = ("SCC", "NM")
 WRITE_FLAG = "CE_DIRECTORIES_WRITE"   # set to 0 to switch the sink off (tests)
-QUEUE_STATES = ("queued", "submitted", "pending-verify", "needs-human", "live", "rejected")
+QUEUE_STATES = ("queued", "found", "submitted", "pending-verify", "needs-human", "live", "rejected")
 
 
 class DirectoriesError(Exception):
