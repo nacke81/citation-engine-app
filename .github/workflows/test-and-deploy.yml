@@ -61,6 +61,8 @@ jobs:
         run: python tests/resolver_test.py
       - name: Tests never touch the real runs folder (CE_RUNS set before import run)
         run: python tests/runs_dir_check.py
+      - name: Build rows (one per Directory, idempotent, no clobber, blanket approval stamp)
+        run: python tests/buildrows_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
