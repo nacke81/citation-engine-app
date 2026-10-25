@@ -42,8 +42,9 @@ export function builderRows(checks, status, dirs) {
     else if (q === 'live' || q === 'submitted' || q === 'pending-verify') state = 'waiting';
     else if (q === 'needs-human' || ((!q || q === 'queued') && d?.agent_access === 'blocked' && (cand || q === 'queued'))) state = 'needsPerson';
     else if (q === 'rejected') state = 'none';
-    else if (cand) state = 'toBuild';
+    else if (cand || q === 'queued') state = 'toBuild'; // a queued row is work to do even when the finder had no candidate (never checked, couldn't check)
     if (state === 'waiting' || state === 'needsPerson') action = s?.build_action || cand || KIND_ACTION[s?.queue_kind] || null;
+    if (state === 'toBuild' && !action) action = KIND_ACTION[s?.queue_kind] || null;
     return { directory, state, action };
   });
 }

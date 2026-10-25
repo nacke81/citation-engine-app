@@ -106,3 +106,9 @@ test("migration 003 is additive, nullable, idempotent, no secret", () => {
   for (const c of ["build_action", "proof_url", "proof_nap", "proof_at", "proof_nap_match"]) assert.match(sql, new RegExp("add column if not exists " + c));
   assert.ok(!new RegExp("sb_" + "secret|service" + "_role|e" + "yJ[A-Za-z0-9_-]{30,}").test(sql));
 });
+
+test("G-queue: a queued row counts as To build even with no finder candidate; action from queue_kind", () => {
+  const s = stats([cc("a.com")], [st("a.com", { queue_state: "queued", queue_kind: "create" }), st("b.com", { queue_state: "queued", queue_kind: "fix" }), st("c.com", { queue_state: "needs-human", queue_kind: "create" })]);
+  assert.deepEqual([s.toBuild, s.toBuildNew, s.toBuildFix, s.needsPerson], [2, 1, 1, 1]);
+  assert.equal(stats([], [st("d.com", { queue_state: "queued", queue_kind: "create" })]).toBuildNew, 1);
+});

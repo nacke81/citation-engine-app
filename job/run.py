@@ -287,6 +287,7 @@ def main():
     print("wrote run", run["id"], status, len(checks), "checks", flush=True)
     portal_ok = portal_publish(checks, datetime.now().date().isoformat())
     create_queue_step()  # after the 25; GET-only, never changes the exit code or the portal payload
+    buildrows_step(checks, datetime.now().date().isoformat())  # one row per Directory; adds missing rows only, never resets one; non-fatal
     directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
     proof_step_if_ok(ok_run, checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
     return 0 if (ok_run and portal_ok) else 1
@@ -323,6 +324,23 @@ def proof_step_run(checks, day, **kw):
         return not res["errors"]
     except Exception as e:
         print("PROOF FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
+
+
+def buildrows_step(checks, day, db=None, path=None):
+    """Add a queue row for every Directory that has none (job/buildrows.py). Existing rows keep state, history and approval. Non-fatal."""
+    try:
+        import buildrows as BR, buildqueue
+        if db is None:
+            import directories as D
+            db = D.DirDB()
+        dirs, status, _old = BR.load_db_inputs(db)
+        scc = [c for c in checks if c.get("biz") == "SCC"]
+        rep, bak = BR.apply_file(path or buildqueue.QUEUE_PATH, dirs, status, scc, day)
+        print("BUILDROWS OK", json.dumps(rep), bak or "no change", flush=True)
+        return True
+    except Exception as e:
+        print("BUILDROWS FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
         return False
 
 
