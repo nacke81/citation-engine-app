@@ -9,7 +9,7 @@ ok = []
 def check(n, c, d=""):
     ok.append(bool(c)); print(("PASS " if c else "FAIL ") + n + (f"  [{d}]" if d else ""), flush=True)
 def row(i, d, state, **kw): return dict(id=i, directory=d, state=state, history=[{"at": "2026-10-25", "from": "queued", "to": state, "note": "n"}], mike_approval={"by": "Mike", "row_id": i}, signup_url=None, claim_url=None, **kw)
-q = {"fix_queue": [row("fix-merchantcircle", "merchantcircle.com", "needs-human"), row("fix-other", "other.com", "queued")],
+q = {"fix_queue": [row("fix-merchantcircle", "merchantcircle.com", "needs-human", listing_url="https://www.merchantcircle.com/test-biz-exampleville-zz"), row("fix-other", "other.com", "queued")],
      "create_queue": {"rows": [row("create-bbb", "bbb.org", "needs-human"), row("create-ezlocal", "ezlocal.com", "needs-human"), row("create-brownbook", "brownbook.net", "needs-human"), row("create-yelp", "yelp.com", "needs-human")]}}
 json.dump(q, open(os.environ["CE_QUEUE"], "w"))
 before = copy.deepcopy(q)
@@ -18,7 +18,7 @@ check("U2 real run exits 0", S.main([]) == 0)
 after = json.load(open(os.environ["CE_QUEUE"]))
 def find(qq, i): return next(r for r in S._rows(qq) if r["id"] == i)
 check("U3 BBB signup_url", find(after, "create-bbb")["signup_url"] == "https://www.bbb.org/get-listed/form")
-check("U4 MerchantCircle claim_url has claiming=True", find(after, "fix-merchantcircle")["claim_url"].endswith("/signup?business=senior-care-consulting-solutions-madisonville-ky&claiming=True"))
+check("U4 MerchantCircle claim_url has claiming=True", find(after, "fix-merchantcircle")["claim_url"]== "https://www.merchantcircle.com/signup?business=test-biz-exampleville-zz&claiming=True")
 check("U5 EZlocal and Brownbook", find(after, "create-ezlocal")["signup_url"] == "https://ezlocal.com/free-business-listing/" and find(after, "create-brownbook")["signup_url"] == "https://www.brownbook.net/add-business")
 changed = {r["id"]: {k for k in r if r[k] != find(before, r["id"]).get(k)} for r in S._rows(after)}
 check("U6 only signup_url/claim_url changed; state, history, approval untouched", all(v <= {"signup_url", "claim_url"} for v in changed.values()), str(changed))
@@ -29,6 +29,7 @@ check("U9 idempotent: second run writes nothing, no second backup", S.main([]) =
 q2 = copy.deepcopy(before); find(q2, "create-bbb")["signup_url"] = "https://hand.example/x"; S.fill(q2)
 check("U10 a hand-set URL is never overwritten", find(q2, "create-bbb")["signup_url"] == "https://hand.example/x")
 src = open(os.path.join(HERE, "..", "job", "signup_urls.py"), encoding="utf-8").read()
-check("U11 no network, browser or portal code", not any(w in src for w in ("urllib", "requests", "socket", "subprocess", "import portal", "import transitions", "playwright")))
+check("U11 no network, browser or portal code", not any(w in src for w in ("urlopen", "urllib.request", "requests", "socket", "subprocess", "import portal", "import transitions", "playwright")))
+check("U12 no listing_url -> no MerchantCircle claim_url guessed", S.merchantcircle_claim(None) is None and S.merchantcircle_claim("https://x.example/a") is None)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

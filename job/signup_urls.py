@@ -7,10 +7,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # row id -> (field, url). Source: Obsidian playbooks/build/<directory>.md, batch 1.
 URLS = {
     "create-bbb":       ("signup_url", "https://www.bbb.org/get-listed/form"),
-    "fix-merchantcircle": ("claim_url", "https://www.merchantcircle.com/signup?business=senior-care-consulting-solutions-madisonville-ky&claiming=True"),
+    "fix-merchantcircle": ("claim_url", None),  # built from the row's own listing_url slug, so no identity text lives in the repo
     "create-ezlocal":   ("signup_url", "https://ezlocal.com/free-business-listing/"),
     "create-brownbook": ("signup_url", "https://www.brownbook.net/add-business"),
 }
+
+
+def merchantcircle_claim(listing_url):
+    """https://www.merchantcircle.com/<slug> -> .../signup?business=<slug>&claiming=True (playbook merchantcircle.com.md). None if not that shape."""
+    from urllib.parse import urlparse
+    u = urlparse(listing_url or "")
+    slug = u.path.strip("/")
+    if u.netloc.endswith("merchantcircle.com") and slug and "/" not in slug:
+        return "https://www.merchantcircle.com/signup?business=%s&claiming=True" % slug
+    return None
 
 
 def _rows(q):
@@ -27,7 +37,8 @@ def fill(q):
     for r in _rows(q):
         if r.get("id") in URLS:
             f, u = URLS[r["id"]]
-            if not r.get(f): r[f] = u; done.append((r["id"], f))
+            if u is None: u = merchantcircle_claim(r.get("listing_url"))
+            if u and not r.get(f): r[f] = u; done.append((r["id"], f))
     return done
 
 
