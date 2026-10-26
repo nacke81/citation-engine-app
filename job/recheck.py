@@ -21,6 +21,7 @@ import buildqueue as Q
 import fixlist as F
 import listing as L
 
+STABLE_READS = 3   # a Chrome-route match must hold on this many fresh signed-out reads (t_ac8b1bdd)
 WAITING = ("submitted", "pending-verify", "found")
 CDP_URL = "http://127.0.0.1:9333"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -390,6 +391,10 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
             res["url"] = url
             page, how = get_page(url, plain, chrome, canonical)
             cmp_ = compare(page.text, canonical, getattr(page, "html", None))
+            if cmp_["verdict"] == "match" and how == "chrome":   # t_ac8b1bdd: a rendered page (Bing Maps) can serve old and new data to different signed-out reads; a match must repeat
+                for _ in range(STABLE_READS - 1):
+                    again = chrome(url); c2 = compare(again.text, canonical, getattr(again, "html", None))
+                    if c2["verdict"] != "match": page, cmp_ = again, c2; break
             res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["masked"] = bool(cmp_.get("masked"))
             if cmp_["verdict"] == "unreadable":
                 res["error"] = "page not readable (%s)" % (page.err or page.status); continue

@@ -70,6 +70,22 @@ page, how = R.get_page("https://a.example/x", walled, R.chrome_fetch, CANON)
 check("walled fresh context: page is walled, profile text never read", R.walled(page) and "555-0101" not in page.text, page.text[:60])
 check("walled fresh context: verdict unreadable", R.compare(page.text, CANON, page.html)["verdict"] == "unreadable", str(R.compare(page.text, CANON, page.html)))
 
+# 3b unstable public page: first signed-out read shows the canonical phone, a later one the old phone -> not live
+import json
+reads = [body("(502) 555-0101"), body("(502) 555-0199"), body("(502) 555-0101")]
+def flip(u):
+    t = reads.pop(0) if reads else body("(502) 555-0101"); return R.Page(200, u, t, html="<html>%s</html>" % t)
+IDENT = json.load(open(os.path.join(HERE, "test_identity.json"), encoding="utf-8"))
+row = {"id": "r1", "directory": "a.example", "state": "pending-verify", "listing_url": "https://a.example/x", "evidence_url": "https://a.example/x", "history": []}
+q = {"canonical": CANON, "fix_queue": [row], "create_rows": []}
+def no_record(*a, **k): raise AssertionError("record called")
+# the first read comes from get_page (plain walled -> chrome); the repeat reads come from the same injected chrome
+res = R.recheck(q, IDENT, plain=walled, chrome=flip, record=no_record, write=False)
+check("unstable page (match, then old phone): row reads mismatch phone, not live", res[0]["verdict"] == "mismatch" and res[0]["after"] == "pending-verify", str(res[0]))
+reads[:] = [body("(502) 555-0101")] * 3
+res = R.recheck(q, IDENT, plain=walled, chrome=flip, record=lambda *a, **k: {}, write=False)
+check("three stable matching reads: match", res[0]["verdict"] == "match", str(res[0]))
+
 # 4 source rule: recheck.py and claim_reread.py never read contexts[0]
 for f in ("recheck.py", "claim_reread.py"):
     src = open(os.path.join(HERE, "..", "job", f), encoding="utf-8").read()
