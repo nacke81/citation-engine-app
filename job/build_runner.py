@@ -26,6 +26,7 @@ from email.header import decode_header, make_header
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "playbooks"))
 import pagekit as PK
+import walls as W
 from build_core import BuildError, Step, Site, KINDS
 
 CDP_URL = "http://127.0.0.1:9333"
@@ -166,6 +167,9 @@ def format_result(res):
     lines = ["%s [%s]" % (res["site"], res["mode"])]
     for s in res["steps"]: lines.append("  %-7s %-22s %-6s %s" % (s["kind"], s["name"], s["status"], s["detail"][:110]))
     if res["stopped_before"]: lines.append("  -- dry run stopped BEFORE step '%s' (nothing was submitted)" % res["stopped_before"])
+    if any(W.is_block_text(s["detail"]) for s in res["steps"] if s["status"] == "failed"):
+        ray = next((W.parse_ray_id(s["detail"]) for s in res["steps"] if s["status"] == "failed" and W.parse_ray_id(s["detail"])), None)
+        lines.append("  HARD BLOCK: log the try with: python job/walls.py --record-try <row id>%s" % (" --ray-id " + ray if ray else ""))
     lines.append("  result: %s" % ("ok" if res["ok"] else "FAILED"))
     return "\n".join(lines)
 
@@ -205,6 +209,18 @@ def connect(cdp, fresh=False):
     return p, pg, pg.close
 
 
+def wall_gate(site, queue_path=None, today=None):
+    """Hard-block cap (t_fccbb7ef): a log line when any queue row for this Directory is STOPPED or already had its one try today; else None.
+    Runs before the build Chrome is touched. A missing/unreadable queue file means no known wall (the runner never writes the queue)."""
+    import buildqueue as Q
+    path = queue_path or Q.QUEUE_PATH
+    try:
+        with open(path, encoding="utf-8") as f: q = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return W.gate(q, site.domain, today)
+
+
 def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Scripted listing build (build Chrome, CDP 9333)")
@@ -219,6 +235,9 @@ def main(argv=None):
     n = a.parse_args(argv)
     if n.live and not n.card: raise SystemExit("--live is refused without --card <id> (a Directory account is written)")
     site = load_site(n.site)
+    skip = wall_gate(site)
+    if skip:
+        print(skip); return 0   # hard-block cap: no Chrome, no Directory touched
     from cfg import IDENT
     nap = nap_from_identity(IDENT)
     mailbox = None

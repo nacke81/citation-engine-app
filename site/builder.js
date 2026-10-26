@@ -8,6 +8,8 @@ const KIND_ACTION = { fix: 'fix', create: 'new' };
 const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
 export const QUEUE_LABEL = { queued: 'Queued', submitted: 'Submitted', 'pending-verify': 'Pending verify', 'needs-human': 'Needs human', live: 'Live', rejected: 'Rejected' };
 
+export const STOPPED_LABEL = 'Blocked 3 days, stopped. Mike to look.';
+
 // Done = Proof: live URL + captured NAP + timestamp, and the captured NAP matched Canonical.
 export const hasProof = (s) => !!s && /^https?:\/\//i.test(s.proof_url || '') && !!(s.proof_nap || '').trim() && !!s.proof_at && s.proof_nap_match === true;
 
@@ -53,6 +55,8 @@ export function builderRows(checks, status, dirs) {
     let note = s?.queue_note || null;
     if (state === 'needsPerson' && !note) note = d?.agent_blocker || null;
     if (state === 'needsPerson' && d?.cost === 'paid' && !/paid/i.test(note || '')) note = [note, 'Paid' + (d.cost_note ? ': ' + d.cost_note : '')].filter(Boolean).join('. ');
+    // Hard-block cap (job/walls.py): after the 3rd failed try the row is stopped until Mike looks.
+    if (state === 'needsPerson' && /^WALL:hard-block STOPPED/.test(note || '')) note = STOPPED_LABEL;
     const queue = q || (state === 'needsPerson' ? 'needs-human' : state === 'toBuild' ? 'queued' : null);
     const changed = String(s?.queue_state_at || s?.status_updated_at || s?.last_checked_on || '').slice(0, 10) || null;
     return { directory, state, action, name: d?.name || directory, queue, queueLabel: proofPending ? 'Live, proof pending' : (QUEUE_LABEL[queue] || queue), proofPending, note,

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buildqueue as Q
 import fixlist as F
 import listing as L
+import walls as W
 
 STABLE_READS = 3   # a Chrome-route match must hold on this many fresh signed-out reads (t_ac8b1bdd)
 WAITING = ("submitted", "pending-verify", "found")
@@ -342,6 +343,8 @@ def candidates(q, include_live=False, only=None):
     for _key, kind, rows in T._row_lists(q):
         for r in rows:
             if r.get("state") in states and r.get("directory") and (not only or r["id"] in only):
+                if W.is_stopped(r):  # hard-block cap (t_fccbb7ef): a STOPPED row is not touched until Mike resets it
+                    print("SKIP %s (%s): hard-block STOPPED, waiting on Mike" % (r.get("directory"), r.get("id"))); continue
                 out.append((kind, r))
     return out
 
