@@ -52,7 +52,10 @@ ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted
            ("queued", "needs-human"), ("submitted", "needs-human"), ("pending-verify", "needs-human"), ("live", "needs-human"), ("rejected", "needs-human"),
            # fix 1 (t_e0abca7d): found state, needs-human can move forward
            ("queued", "found"), ("found", "submitted"), ("found", "pending-verify"), ("found", "live"), ("found", "needs-human"), ("found", "rejected"),
-           ("needs-human", "submitted"), ("needs-human", "pending-verify")]
+           ("needs-human", "submitted"), ("needs-human", "pending-verify"),
+           # t_d13bd638: claimed-unverified (found, claimed, edits ID-gated)
+           ("queued", "claimed-unverified"), ("found", "claimed-unverified"), ("needs-human", "claimed-unverified"),
+           ("claimed-unverified", "live"), ("claimed-unverified", "rejected"), ("claimed-unverified", "needs-human")]
 for old, new in ALLOWED:
     p, rid, d = fresh(old)
     try: r = rec(p, rid, new); good = r["to"] == new and json.load(open(p))["fix_queue"][0]["state"] == new
@@ -224,5 +227,23 @@ r = rec(p, rid, "found", None, fp, note="listed, unclaimed")
 check("T14 queued -> found: no client activity row", r["activity_record"] is None and not any(c[0] == "POST" and "deliverables" in str(c[1]) for c in fp.calls))
 check("T14 found maps to portal needs-human and is not an activity state", Q.QUEUE_TO_PORTAL["found"] == "needs-human" and "found" not in T.ACTIVITY_STATES)
 check("T14 parse_rows accepts a found row", Q.parse_rows(json.load(open(p))) is not None)
+# T15 claimed-unverified: found, claimed, edits ID-gated (t_d13bd638). The allowed edges are in the T1 matrix above.
+check("T15 submitted -> claimed-unverified refused", refused(*fresh("submitted"), "claimed-unverified", note="x"))
+check("T15 live -> claimed-unverified refused", refused(*fresh("live"), "claimed-unverified", note="x"))
+check("T15 claimed-unverified -> submitted refused", refused(*fresh("claimed-unverified"), "submitted", note="x"))
+check("T15 claimed-unverified -> claimed-unverified without a note refused", refused(*fresh("claimed-unverified"), "claimed-unverified"))
+p, rid, d = fresh("claimed-unverified")
+r = rec(p, rid, "claimed-unverified", None, note="Veriff still pending")
+check("T15 note refresh on a claimed-unverified row is recorded", r["to"] == "claimed-unverified" and json.load(open(p))["fix_queue"][0]["history"][-1]["note"] == "Veriff still pending")
+p, rid, d = fresh("found"); fp = portal_with(d)
+r = rec(p, rid, "claimed-unverified", None, fp, note="claimed; edits need ID check")
+check("T15 no client activity row", r["activity_record"] is None and not any(c[0] == "POST" and "deliverables" in str(c[1]) for c in fp.calls))
+check("T15 portal maps it to needs-human and it is not an activity state", Q.QUEUE_TO_PORTAL["claimed-unverified"] == "needs-human" and "claimed-unverified" not in T.ACTIVITY_STATES)
+check("T15 portal snapshot row shows needs-human", fp.snaps[SCC]["directories"][0]["state"] == "needs-human")
+check("T15 parse_rows accepts it", Q.parse_rows(json.load(open(p))) is not None)
+import directories as DIR
+check("T15 Directory sync knows the state", "claimed-unverified" in DIR.QUEUE_STATES)
+sql = open(os.path.join(HERE, "..", "db", "005_claimed_unverified.sql"), encoding="utf-8").read().lower()
+check("T15 migration 005 widens the check constraint, additive only", "claimed-unverified" in sql and "drop table" not in sql and "drop column" not in sql)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

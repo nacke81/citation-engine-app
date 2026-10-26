@@ -24,12 +24,13 @@ import buildqueue as Q
 import portal as P
 import directories as D
 
-STATES = ("queued", "found") + Q.PORTAL_STATES  # queued, found, submitted, pending-verify, needs-human, live, rejected
+STATES = ("queued", "found", "claimed-unverified") + Q.PORTAL_STATES  # queued, found, claimed-unverified, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
     "found": {"queued"},  # internal: SCC already listed, claim not done; no client activity
+    "claimed-unverified": {"queued", "found", "needs-human"},  # internal: listed + claimed, but edits are ID-gated (dnb, t_d13bd638); no client activity
     "submitted": {"queued", "found", "needs-human"},
     "pending-verify": {"submitted", "found", "needs-human"},
-    "live": {"found", "submitted", "pending-verify", "needs-human"},  # needs-human: a row parked for phone/sms/postcard verification goes live once verified
+    "live": {"found", "claimed-unverified", "submitted", "pending-verify", "needs-human"},  # needs-human: a row parked for phone/sms/postcard verification goes live once verified
 }
 ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
@@ -44,7 +45,7 @@ class TransitionRefused(Exception):
     pass
 
 
-NOTE_ONLY_STATES = ("found", "needs-human", "submitted", "pending-verify")  # a same-state move is a note refresh on a waiting row (the weekly recheck names a wrong field); needs a note
+NOTE_ONLY_STATES = ("found", "claimed-unverified", "needs-human", "submitted", "pending-verify")  # a same-state move is a note refresh on a waiting row (the weekly recheck names a wrong field); needs a note
 
 
 def check_transition(old, new, note=None):
