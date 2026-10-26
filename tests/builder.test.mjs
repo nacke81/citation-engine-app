@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { builderRows, builderStats, hasProof, checkedStat } from "../site/builder.js";
-import { overviewHtml } from "../site/render.js";
+import { overviewHtml, bizHtml } from "../site/render.js";
 
 const NF = ["ab", "sent"].join("");
 const found = (d, diffs) => ({ biz: "SCC", directory: d, result: "found", diffs: diffs || null, url: "https://" + d + "/x" });
@@ -111,4 +111,47 @@ test("G-queue: a queued row counts as To build even with no finder candidate; ac
   const s = stats([cc("a.com")], [st("a.com", { queue_state: "queued", queue_kind: "create" }), st("b.com", { queue_state: "queued", queue_kind: "fix" }), st("c.com", { queue_state: "needs-human", queue_kind: "create" })]);
   assert.deepEqual([s.toBuild, s.toBuildNew, s.toBuildFix, s.needsPerson], [2, 1, 1, 1]);
   assert.equal(stats([], [st("d.com", { queue_state: "queued", queue_kind: "create" })]).toBuildNew, 1);
+});
+
+// ---- company page (t_eafb85da): page groups come from the same rows as the home cards ----
+const RUN = { id: "r1", started_at: "2026-10-26T00:00:00Z", status: "ok", counts: {} };
+const mk = () => {
+  const checks = [nf("n1.com"), nf("n2.com"), found("c1.com"), found("f1.com", ERR), cc("cc.com"), nf("w1.com"), nf("w2.com"), nf("p1.com"), nf("b1.com"), nf("done.com"), found("claimed.com")].map((c) => ({ ...c, run_id: "r1" }));
+  const status = [
+    st("n1.com", { queue_state: "queued", build_action: "new" }), st("n2.com", { queue_state: "queued", build_action: "new" }),
+    st("w1.com", { queue_state: "submitted", build_action: "new", queue_state_at: "2026-10-25T10:00:00Z" }),
+    st("w2.com", { queue_state: "live", build_action: "new", last_url: "https://w2.com/l/1" }),
+    st("p1.com", { queue_state: "needs-human", queue_note: "VERIFY:sms", build_action: "new" }),
+    st("done.com", { queue_state: "live", build_action: "new", ...PROOF }),
+    st("claimed.com", { queue_state: "live", build_action: "claim", ...PROOF }),
+  ];
+  const dirs = [{ domain: "b1.com", name: "Blocked One", agent_access: "blocked", agent_blocker: "Cloudflare bot wall" }, { domain: "n1.com", name: "Nine One" }];
+  return { checks, status, dirs };
+};
+const count = (h, g) => Number(new RegExp(`data-testid="grp-${g}-n">(\\d+)<`).exec(h)[1]);
+const card = (h, id) => Number(new RegExp(`data-testid="${id}"><b[^>]*>(\\d+)<`).exec(h)[1]);
+test("company page group totals equal the home card numbers", () => {
+  const { checks, status, dirs } = mk(), dbs = { dirs, dirStatus: status };
+  const home = overviewHtml([RUN], checks, dbs), page = bizHtml([RUN], checks, "SCC", dbs);
+  const pairs = { tobuild: "stat-tobuild", waiting: "stat-waiting", needsperson: "stat-needsperson", newlive: "stat-newlive", claimed: "stat-claimed", fixed: "stat-fixed" };
+  for (const [g, id] of Object.entries(pairs)) assert.equal(count(page, g), card(home, id), g);
+  assert.deepEqual(Object.keys(pairs).map((g) => count(page, g)), [4, 2, 2, 1, 1, 0]);
+});
+test("a live row without Proof sits in Waiting labelled Live, proof pending; a gate shows as the reason", () => {
+  const { checks, status, dirs } = mk(), page = bizHtml([RUN], checks, "SCC", { dirs, dirStatus: status });
+  const w2 = /data-testid="flight-w2.com".*?<\/div>\s*<\/div>/s.exec(page)[0];
+  assert.match(w2, /Live, proof pending/); assert.match(w2, /https:\/\/w2.com\/l\/1/);
+  assert.match(page, /data-testid="flight-p1.com"[\s\S]*?VERIFY:sms/);
+  assert.match(page, /data-testid="flight-b1.com"[\s\S]*?Cloudflare bot wall/); // Directory-level block is the gate
+  assert.match(page, /Blocked One/);
+  assert.ok(page.indexOf("inflight-title") < page.indexOf("found-title"), "finder section stays below");
+  assert.match(page, /data-testid="sub-new"/);
+});
+test("every home stat card deep-links to its group, and the group exists on the page", () => {
+  const { checks, status, dirs } = mk(), dbs = { dirs, dirStatus: status };
+  const home = overviewHtml([RUN], checks, dbs), page = bizHtml([RUN], checks, "SCC", dbs);
+  const links = [...home.matchAll(/<a class="stat[^"]*" href="#SCC\/(\w+)"/g)].map((m) => m[1]);
+  assert.ok(links.length >= 10);
+  for (const g of new Set(links)) assert.ok(page.includes(`id="grp-${g}"`), g);
+  assert.ok(!/<a[^>]*>[^]*?<a /.test(home.replace(/<\/a>/g, "</a>\n").split("\n").filter((l) => /<a [^]*<a /.test(l)).join("")), "no nested anchors");
 });

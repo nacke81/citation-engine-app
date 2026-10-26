@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { filterDirs, sortDirs, bizStatus, directoriesHtml, detailHtml, tabsHtml, DEFAULT_FILTERS } from "../site/directories.js";
+import { filterDirs, sortDirs, directoriesHtml, detailHtml, tabsHtml, DEFAULT_FILTERS } from "../site/directories.js";
 
 const SEED = JSON.parse(readFileSync(new URL("../db/directories_seed.json", import.meta.url), "utf8"));
 const by = Object.fromEntries(SEED.map((d) => [d.domain, d]));
@@ -27,31 +27,27 @@ test("sort: access puts blocked first, name is alphabetical, priority keeps week
   assert.deepEqual(names, names.slice().sort((a, b) => a.localeCompare(b)));
   assert.equal(sortDirs(SEED, "priority")[0].priority, 1);
 });
-test("a row opens to show everything known plus each business's status", () => {
+test("a row opens to show every Directory fact and no per-business state", () => {
   const rows = [{ domain: "yelp.com", biz: "SCC", last_result: "found", last_checked_on: "2026-10-21", claim_status: "unknown", queue_state: "needs-human", queue_note: "Yelp wants a phone code", last_url: "https://www.yelp.com/biz/x" },
                 { domain: "yelp.com", biz: "NM", last_result: "absent", last_checked_on: "2026-10-21" }];
   const h = directoriesHtml(SEED, rows, DEFAULT_FILTERS, "yelp.com");
   assert.match(h, /data-testid="detail-yelp.com"/);
-  assert.match(h, /Yelp wants a phone code/);
   for (const k of ["Category", "Search method", "Zero-result marker", "Claim markers", "Cost", "Account needed", "Verification", "Build route", "Agent access", "Last verified"]) assert.ok(h.includes(k), k);
-  assert.match(h, /data-testid="status-yelp.com-SCC"/);
-  assert.match(h, /data-testid="status-yelp.com-NM"/);
-  assert.match(h, /Not found/);   // NM absent shows as Not found, never the old word
-  assert.ok(!/absent/i.test(h), "the word absent must not be shown");
+  // client data lives on the company page
+  assert.ok(!/Yelp wants a phone code/.test(h), "queue note must not show");
+  assert.ok(!/data-testid="(status|row)-yelp.com-/.test(h), "no per-business blocks or chips");
+  assert.ok(!/class="bzs"|bizstat|Last check|Check note|Needs human|Queued|Not checked/.test(h), "no per-business state markup");
+  assert.ok(!h.includes("https://www.yelp.com/biz/x"), "no client listing URL");
+  assert.match(h, /href="#SCC\/yelp.com"/); assert.match(h, /href="#NM\/yelp.com"/);
 });
 test("Bing shows the agency account route and GBP sync", () => {
   const h = detailHtml(by["bing.com"], []);
   assert.match(h, /Mike agency account/);
   assert.match(h, /GBP sync/);
 });
-test("a Directory blocked for the agent shows needs-human with its reason", () => {
-  const s = bizStatus(by["yellowpages.com"], { last_result: "couldnt_check" });
-  assert.equal(s.state, "needs-human");
-  assert.match(s.reason, /Cloudflare/);
-  assert.equal(bizStatus(by["yelp.com"], null).state, null);
-  assert.equal(bizStatus(by["yelp.com"], { queue_state: "live" }).state, "live");
-  assert.equal(bizStatus(by["acompio.us"], { queue_state: "queued" }).state, "needs-human");
+test("a blocked Directory shows its blocker as a Directory fact", () => {
   assert.match(directoriesHtml(SEED, [], DEFAULT_FILTERS, "acompio.us"), /Turnstile/);
+  assert.match(directoriesHtml(SEED, [], DEFAULT_FILTERS, "yellowpages.com"), /Cloudflare/);
 });
 test("unsafe URLs and markup are escaped", () => {
   const d = { ...by["yelp.com"], domain: "x.test", name: "<img src=x onerror=1>", signup_url: "javascript:alert(1)" };

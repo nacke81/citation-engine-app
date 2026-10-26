@@ -23,10 +23,13 @@ async function load() {
 
 function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks, data); }
 
-function bizView(b) {
-  const h = bizHtml(data.runs, data.checks, b);
+function bizView(b, target) {
+  const h = bizHtml(data.runs, data.checks, b, data);
   if (h === null) { home(); return; }
   app.innerHTML = tabsHtml(b, data.runs) + h;
+  // #SCC/<group> scrolls to the group; #SCC/<domain> scrolls to that Directory's row.
+  const el = target && (document.getElementById('grp-' + target) || [...app.querySelectorAll('[data-dir]')].find((x) => x.dataset.dir === target));
+  if (el) { el.scrollIntoView(); el.classList.add('hl'); } else window.scrollTo(0, 0);
 }
 
 // Directories tab: filter, sort and the open row live in memory (the list is 86 rows; no query per tap).
@@ -47,9 +50,8 @@ function dirView(keepScroll) {
 
 function route() {
   if (!user) return;
-  const h = location.hash.slice(1);
-  if (h === 'directories') dirView(); else if (BIZ[h]) bizView(h); else home();
-  if (h !== 'directories') window.scrollTo(0, 0);
+  const [h, target] = location.hash.slice(1).split('/');
+  if (h === 'directories') dirView(); else if (BIZ[h]) bizView(h, target ? decodeURIComponent(target) : ''); else { home(); window.scrollTo(0, 0); }
 }
 
 function loginView() {
