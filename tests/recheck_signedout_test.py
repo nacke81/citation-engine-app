@@ -2,6 +2,7 @@
 profile context (contexts[0], signed in) shows the canonical phone and a fresh context (signed out) shows the old public phone."""
 import os, sys, types, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
+os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")   # test identity only (leak check)
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import recheck as R
 
