@@ -15,8 +15,8 @@ def check(n, c, d=""):
 CANON = {"name": "Alder Care Consulting & Solutions", "address": "100 Example, Exampleton KY 40000", "phone": "(502) 555-0101"}
 IDENT = json.load(open(os.path.join(HERE, "test_identity.json"), encoding="utf-8"))
 DAY = "2026-11-02"
-NODE = "https://www.openstreetmap.org/node/14321855047"
-API = "https://api.openstreetmap.org/api/0.6/node/14321855047.json"
+NODE = "https://www.openstreetmap.org/node/5550001111"
+API = "https://api.openstreetmap.org/api/0.6/node/5550001111.json"
 TAGS = {"office": "consulting", "name": "Alder Care Consulting & Solutions", "addr:housenumber": "100", "addr:street": "Example", "addr:city": "Exampleton",
         "addr:state": "KY", "addr:postcode": "40000", "phone": "+1 502 555 0101", "website": "https://alder.example"}
 
@@ -30,7 +30,7 @@ def fake_open(tags=TAGS, visible=True, code=None):
     def f(req, timeout=0):
         SEEN.append((req.full_url, req.get_method(), dict(req.header_items())))
         if code: raise urllib.error.HTTPError(req.full_url, code, "x", {}, None)
-        el = {"type": "node", "id": 14321855047, "lat": 37.3, "lon": -87.4, "tags": tags}
+        el = {"type": "node", "id": 5550001111, "lat": 37.3, "lon": -87.4, "tags": tags}
         if not visible: el["visible"] = False
         return Resp(json.dumps({"elements": [el]}).encode())
     return f
@@ -118,7 +118,7 @@ res, q, db = run([mkrow("create-openstreetmap", "openstreetmap.org", NODE)], wri
 check("L5 unstable OSM read (phone flips on read 2): no Proof", not [c for c in db.calls if "ce_directory_status" in c[1]] and res[0]["verdict"] == "mismatch", str(res[0]["verdict"]))
 
 # manta: plain 403 -> Chrome route (signed-out), 3 stable chrome reads, Proof
-MANTA = "https://www.manta.com/c/m1hlj06/alder-care-consulting-solutions"
+MANTA = "https://www.manta.com/c/m0example/alder-care-consulting-solutions"
 mtxt = "Alder Care Consulting & Solutions\n100 Example\nExampleton, KY 40000\n(502) 555-0101\n" + "Claimed. Lorem ipsum dolor sit amet. " * 8
 calls = []
 def chrome(u): calls.append(u); return R.Page(200, u, mtxt, html="<html>%s</html>" % mtxt)

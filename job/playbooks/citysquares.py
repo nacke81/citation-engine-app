@@ -1,4 +1,4 @@
-"""citysquares.com claim playbook, scripted from the batch 11 run (t_cc3bafef, 2026-10-26) that put SCC live: https://citysquares.com/b/senior-care-consulting-solutions-26411219
+"""citysquares.com claim playbook, scripted from the batch 11 run (t_cc3bafef, 2026-10-26) that put SCC live: https://citysquares.com/b/alder-care-consulting-solutions-10000001
 
 CitySquares already HAD a listing for the business, so this is a CLAIM of an existing listing, not a create: find the listing -> Claim -> account (vault item
 `SCC - citysquares.com`) -> the listing shows the approved NAP. Batch 11 saw no verify step (no mail, phone, SMS or postcard), so no verify_type.

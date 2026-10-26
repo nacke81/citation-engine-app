@@ -1,16 +1,16 @@
-"""openstreetmap.org node-create playbook, scripted from batch 11 (t_cc3bafef, 2026-10-26): node 14321855047 at SCC's GBP pin, NAP tags only.
+"""openstreetmap.org node-create playbook, scripted from batch 11 (t_cc3bafef, 2026-10-26): a node placed at the client's verified GBP pin, NAP tags only.
 
 Creates ONE node through the OSM API 0.6 (changeset -> node -> close) instead of the iD editor:
   * Tags are NAP only: office=consulting, name, addr:housenumber, addr:street, addr:city, addr:state, addr:postcode, phone, website. Nothing else.
   * lat/lng are REQUIRED INPUTS (the exact pin read from the verified Google Business Profile). They are never defaulted, geocoded, interpolated or guessed;
     a missing, non-numeric or out-of-range value stops the run. A residential address with no building node is NOT pinned on a street-interpolated point.
-  * Auth: a bearer token from the env var OSM_ACCESS_TOKEN (OAuth2, scope write_api) created by hand for the existing account (vault item `SCC - openstreetmap.org`).
+  * Auth: a bearer token from the env var OSM_ACCESS_TOKEN (OAuth2, scope write_api) created by hand for the existing account (vault item `<client> - <site>`).
     It is read at call time, sent only to api.openstreetmap.org, and never printed or returned. Account creation and the email confirm stay manual.
   * Changeset comment: "survey/owner" (Mike ruling 10/26). Changeset is closed even when the node call fails.
   * Dry run builds the exact XML bodies and makes no request. --live is refused here (a Directory write needs a Nate card).
 Every network edge is injectable (`http`), so tests make no call.
 
-  python job/playbooks/openstreetmap.py --dry-run --lat 37.3150934 --lng -87.4966459 --housenumber 93 --street "Montrose Drive" --city Madisonville --state KY --postcode 42431 --phone "+1 270 841 2550" --website https://seniorcaresolutions.co --name "Senior Care Consulting & Solutions"
+  python job/playbooks/openstreetmap.py --dry-run --lat 38.1234567 --lng -85.1234567 --housenumber 100 --street "Example Drive" --city Exampleton --state KY --postcode 40000 --phone "+1 502 555 0101" --website https://alder.example --name "Alder Care Consulting & Solutions"
 """
 import os, re, sys
 from xml.sax.saxutils import quoteattr
@@ -42,7 +42,7 @@ def nap_tags(*, name, housenumber, street, city, state, postcode, phone, website
     for k, v in tags.items():
         if not (v or "").strip(): raise PlaybookError("tag %s is empty; NAP comes from the approved identity" % k)
     if not re.match(r"^https://[^\s/]+", tags["website"]): raise PlaybookError("website must start with https://")
-    if not re.match(r"^\+1[ \d]{10,14}$", tags["phone"]): raise PlaybookError("phone tag must be international: '+1 270 841 2550'")
+    if not re.match(r"^\+1[ \d]{10,14}$", tags["phone"]): raise PlaybookError("phone tag must be international: '+1 502 555 0101'")
     assert tuple(tags) == TAG_ORDER
     return tags
 

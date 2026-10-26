@@ -71,8 +71,8 @@ MAIL = b"From: Manta <noreply@manta.com>\r\nSubject: Verify\r\nContent-Type: tex
 check("M14 verify link extracted, &amp; decoded", M.extract_verify_link(MAIL) == "https://www.manta.com/verify-email?token=ab12&u=9", str(M.extract_verify_link(MAIL)))
 check("M15 lookalike domain not matched", M.extract_verify_link(b"From: a@b.c\r\nContent-Type: text/plain\r\n\r\nhttps://www.manta.com.evil.example/verify?x=1") is None)
 check("M16 hotfrog pattern restored after use", H.VERIFY_RE.pattern.startswith("https://www\\.hotfrog"))
-check("M17 public URL shape", M.PUBLIC_RE.match("https://www.manta.com/c/m1hlj06/senior-care-consulting-solutions") and not M.PUBLIC_RE.match("https://www.manta.com/search?x=1"))
-pub = M.check_public_page(Page(body="Alder Care Consulting & Solutions\nClaimed\n(502) 555-0101"), "https://www.manta.com/c/m1hlj06/alder", phone_digits="5025550101", name="Alder Care Consulting & Solutions")
+check("M17 public URL shape", M.PUBLIC_RE.match("https://www.manta.com/c/m0example/alder-care-consulting-solutions") and not M.PUBLIC_RE.match("https://www.manta.com/search?x=1"))
+pub = M.check_public_page(Page(body="Alder Care Consulting & Solutions\nClaimed\n(502) 555-0101"), "https://www.manta.com/c/m0example/alder", phone_digits="5025550101", name="Alder Care Consulting & Solutions")
 check("M18 public page check: claimed + phone + name", pub == {"claimed": True, "phone": True, "name": True}, str(pub))
 check("M19 non-listing URL refused", isinstance(raises(M.check_public_page, Page(), "https://www.manta.com/search?q=x", phone_digits="1", name="x"), M.PlaybookError))
 src = open(str(M.__file__), encoding="utf-8").read()
@@ -80,7 +80,7 @@ check("M20 manta has no import of the CapSolver client or a proxy setting", not 
 check("M21 recaptcha_click returns None when no widget", M.recaptcha_click(type("P", (), {"frame_locator": lambda s, q: type("F", (), {"locator": lambda s2, q2: type("L", (), {"count": lambda s3: 0})()})()})()) is None)
 
 # ---- citysquares
-URL = "https://citysquares.com/b/alder-care-consulting-solutions-26411219"
+URL = "https://citysquares.com/b/alder-care-consulting-solutions-10000001"
 check("C1 dry run ok, --live refused", CS.main(["--dry-run"]) == 0 and isinstance(raises(CS.main, ["--live"]), SystemExit))
 p = Page(); r = CS.run(p, url=URL, email_addr="a@x.example", get_password=lambda: "pw")
 check("C2 claim steps in order", r["steps"] == ["open_listing", "wait_cloudflare", "claim", "account"], str(r["steps"]))
@@ -98,12 +98,12 @@ pub = CS.check_public_page(Page(body="Alder Care Consulting & Solutions\n100 Exa
 check("C9 public page check", pub == {"name": True, "street": True, "phone": True}, str(pub))
 
 # ---- openstreetmap
-OK = dict(lat=37.3150934, lng=-87.4966459, name="Alder Care Consulting & Solutions", housenumber="100", street="Example", city="Exampleton", state="KY", postcode="40000", phone="+1 502 555 0101", website="https://alder.example")
+OK = dict(lat=38.1234567, lng=-85.1234567, name="Alder Care Consulting & Solutions", housenumber="100", street="Example", city="Exampleton", state="KY", postcode="40000", phone="+1 502 555 0101", website="https://alder.example")
 for k in ("lat", "lng"):
     for bad in (None, "", "  ", "abc", 0, "0", 91 if k == "lat" else 181, float("nan"), True):
         check("O1 %s=%r refused" % (k, bad), isinstance(raises(O.plan, **dict(OK, **{k: bad})), O.PlaybookError))
 p = O.plan(**OK)
-check("O2 node xml carries the exact pin", 'lat="37.3150934" lon="-87.4966459"' in p["node"], p["node"])
+check("O2 node xml carries the exact pin", 'lat="38.1234567" lon="-85.1234567"' in p["node"], p["node"])
 check("O3 tags are NAP only (9 keys, fixed order)", tuple(p["tags"]) == O.TAG_ORDER and len(p["tags"]) == 9)
 check("O4 '&' escaped in xml", "Consulting &amp; Solutions" in p["node"] and "Consulting & Solutions" not in p["node"].replace("&amp;", ""))
 check("O5 changeset comment survey/owner", 'v="survey/owner"' in p["changeset"])
@@ -116,11 +116,11 @@ calls = []
 def http_ok(method, url, body, headers):
     calls.append((method, url, body, headers))
     if url.endswith("/changeset/create"): return 200, "991"
-    if url.endswith("/node/create"): return 200, "14321855099"
+    if url.endswith("/node/create"): return 200, "5550001112"
     return 200, ""
 r = O.run(http_ok, env={"OSM_ACCESS_TOKEN": "tok-secret"}, **OK)
 check("O9 run: changeset -> node -> close, in order", [c[1].split("/api/0.6/")[1] for c in calls] == ["changeset/create", "node/create", "changeset/991/close"], str([c[1] for c in calls]))
-check("O10 result url + ids", r["url"] == "https://www.openstreetmap.org/node/14321855099" and r["changeset"] == 991 and r["node_id"] == 14321855099)
+check("O10 result url + ids", r["url"] == "https://www.openstreetmap.org/node/5550001112" and r["changeset"] == 991 and r["node_id"] == 5550001112)
 check("O11 every request goes to api.openstreetmap.org only", all(c[1].startswith("https://api.openstreetmap.org/") for c in calls))
 check("O12 token only in the Authorization header, not in result or bodies", "tok-secret" not in json.dumps(r) and not any("tok-secret" in (c[2] or "") for c in calls) and all(c[3]["Authorization"] == "Bearer tok-secret" for c in calls))
 check("O13 node body has changeset id 991", 'changeset="991"' in calls[1][2])
@@ -140,12 +140,12 @@ e = raises(O.run, http_node_fail, env={"OSM_ACCESS_TOKEN": "t"}, **OK)
 check("O16 node failure still closes the changeset", isinstance(e, O.PlaybookError) and calls[-1].endswith("/changeset/55/close"), str(calls))
 e = raises(O.run, lambda *a: (500, ""), env={"OSM_ACCESS_TOKEN": "t"}, **OK)
 check("O17 changeset failure -> error", isinstance(e, O.PlaybookError))
-tags = O.read_back(lambda m, u, b, h: (200, json.dumps({"elements": [{"tags": {"name": "x"}}]})), 14321855099)
+tags = O.read_back(lambda m, u, b, h: (200, json.dumps({"elements": [{"tags": {"name": "x"}}]})), 5550001112)
 check("O18 read_back returns tags", tags == {"name": "x"})
 check("O19 no default coordinate in the source", not re.search(r"37\.3150934|87\.4966459", open(O.__file__, encoding="utf-8").read().split('"""', 2)[2]))
 buf = io.StringIO()
-with contextlib.redirect_stdout(buf): rc = O.main(["--dry-run", "--lat", "37.3150934", "--lng", "-87.4966459", "--name", OK["name"], "--housenumber", "100", "--street", "Example", "--city", "Exampleton", "--state", "KY", "--postcode", "40000", "--phone", OK["phone"], "--website", OK["website"]])
-check("O20 CLI dry-run prints the pin and node, exits 0, no token read", rc == 0 and "pin: 37.3150934" in buf.getvalue())
+with contextlib.redirect_stdout(buf): rc = O.main(["--dry-run", "--lat", "38.1234567", "--lng", "-85.1234567", "--name", OK["name"], "--housenumber", "100", "--street", "Example", "--city", "Exampleton", "--state", "KY", "--postcode", "40000", "--phone", OK["phone"], "--website", OK["website"]])
+check("O20 CLI dry-run prints the pin and node, exits 0, no token read", rc == 0 and "pin: 38.1234567" in buf.getvalue())
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf): rc = O.main(["--dry-run", "--name", "x"])
 check("O21 CLI dry-run without a pin is REFUSED (exit 2)", rc == 2 and "REFUSED" in buf.getvalue())

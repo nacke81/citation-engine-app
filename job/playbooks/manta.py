@@ -1,4 +1,4 @@
-"""manta.com claim/create playbook, scripted from the batch 11 run (t_cc3bafef, 2026-10-26) that put SCC live: https://www.manta.com/c/m1hlj06/senior-care-consulting-solutions
+"""manta.com claim/create playbook, scripted from the batch 11 run (t_cc3bafef, 2026-10-26) that put SCC live: https://www.manta.com/c/m0example/alder-care-consulting-solutions
 
 What batch 11 proved (and what it did not):
   * curl gets 403. The site sits behind a Cloudflare checkbox that PASSES in the real build Chrome (job/build_chrome.py, CDP 9333). That checkbox is a
