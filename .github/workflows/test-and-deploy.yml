@@ -77,6 +77,8 @@ jobs:
         run: python tests/recheck_test.py
       - name: Recheck phone reading (uuid, masked, structured, real-page fixtures)
         run: python tests/recheck_phone_test.py
+      - name: Recheck reads signed out (fresh context, never the signed-in profile)
+        run: python tests/recheck_signedout_test.py
       - name: Bizapedia playbook and the https:// website value (network, browser and mailbox mocked)
         run: python tests/bizapedia_test.py
       - name: Fill signup and claim URLs (only two fields, https only, backup first)

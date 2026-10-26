@@ -68,7 +68,8 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
     p = sync_playwright().start()
     try:
         b = p.chromium.connect_over_cdp(cdp)
-        pg = b.contexts[0].new_page()
+        ctx = b.new_context()   # fresh, signed out (t_ac8b1bdd): contexts[0] is the signed-in build profile and shows owner-only pending edits
+        pg = ctx.new_page()
         try:
             r = pg.goto(url, timeout=40000, wait_until="domcontentloaded"); status = r.status if r else None
             text = ""
@@ -84,6 +85,8 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
             return Page(status, pg.url, text, links, html=raw)
         finally:
             try: pg.close()
+            except Exception: pass
+            try: ctx.close()
             except Exception: pass
     except Exception as e:
         down = "connect" in str(e).lower() or "ECONNREFUSED" in str(e)
