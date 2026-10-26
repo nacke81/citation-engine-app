@@ -55,6 +55,19 @@ test("claimed is independent of Correct: correct+unclaimed is a claim candidate,
   assert.equal(unk[0].action, "claim");
   assert.equal(builderRows([found("a.com", ERR)], [st("a.com", { claim_status: "claimed" })])[0].action, "fix");
 });
+test("hard-block cap: a STOPPED row shows in Needs a person with the Mike label", () => {
+  const stopped = st("a.com", { queue_state: "needs-human", queue_note: "WALL:hard-block STOPPED, waiting on Mike" });
+  const rows = builderRows([nf("a.com")], [stopped]);
+  assert.equal(rows[0].state, "needsPerson");
+  assert.equal(rows[0].note, "Blocked 3 days, stopped. Mike to look.");
+  assert.equal(builderStats(rows).needsPerson, 1);
+  const RUN0 = { id: "r", biz: "SCC", status: "ok", finished_at: "2026-10-26T10:00:00Z" };
+  assert.match(bizHtml([RUN0], [nf("a.com")], "SCC", { dirs: [], dirStatus: [stopped] }), /Blocked 3 days, stopped\. Mike to look\./);
+});
+test("hard-block cap: a try 1/3 note is shown as written, not as stopped", () => {
+  const r = builderRows([nf("a.com")], [st("a.com", { queue_state: "needs-human", queue_note: "WALL:hard-block try 2/3" })]);
+  assert.equal(r[0].note, "WALL:hard-block try 2/3");
+});
 test("Needs a person: needs-human rows and agent-blocked Directories without a state", () => {
   const s = stats([nf("a.com"), nf("b.com"), nf("c.com")],
     [st("a.com", { queue_state: "needs-human" })], [{ domain: "b.com", agent_access: "blocked" }, { domain: "c.com", agent_access: "ok" }]);

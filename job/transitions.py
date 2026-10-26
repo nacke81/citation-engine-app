@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buildqueue as Q
 import portal as P
 import directories as D
+import walls as W
 
 STATES = ("queued", "found", "claimed-unverified") + Q.PORTAL_STATES  # queued, found, claimed-unverified, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
@@ -204,6 +205,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     Q.parse_rows(q)
     row = _find(q, row_id)
     old = row["state"]
+    if W.is_stopped(row) and new_state != "needs-human":
+        raise TransitionRefused("row %s is STOPPED by the hard-block cap; only Mike's --reset-wall (job/walls.py) clears it" % row_id)
     check_transition(old, new_state, note)
     evidence_url = check_evidence(evidence_url, new_state)
     verify_type = check_verify_type(verify_type, new_state)
