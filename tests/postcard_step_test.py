@@ -126,5 +126,74 @@ with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(eb):
     bad = R.postcard_step(run=lambda: (_ for _ in ()).throw(RuntimeError(CODE)))
 check("run.py hook: ok path prints POSTCARD OK, failure is non-fatal and names the type only", good is True and bad is False and "POSTCARD OK" in buf.getvalue() and "RuntimeError" in eb.getvalue() and CODE not in buf.getvalue() + eb.getvalue())
 
+# 13 alerts (t_fbb3b5b3): a waiting code with no enterer, or 48h+, alerts through the engine's loud path; --dry never does
+def go_alert(portal, enterers, **kw):
+    sent = []
+    res, text = go(portal, enterers, alert=sent.append, **kw)
+    return res, text, sent
+
+p = FakePortal(rows((V1, "nowhere.example", 5)), {V1: CODE})
+res, text, sent = go_alert(p, {})
+check("alert: skipped-no-entry with a code waiting alerts once", len(sent) == 1 and res[0]["outcome"] == "skipped-no-entry")
+check("alert: carries row id, Directory and age", V1 in sent[0] and "nowhere.example" in sent[0] and "5h" in sent[0])
+check("CODE NEVER LEAKS (alert payload, skipped)", CODE not in sent[0] + every_byte(p, res, text))
+check("alert: consume semantics unchanged (code still waiting, not consumed)", p.codes == {V1: CODE} and not p.writes)
+
+p = FakePortal(rows((V1, "a.example", 50)), {V1: CODE})
+res, text, sent = go_alert(p, {"a.example": accept})
+check("alert: 48h+ alerts even when an enterer exists, and the row is still processed", len(sent) == 1 and "50h" in sent[0] and res[0]["outcome"] == "accepted")
+check("CODE NEVER LEAKS (alert payload, 48h+)", CODE not in sent[0] + every_byte(p, res, text))
+
+p = FakePortal(rows((V1, "a.example", 5)), {V1: CODE})
+res, text, sent = go_alert(p, {"a.example": accept})
+check("alert: young row with an enterer does not alert", sent == [] and "alerted" not in res[0])
+
+p = FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE})
+res, text, sent = go_alert(p, {}, dry=True)
+check("alert: --dry never alerts, even for skipped and 48h+", sent == [] and "alerted" not in res[0])
+
+calls = []
+def fake_runner(argv, **kw): calls.append((argv, kw))
+PS._card_runner = fake_runner   # never call the real hermes from tests
+
+p = FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE})
+res, text = go(p, {})
+check("alert: default path is loud on stderr and names the row", "POSTCARD ALERT" in text and V1 in text and CODE not in text)
+
+# 14 Kanban card (board citations) through the default alert, with a fake runner
+check("card: one runner call, list argv, no shell, timeout <= 60", len(calls) == 1 and isinstance(calls[0][0], list) and not calls[0][1].get("shell") and 0 < calls[0][1].get("timeout", 999) <= 60)
+av = calls[0][0]
+def opt(k): return av[av.index(k) + 1]
+check("card: board citations, assignee and profile = reviewer, workspace scratch",
+      av[1:3] == ["-p", PS.REVIEWER] and "kanban" in av and opt("--board") == "citations" and "create" in av and opt("--assignee") == PS.REVIEWER and opt("--workspace") == "scratch")
+check("card: idempotency key postcard-alert:<row>:no-enterer", opt("--idempotency-key") == "postcard-alert:%s:no-enterer" % V1)
+check("card: title and body carry row id, Directory, age, reason, next step", V1 in av[av.index("create") + 1] and "nowhere.example" in opt("--body") and "60h" in opt("--body") and "no-enterer" in opt("--body") and "RUNBOOK" in opt("--body"))
+check("CODE NEVER LEAKS (card argv, title and body)", CODE not in " ".join(av))
+calls.clear()
+go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {})
+check("card: same row on a second real run gives the same idempotency key", calls[0][0][calls[0][0].index("--idempotency-key") + 1] == "postcard-alert:%s:no-enterer" % V1)
+calls.clear()
+go(FakePortal(rows((V1, "a.example", 50)), {V1: CODE}), {"a.example": accept})
+check("card: 48h reason key when an enterer exists", len(calls) == 1 and calls[0][0][calls[0][0].index("--idempotency-key") + 1] == "postcard-alert:%s:48h" % V1)
+calls.clear()
+go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {}, dry=True)
+check("card: --dry makes no runner call", calls == [])
+
+def boom(argv, **kw): raise OSError("cannot run " + CODE)
+PS._card_runner = boom
+res, text = go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {})
+check("card: failing runner prints CARD FAILED with the type only, run continues", "POSTCARD ALERT CARD FAILED: OSError" in text and res[0].get("alerted") and CODE not in text and "cannot run" not in text)
+PS._card_runner = fake_runner
+
+_real_run = PS.run
+def _wired(**kw): return _real_run(portal=FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), now=NOW, **kw)
+PS.run = _wired
+_o, _e = io.StringIO(), io.StringIO()
+with contextlib.redirect_stdout(_o), contextlib.redirect_stderr(_e):
+    rc_real = PS.main([]); rc_dry = PS.main(["--dry"])
+PS.run = _real_run
+check("main: exit 1 and ALERT on stderr for a real run; exit 0 and no ALERT for --dry", rc_real == 1 and rc_dry == 0 and _e.getvalue().count("POSTCARD ALERT") == 1 and CODE not in _o.getvalue() + _e.getvalue())
+check("ENTERERS stays empty (no Directory registered)", PS.ENTERERS == {})
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)
