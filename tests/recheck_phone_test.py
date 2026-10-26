@@ -16,7 +16,7 @@ def check(n, c, d=""):
 
 FX = os.path.join(HERE, "fixtures", "recheck")
 def rd(n): return open(os.path.join(FX, n), encoding="utf-8").read()
-CANON = {"name": "Alder Care Consulting & Solutions", "address": "100 Example, Exampleton KY 40000", "phone": "(502) 555-0101"}
+CANON = {"name": "Alder Care Consulting & Solutions", "address": "100 Example Drive, Exampleton KY 40000", "phone": "(502) 555-0101"}
 
 # 1 hotfrog: the Verified ID uuid must not be read as a phone; structured data carries the phone
 h = rd("hotfrog.html"); c = R.compare(claim.html_to_text(h), CANON, h)
@@ -42,33 +42,33 @@ check("plain phone still read", R.phones_in(["Call (502) 555-0101 today"]) == ["
 check("dashed phone still read", R.phones_in(["502-555-0101"]) == ["5025550101"])
 
 # 5 masked phones
-MASK = "+127" + "*" * 4 + "2550"
+MASK = "+150" + "*" * 4 + "0101"
 check("masked visible digits agree -> True", R.masked_match(MASK, "5025550101") is True)
-check("masked visible digits disagree -> False", R.masked_match("+127" + "*" * 4 + "9999", "5025550101") is False)
+check("masked visible digits disagree -> False", R.masked_match("+150" + "*" * 4 + "9999", "5025550101") is False)
 check("not masked -> None", R.masked_match("(502) 555-0101", "5025550101") is None)
-page_txt = "Home\nAlder Care Consulting & Solutions\n%s\naldercare.example\n100 Example, 40000\nExampleton\nShow map\n" % MASK + "pad " * 80
+page_txt = "Home\nAlder Care Consulting & Solutions\n%s\naldercare.example\n100 Example Drive, 40000\nExampleton\nShow map\n" % MASK + "pad " * 80
 c = R.compare(page_txt, CANON)
 check("masked phone in text: match (masked), not mismatch or gap", c["verdict"] == "match" and c["masked"] and MASK in c["nap"], str(c))
 ld = '<script type="application/ld+json">{"telephone":["%s"]}</script>' % MASK
 c = R.compare(page_txt.replace(MASK, "Show phone"), CANON, ld)
 check("masked JSON-LD telephone: match (masked)", c["verdict"] == "match" and c["masked"], str(c))
-bad = '<a href="tel:+127%s9999">x</a>' % ("*" * 4)
+bad = '<a href="tel:+150%s9999">x</a>' % ("*" * 4)
 c = R.compare(page_txt, CANON, bad)
 check("masked phone whose visible digits disagree: mismatch phone", c["verdict"] == "mismatch" and c["wrong"][0][0] == "phone", str(c))
 rows = [{"row": "r", "before": "submitted", "after": "live", "verdict": "match", "fields": [], "error": None, "masked": True}]
 check("report line says match (masked)", "match (masked)" in R.format_report(rows))
 
 # 6 structured data wins over free text
-ld_ok = '<script type="application/ld+json">{"telephone":"+1 502 555 0101"}</script><a href="tel:+15025550101">c</a>'
-txt = "Home\nAlder Care Consulting & Solutions\n(502) 555-0101\n100 Example, Exampleton, KY 40000\n" + "pad " * 80
+ld_ok = '<script type="application/ld+json">{"telephone":"+1 502 555 0101"}</script><a href="tel:+16155550111">c</a>'
+txt = "Home\nAlder Care Consulting & Solutions\n(502) 555-0101\n100 Example Drive, Exampleton, KY 40000\n" + "pad " * 80
 c = R.compare(txt, CANON, ld_ok)
 check("structured tel agrees -> match even if a stray text phone differs", c["verdict"] == "match", str(c))
-ld_wrong = '<a href="tel:+15025550101">c</a>'
+ld_wrong = '<a href="tel:+16155550111">c</a>'
 c = R.compare(txt.replace("(502) 555-0101", "(502) 555-0101"), CANON, ld_wrong)
 check("structured tel differs -> mismatch phone", c["verdict"] == "mismatch" and c["wrong"][0][0] == "phone", str(c))
 
 # 7 name strictness kept (PR #28)
-typo = "Home\nSenior Care Consltng Solutions\n100 Example\nExampleton, KY 40000\n(502) 555-0101\n" + "pad " * 80
+typo = "Home\nAlder Care Consltng Solutions\n100 Example Drive\nExampleton, KY 40000\n(502) 555-0101\n" + "pad " * 80
 c = R.compare(typo, CANON)
 check("Consltng typo still mismatch name", c["verdict"] == "mismatch" and any(w[0] == "name" for w in c["wrong"]), str(c["wrong"]))
 good = typo.replace("Consltng Solutions", "Consulting & Solutions")
