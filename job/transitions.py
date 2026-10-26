@@ -110,6 +110,10 @@ def build_verification_record(client_id, directory, verify_type, day, deadline_d
     r = {"client_id": client_id, "directory": directory, "verification_type": verify_type, "state": "requires_verification"}
     if verify_type == "postcard":
         r["deadline"] = (datetime.date.fromisoformat(day) + datetime.timedelta(days=deadline_days)).isoformat()
+    if verify_type == "id-check":
+        # Plain instructions the client sees. Never a credential: the portal DB also refuses password/passcode text.
+        if steps: r["steps"] = list(steps)
+        if directory_url: r["directory_url"] = directory_url
     return r
 
 
