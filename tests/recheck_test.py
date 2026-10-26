@@ -182,6 +182,34 @@ with contextlib.redirect_stdout(io.StringIO()):
 check("R14 weekly step writes (write=True)", seen.get("write") is True)
 check("R14 recheck_step is wired into main()", "recheck_step()" in open(os.path.join(HERE, "..", "job", "run.py"), encoding="utf-8").read())
 
+# R15 (t_560dd259) entry pages are never read as the listing; the real listing_url is used instead
+for bad in ("https://a.example/add-business", "https://a.example/", "https://a.example/add/thankyou.php", "https://a.example/add-listing/",
+            "https://a.example/lookup/duns-found?flow=lookup&type=self", "https://a.example/get-listed/success", "https://a.example/register"):
+    check("R15 entry page %s is not a permalink" % bad, R._is_entry_page(bad))
+for good in ("https://a.example/business/54014582/alder-care", "https://a.example/37893637-alder-care-exampleton", "https://a.example/listing/1"):
+    check("R15 listing page %s is a permalink" % good, not R._is_entry_page(good))
+res, q, plain_calls, *_ = run([row("br", "a.example", "found", "https://a.example/add-business", listing_url=U1)], {U1: page_text()})
+check("R15 form page in evidence_url, real listing in listing_url: the listing is read and goes live", plain_calls == [U1] and q["fix_queue"][0]["state"] == "live", str(plain_calls))
+res, q, plain_calls, *_ = run([row("br", "a.example", "found", "https://a.example/")], {})
+check("R15 only the homepage on file: no permalink, nothing fetched", res[0]["verdict"] == "no-permalink" and not plain_calls)
+# R16 build Chrome down is named, not a bare 'unreadable'
+res, q, *_ = run([row("c1", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "Just a moment...")}, chrome_pages=None)
+check("R16 walled plain page and Chrome unreachable: unreadable, nothing written", res[0]["verdict"] == "unreadable" and not q["fix_queue"][0]["history"])
+class _PW:
+    def start(self): return self
+    class chromium:
+        @staticmethod
+        def connect_over_cdp(u): raise Exception("BrowserType.connect_over_cdp: connect ECONNREFUSED 127.0.0.1:9333")
+    def stop(self): pass
+import types as _t, sys as _s
+_s.modules["playwright"] = _t.ModuleType("playwright"); _sync = _t.ModuleType("playwright.sync_api"); _sync.sync_playwright = lambda: _PW(); _s.modules["playwright.sync_api"] = _sync
+cp = R.chrome_fetch("https://a.example/x")
+check("R16 CDP refused: error names the build Chrome and how to start it", cp.status == 0 and "build Chrome not reachable" in (cp.err or "") and "build_chrome.py" in cp.err, str(cp.err))
+res, q, *_ = run([row("c1", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "Just a moment...")}, chrome_pages=None)
+# the row error text carries the page error
+pg_, how = R.get_page(U1, lambda u: R.Page(403, u, "Just a moment..."), lambda u: cp, CANON)
+check("R16 get_page falls back to Chrome and reports the route", how == "chrome")
+
 # R13 read-only module
 src = open(os.path.join(HERE, "..", "job", "recheck.py"), encoding="utf-8").read()
 check("R13 module has no Directory write verb, click/fill/type, or portal seed", not re.search(r"\.(post|put|patch|delete)\(|\.click\(|\.fill\(|\.type\(|\.check\(", src, re.I) and "seed" not in src.lower())

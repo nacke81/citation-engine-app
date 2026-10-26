@@ -1,0 +1,213 @@
+"""Replayable listing-build runner (t_560dd259). One runner, one small module per site.
+
+A site is a list of Steps. Each step has a KIND:
+  read    only loads / reads pages (safe in a dry run)
+  fill    types into forms in the build Chrome but sends nothing to the Directory
+  mail    reads the listings@ mailbox (read-only: EXAMINE + BODY.PEEK) and opens the link
+  submit  anything that writes to the Directory (form submit, plan pick, dashboard save)
+`--dry-run` runs steps until the FIRST `submit` or `mail` step and stops there, so nothing is created and no mail is waited on.
+`--live` is refused unless `--card <id>` names the Nate card that authorizes the build (it creates a Directory account).
+Browser: the build Chrome on CDP 9333 (job/build_chrome.py). Passwords: never in this file; `vault_fill()` calls the skill's vaultwarden-cli-fill.js
+(`--cdp`, `--item-id` or `--name`) which reads the vault item and sets the field in the page. The runner never sees or prints the password.
+Mail: hotfrog.ImapMailbox over LISTINGS_IMAP_* (read-only).
+
+  python job/build_runner.py find-us-here --dry-run
+  python job/build_runner.py freelistingusa --dry-run
+  python job/build_runner.py hotfrog --dry-run
+  python job/build_runner.py <site> --live --card t_xxxx [--item-id <vault id>] [--only step,step]
+
+A NEW SITE needs: one module job/playbooks/<site>.py exporting SITE = Site(name, domain, steps, vault_item, mail=None) where each step is
+`Step(name, kind, fn)` and fn(ctx) uses ctx.page (Playwright page), ctx.nap (name/street/city/st/zip/phone/site/email/first/last/description),
+ctx.vault_fill(selector, url), ctx.mail_link(), ctx.state; plus one line in SITES below and a test with a fake page. Nothing else changes.
+"""
+import email, html, importlib, json, os, re, subprocess, sys, time
+from email.header import decode_header, make_header
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "playbooks"))
+import pagekit as PK
+from build_core import BuildError, Step, Site, KINDS
+
+CDP_URL = "http://127.0.0.1:9333"
+STOP_IN_DRY_RUN = ("mail", "submit")
+SITES = {"find-us-here": "find_us_here", "freelistingusa": "freelistingusa", "hotfrog": "hotfrog_build"}
+ORG, COLLECTION = "Senior Care Consulting", "Citations"
+FILL_JS = os.environ.get("CE_FILL_JS") or os.path.expandvars("%LOCALAPPDATA%/hermes/profiles/citation-submitter/skills/devops/vaultwarden-cli-write/scripts/vaultwarden-cli-fill.js")
+STATE_NAMES = {"KY": "Kentucky", "TN": "Tennessee"}
+
+
+def nap_from_identity(ident, contact="Lea Ann Klarner", email_addr="listings@seniorcaresolutions.co", description=None):
+    """The approved identity -> the dict the steps use. Name/address/phone come from the identity file, never from a site module."""
+    x = ident["BIZ"]["SCC"]
+    p = re.sub(r"\D", "", x["phones"][0])[-10:]
+    first, last = (contact.rsplit(" ", 1) + [""])[:2] if " " in contact else (contact, "")
+    return {"name": x["name"], "street": x["street"], "city": x["city"], "st": x["st"], "zip": x["zip"], "phone": "%s-%s-%s" % (p[:3], p[3:6], p[6:]),
+            "site": x.get("site") or "https://seniorcaresolutions.co", "email": email_addr, "contact": contact, "first": first, "last": last,
+            "description": description or "Senior care consulting for families in %s, %s and the surrounding area." % (x["city"], STATE_NAMES.get(x["st"], x["st"])), "state_name": STATE_NAMES.get(x["st"], x["st"])}
+
+
+# ---- mail ------------------------------------------------------------------------------------------------------------
+def extract_link(raw, link_re):
+    """First link matching link_re in a raw message (text or html parts, QP decoded, &amp; unescaped)."""
+    msg = email.message_from_bytes(raw) if isinstance(raw, bytes) else email.message_from_string(raw)
+    rx = re.compile(link_re)
+    for part in msg.walk():
+        if part.get_content_type() not in ("text/plain", "text/html"): continue
+        body = part.get_payload(decode=True)
+        if not body: continue
+        m = rx.search(html.unescape(body.decode(part.get_content_charset() or "utf-8", "replace")))
+        if m: return m.group(0)
+    return None
+
+
+def make_mailbox(sender, link_re, env=None, imap_cls=None):
+    import hotfrog as H
+    kw = {"imap_cls": imap_cls} if imap_cls else {}
+    return H.ImapMailbox(env, extract=lambda raw: extract_link(raw, link_re), sender_hint=sender, **kw)
+
+
+# ---- context -----------------------------------------------------------------------------------------------------------
+class Ctx:
+    def __init__(self, site, page, nap, *, mailbox=None, runner=None, item_id=None, cdp=CDP_URL, dry_run=True, sleep=time.sleep, now=time.time,
+                 poll_seconds=180, poll_every=10, log=print):
+        self.site, self.page, self.nap, self.mailbox, self.item_id, self.cdp, self.dry_run = site, page, nap, mailbox, item_id, cdp, dry_run
+        self._runner, self.sleep, self.now, self.poll_seconds, self.poll_every, self.log = runner or subprocess.run, sleep, now, poll_seconds, poll_every, log
+        self.state, self._base_uid = {}, None
+
+    # Vaultwarden: the helper reads the item and sets the field in the page; stdout is `fill=success ...` only.
+    def vault_fill(self, selector, url):
+        url = url.split("#")[0]   # an ad adds #google_vignette; the helper ignores fragments, but never pass one on
+        cmd = ["node", FILL_JS, "--organization", ORG, "--collection", COLLECTION, "--url", url, "--field", selector, "--cdp", self.cdp]
+        cmd += ["--item-id", self.item_id] if self.item_id else ["--name", self.site.vault_item]
+        if self.dry_run: cmd = [c for c in cmd if c not in ("--field", selector)] + ["--lookup-only"]
+        r = self._runner(cmd, capture_output=True, text=True, timeout=180)
+        out = ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()
+        if getattr(r, "returncode", 1) != 0:
+            last = (out.splitlines()[-1] if out else "no output")[:200]
+            # A dry run only LOOKS the item up. A seat without vault credentials cannot do that; say so, do not fail the whole dry run.
+            if self.dry_run and re.search(r"reason=(profile-env-unavailable|credentials-unavailable|bw-cli-missing)", last):
+                return "vault lookup skipped in dry run (%s)" % last.split("reason=")[-1]
+            raise BuildError("vault fill failed: %s" % last)
+        return out.splitlines()[-1] if out else "ok"
+
+    def mail_link(self):
+        if not self.mailbox or not self.site.mail: raise BuildError("%s has no mailbox configured" % self.site.name)
+        if self._base_uid is None: self._base_uid = self.state.get("mail_base", 0)
+        deadline = self.now() + self.poll_seconds
+        while self.now() < deadline:
+            found = self.mailbox.newest_verify_link(since_uid=self._base_uid)
+            if found: return found[1]
+            self.sleep(self.poll_every)
+        raise BuildError("no %s mail at listings@ within %ds" % (self.site.mail["sender"], self.poll_seconds))
+
+    def click(self, selector, **kw):
+        """Click after clearing ad overlays (ins / google_ads / #google_vignette intercept clicks)."""
+        PK.clear_ads(self.page)
+        self.page.locator(selector).first.click(timeout=kw.get("timeout", 15000))
+
+    def fill_first(self, value, *selectors):
+        """Fill the first selector that exists (sites rename fields between forms). BuildError when none does."""
+        for s in selectors:
+            if self.page.locator(s).count():
+                self.page.locator(s).first.fill(value); return s
+        raise BuildError("%s form changed: none of %s found" % (self.site.name, ", ".join(selectors)))
+
+    def pick(self, selector, label, wait_next=None, timeout_ms=15000):
+        """select_option by visible label; then wait until `wait_next` (a dependent <select>) has loaded options via JS."""
+        self.page.select_option(selector, label=label)
+        if wait_next:
+            waited = 0
+            while waited < timeout_ms and int(self.page.evaluate("s => (document.querySelector(s) || {options: []}).options.length", wait_next)) <= 1:
+                self.page.wait_for_timeout(500); waited += 500
+            if waited >= timeout_ms: raise BuildError("%s did not load options after choosing %s" % (wait_next, label))
+
+    def need(self, *selectors, wait_ms=15000):
+        """Every selector must exist. Polls up to wait_ms first: an interstitial that clears by itself reloads the page under us."""
+        for s in selectors:
+            waited = 0
+            while self.page.locator(s).count() == 0:
+                if waited >= wait_ms: raise BuildError("%s form changed: %s not found" % (self.site.name, s))
+                self.page.wait_for_timeout(500); waited += 500
+
+
+# ---- run ----------------------------------------------------------------------------------------------------------------
+def run_site(site, ctx, only=None):
+    """-> {site, mode, steps:[{name, kind, status, detail}], stopped_before}. Raises nothing for a failed step: it is recorded and the run stops there."""
+    res = {"site": site.name, "mode": "dry-run" if ctx.dry_run else "live", "steps": [], "stopped_before": None, "ok": True}
+    if not ctx.dry_run and site.mail and ctx.mailbox is not None:
+        try: ctx.state["mail_base"] = ctx.mailbox.max_uid()
+        except Exception as e: res["steps"].append({"name": "mail_baseline", "kind": "read", "status": "failed", "detail": str(e)[:200]}); res["ok"] = False; return res
+    for st in site.steps:
+        if only and st.name not in only: continue
+        if ctx.dry_run and st.kind in STOP_IN_DRY_RUN:
+            res["stopped_before"] = st.name; break
+        try:
+            detail = st.fn(ctx)
+            res["steps"].append({"name": st.name, "kind": st.kind, "status": "ok", "detail": PK.redact(str(detail)) if detail is not None else ""})
+        except Exception as e:
+            res["steps"].append({"name": st.name, "kind": st.kind, "status": "failed", "detail": PK.redact(str(e))[:300]}); res["ok"] = False; break
+    return res
+
+
+def format_result(res):
+    lines = ["%s [%s]" % (res["site"], res["mode"])]
+    for s in res["steps"]: lines.append("  %-7s %-22s %-6s %s" % (s["kind"], s["name"], s["status"], s["detail"][:110]))
+    if res["stopped_before"]: lines.append("  -- dry run stopped BEFORE step '%s' (nothing was submitted)" % res["stopped_before"])
+    lines.append("  result: %s" % ("ok" if res["ok"] else "FAILED"))
+    return "\n".join(lines)
+
+
+def load_site(name):
+    if name not in SITES: raise BuildError("unknown site %r; known: %s" % (name, ", ".join(SITES)))
+    return importlib.import_module(SITES[name]).SITE
+
+
+def connect(cdp, fresh=False):
+    """-> (playwright, page, closer). fresh=True (dry runs): an isolated context with no cookies, so a signed-in build profile does not redirect /register
+    and nothing from the dry run lands in the persistent profile. Live runs use the persistent context (logins survive between batches)."""
+    from playwright.sync_api import sync_playwright
+    p = sync_playwright().start()
+    try:
+        b = p.chromium.connect_over_cdp(cdp)
+    except Exception as e:
+        p.stop(); raise BuildError("build Chrome not reachable on %s (python job/build_chrome.py)" % cdp) from e
+    if fresh:
+        c = b.new_context()
+        return p, c.new_page(), c.close
+    pg = b.contexts[0].new_page()
+    return p, pg, pg.close
+
+
+def main(argv=None):
+    import argparse
+    a = argparse.ArgumentParser(description="Scripted listing build (build Chrome, CDP 9333)")
+    a.add_argument("site", choices=sorted(SITES))
+    g = a.add_mutually_exclusive_group(required=True)
+    g.add_argument("--dry-run", action="store_true", help="read and fill only; stop before the first submit/mail step")
+    g.add_argument("--live", action="store_true", help="create the listing; needs --card")
+    a.add_argument("--card", default=None, help="the Nate card that authorizes a live build")
+    a.add_argument("--cdp", default=CDP_URL)
+    a.add_argument("--item-id", default=None, help="Vaultwarden item id (when two items share the name)")
+    a.add_argument("--only", default=None, help="comma list of step names")
+    n = a.parse_args(argv)
+    if n.live and not n.card: raise SystemExit("--live is refused without --card <id> (a Directory account is written)")
+    site = load_site(n.site)
+    from cfg import IDENT
+    nap = nap_from_identity(IDENT)
+    mailbox = None
+    if site.mail and n.live:
+        mailbox = make_mailbox(site.mail["sender"], site.mail["link_re"])
+    pw, page, close = connect(n.cdp, fresh=not n.live)
+    try:
+        ctx = Ctx(site, page, nap, mailbox=mailbox, item_id=n.item_id, cdp=n.cdp, dry_run=not n.live)
+        res = run_site(site, ctx, set(n.only.split(",")) if n.only else None)
+    finally:
+        try: close()
+        except Exception: pass
+        pw.stop()
+    print(format_result(res))
+    return 0 if res["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
