@@ -44,7 +44,7 @@ class TransitionRefused(Exception):
     pass
 
 
-NOTE_ONLY_STATES = ("found", "needs-human")  # a same-state move is a note refresh on a parked row; needs a note
+NOTE_ONLY_STATES = ("found", "needs-human", "submitted", "pending-verify")  # a same-state move is a note refresh on a waiting row (the weekly recheck names a wrong field); needs a note
 
 
 def check_transition(old, new, note=None):
@@ -163,6 +163,22 @@ def portal_payload_for(base, row, day):
     return Q.overlay_directories(base, [row], day)
 
 
+def full_portal_payload(base, q, new_row, day):
+    """Snapshot overlay from ALL live / pending-verify / submitted queue rows (each at its own last history date), then the moved row.
+    A single transition therefore never drops another row's state from the snapshot (t_bb08988c needed an ad hoc rewrite for this)."""
+    if base is None:
+        base = {"directories": []}
+    payload = base
+    for _key, _kind, rows in _row_lists(q):
+        for r in rows:
+            if r.get("id") == new_row.get("id") or r.get("state") not in Q.LISTING_STATES:
+                continue
+            hist = r.get("history") or []
+            at = (hist[-1].get("at") if hist and isinstance(hist[-1], dict) else None) or day
+            payload = Q.overlay_directories(payload, [r], at)
+    return Q.overlay_directories(payload, [new_row], day)
+
+
 def build_activity_record(client_id, row, new, evidence_url, day):
     return {"client_id": client_id, "deliverable_type": "citation", "title": activity_title(new, row["directory"]),
             "date_completed": day, "in_scope": True, "units": 1, "evidence_url": evidence_url,
@@ -203,10 +219,11 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     assert new_row.get("mike_approval") == approval_before  # never touched
 
     out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "errors": []}
-    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day) if new_state in ACTIVITY_STATES else None
+    same_state = old == new_state  # note refresh: no client news, no Activities row
+    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day) if new_state in ACTIVITY_STATES and not same_state else None
     out["activity_record"] = rec
     out["activities_written"] = False
-    use_act = activities_enabled(activities_flag) and new_state in ACTIVITY_STATES
+    use_act = activities_enabled(activities_flag) and new_state in ACTIVITY_STATES and not same_state
     out["activities_flag_on"] = use_act
     ver_rec = build_verification_record(client_id, row["directory"], verify_type, day, verify_deadline_days) if verify_type else None
     out["verification_record"] = ver_rec
@@ -242,7 +259,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         latest = portal.latest_snapshot(client_id)
         base = latest["payload"] if latest else None
         if base is None: raise P.PortalWriteError("no existing SCC snapshot to overlay; run the weekly scan first")
-        portal.upsert_snapshot(client_id, day, portal_payload_for(base, new_row, day))
+        portal.upsert_snapshot(client_id, day, full_portal_payload(base, q, new_row, day))
         out["portal_written"] = True
     except Exception as e:
         out["portal_written"] = False

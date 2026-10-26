@@ -290,7 +290,22 @@ def main():
     buildrows_step(checks, datetime.now().date().isoformat())  # one row per Directory; adds missing rows only, never resets one; non-fatal
     directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
     proof_step_if_ok(ok_run, checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
+    recheck_step()  # public-page recheck of submitted / pending-verify / found rows with a permalink; read-only, non-fatal
     return 0 if (ok_run and portal_ok) else 1
+
+
+def recheck_step(run=None, **kw):
+    """Weekly recheck of waiting rows (job/recheck.py): match -> live, mismatch -> same-state note. GET/read only toward Directories. Never changes the exit code."""
+    try:
+        import recheck as RC
+        res = (run or RC.recheck_file)(write=True, **kw)
+        print("RECHECK OK", json.dumps([{k: r[k] for k in ("row", "before", "after", "verdict")} for r in res]), flush=True)
+        errs = [r for r in res if r.get("error") and r.get("verdict") != "unreadable"]
+        for r in errs: print("RECHECK ROW FAILED: %s: %s" % (r["row"], r["error"]), file=sys.stderr, flush=True)
+        return not errs
+    except Exception as e:
+        print("RECHECK FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
 
 
 def directories_step(checks, day, db=None, queue=None):

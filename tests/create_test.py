@@ -79,8 +79,14 @@ class FakeF:  # offline fetcher: acompio zero results + Walmart control, everyth
 tmpq = os.path.join(tempfile.mkdtemp(), "q.json"); json.dump(copy.deepcopy(base_q), open(tmpq, "w"))
 cd.weekly_merge(tmpq, FakeF(), "2026-10-19"); a = open(tmpq).read(); cd.weekly_merge(tmpq, FakeF(), "2026-10-19"); b = open(tmpq).read()
 check("M6 weekly_merge on a file twice: byte-identical, 1 row", a == b and len(json.loads(b)["create_queue"]["rows"]) == 1)
-import run as RUN  # noqa: E402
-check("M7 run.create_queue_step failure is non-fatal", RUN.create_queue_step(merge=lambda p: 1 / 0, path="x") is False)
+import run as RUN, io, contextlib  # noqa: E402
+# M7 forces a failure on purpose (1/0). create_queue_step prints "CREATE QUEUE FAILED: division by zero" to stderr; under the agent runner that line read as a real
+# failure while the exit code was 0 (t_64c4d511). Capture it, assert it, and never let it reach the real stderr.
+_err = io.StringIO()
+with contextlib.redirect_stderr(_err):
+    _m7 = RUN.create_queue_step(merge=lambda p: 1 / 0, path="x")
+check("M7 run.create_queue_step failure is non-fatal", _m7 is False)
+check("M7 the deliberate failure is reported on stderr (captured, not printed)", "CREATE QUEUE FAILED: division by zero" in _err.getvalue())
 check("M7 run.create_queue_step ok", RUN.create_queue_step(merge=lambda p: ({D: {"state": "absent"}}, [row]), path="x") is True)
 
 src = open(os.path.join(HERE, "..", "job", "create_discovery.py"), encoding="utf-8").read()
@@ -91,4 +97,4 @@ check("C5 only search URLs fetched (no login/signup/add path in search builders)
 check("C5 SCC is the only business", cd.BIZ_KEY == "SCC")
 
 print("%d/%d passed" % (sum(ok), len(ok)))
-sys.exit(0 if all(ok) else 1)
+sys.exit(0 if ok and all(ok) else 1)   # no checks run (empty list) is a failure too
