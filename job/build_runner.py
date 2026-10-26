@@ -73,6 +73,9 @@ class Ctx:
         self.site, self.page, self.nap, self.mailbox, self.item_id, self.cdp, self.dry_run = site, page, nap, mailbox, item_id, cdp, dry_run
         self._runner, self.sleep, self.now, self.poll_seconds, self.poll_every, self.log = runner or subprocess.run, sleep, now, poll_seconds, poll_every, log
         self.state, self._base_uid = {}, None
+        self.lease = None  # chrome_keepalive.Lease: refreshed before every step so the build Chrome timer does not fire (t_d7a907d5)
+        self.chrome_check = None   # callable() -> "up" | "restarted"; None in tests / non-9333 endpoints
+        self.reconnect = None      # callable() -> new page after a restart
 
     # Vaultwarden: the helper reads the item and sets the field in the page; stdout is `fill=success ...` only.
     def vault_fill(self, selector, url):
@@ -137,12 +140,22 @@ def run_site(site, ctx, only=None):
     if not ctx.dry_run and site.mail and ctx.mailbox is not None:
         try: ctx.state["mail_base"] = ctx.mailbox.max_uid()
         except Exception as e: res["steps"].append({"name": "mail_baseline", "kind": "read", "status": "failed", "detail": str(e)[:200]}); res["ok"] = False; return res
+    last_open = None
     for st in site.steps:
         if only and st.name not in only: continue
         if ctx.dry_run and st.kind in STOP_IN_DRY_RUN:
             res["stopped_before"] = st.name; break
         try:
+            # Before every step: hold the lease and make sure the build Chrome still answers. If it died (batch 9 lost CDP 9333), restart it on the SAME
+            # profile (logins kept), take a fresh page, and replay the last page-open step so this step has a page to work on.
+            if ctx.lease is not None: ctx.lease.touch()
+            if ctx.chrome_check is not None and ctx.chrome_check() == "restarted":
+                if ctx.reconnect is None: raise BuildError("build Chrome had exited and was restarted, but this run cannot reconnect; rerun the build")
+                ctx.page = ctx.reconnect()
+                res["steps"].append({"name": "chrome_restart", "kind": "read", "status": "ok", "detail": "build Chrome had exited; restarted on the same profile"})
+                if last_open is not None: last_open.fn(ctx)
             detail = st.fn(ctx)
+            if st.kind == "read": last_open = st
             res["steps"].append({"name": st.name, "kind": st.kind, "status": "ok", "detail": PK.redact(str(detail)) if detail is not None else ""})
         except Exception as e:
             res["steps"].append({"name": st.name, "kind": st.kind, "status": "failed", "detail": PK.redact(str(e))[:300]}); res["ok"] = False; break
@@ -157,15 +170,29 @@ def format_result(res):
     return "\n".join(lines)
 
 
-def load_site(name):
-    if name not in SITES: raise BuildError("unknown site %r; known: %s" % (name, ", ".join(SITES)))
-    return importlib.import_module(SITES[name]).SITE
+def all_sites(spec_dir=None):
+    """Python site modules plus every job/playbooks/<site>.json spec (t_d7a907d5)."""
+    import formspec
+    return sorted(set(SITES) | set(formspec.list_specs(spec_dir)))
+
+
+def load_site(name, spec_dir=None):
+    """A registered Python module wins; otherwise job/playbooks/<name>.json is built into the same Site/Step shape (formspec.py)."""
+    if name in SITES: return importlib.import_module(SITES[name]).SITE
+    import formspec
+    if formspec.has_spec(name, spec_dir): return formspec.load_site(name, spec_dir)
+    raise BuildError("unknown site %r; known: %s" % (name, ", ".join(all_sites(spec_dir))))
 
 
 def connect(cdp, fresh=False):
     """-> (playwright, page, closer). fresh=True (dry runs): an isolated context with no cookies, so a signed-in build profile does not redirect /register
     and nothing from the dry run lands in the persistent profile. Live runs use the persistent context (logins survive between batches)."""
     from playwright.sync_api import sync_playwright
+    import chrome_keepalive as KA
+    port = int(cdp.rsplit(":", 1)[-1].strip("/") or KA.PORT)
+    if port == KA.PORT:
+        try: KA.ensure_up(port)   # same persistent build profile, logins kept
+        except RuntimeError as e: raise BuildError(str(e)) from e
     p = sync_playwright().start()
     try:
         b = p.chromium.connect_over_cdp(cdp)
@@ -181,7 +208,7 @@ def connect(cdp, fresh=False):
 def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Scripted listing build (build Chrome, CDP 9333)")
-    a.add_argument("site", choices=sorted(SITES))
+    a.add_argument("site", help="a registered site or a job/playbooks/<site>.json spec; known: " + ", ".join(all_sites()))
     g = a.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true", help="read and fill only; stop before the first submit/mail step")
     g.add_argument("--live", action="store_true", help="create the listing; needs --card")
@@ -197,11 +224,25 @@ def main(argv=None):
     mailbox = None
     if site.mail and n.live:
         mailbox = make_mailbox(site.mail["sender"], site.mail["link_re"])
+    import chrome_keepalive as KA
+    lease = KA.Lease(n.card or "dry-run:" + n.site)   # the --seconds timer in build_chrome.py does not fire while this is fresh
+    lease.touch()
     pw, page, close = connect(n.cdp, fresh=not n.live)
     try:
         ctx = Ctx(site, page, nap, mailbox=mailbox, item_id=n.item_id, cdp=n.cdp, dry_run=not n.live)
+        ctx.lease = lease
+        if int(n.cdp.rsplit(":", 1)[-1].strip("/") or 0) == KA.PORT:
+            ctx.chrome_check = lambda: KA.ensure_up(KA.PORT)
+            def _reconnect():
+                nonlocal pw, close
+                try: pw.stop()
+                except Exception: pass
+                pw, pg2, close = connect(n.cdp, fresh=not n.live)
+                return pg2
+            ctx.reconnect = _reconnect
         res = run_site(site, ctx, set(n.only.split(",")) if n.only else None)
     finally:
+        lease.__exit__()
         try: close()
         except Exception: pass
         pw.stop()

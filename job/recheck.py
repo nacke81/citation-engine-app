@@ -13,8 +13,8 @@ A note identical to the row's last history note is not written again, so a weekl
   python job/recheck.py [--queue PATH] [--write] [--include-live] [--row ID ...] [--no-chrome]
 Without --write nothing is written (dry run); the report still shows before -> after and any mismatch.
 """
-import json, os, re, sys, urllib.request, urllib.error
-from urllib.parse import quote, urljoin
+import html, json, os, re, sys, urllib.request, urllib.error
+from urllib.parse import quote, urljoin, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buildqueue as Q
@@ -107,18 +107,52 @@ def _digits(s): return re.sub(r"\D", "", s or "")
 def read_block(text, canonical):
     """The listing's own lines: from the first short line carrying the canonical name to the next stop marker. [] when no such line."""
     lines = [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
-    want = F._norm_name(canonical["name"])
+    want, want_x = F._norm_name(canonical["name"]), exact_name(canonical["name"])
+    fuzzy = None
     for i, l in enumerate(lines):
         if len(l) > 120: continue
         l2 = re.sub(r"^\d+\.\s*", "", l)
-        if want in F._norm_name(l2) or (len(l2) <= 90 and L._name_hit(l2, canonical["name"])):
-            out = [l2]
-            for l3 in lines[i + 1:]:
-                if F.STOP_RE.match(l3): break
-                out.append(l3)
-                if len(out) > 120: break
-            return out
-    return []
+        if NOTFOUND_RE.match(l2): continue   # "We couldn't find 'Name'" is a not-found page quoting our name, not a listing
+        if exact_name(l2) == want_x: return _block_from(lines, i, l2)   # an exact line wins over a near miss
+        shown = fuzzy is None and near_miss(l2, canonical["name"])
+        if shown:
+            fuzzy = _block_from(lines, i, shown)   # near miss (typo): still read, compare() reports name as the mismatch
+    return fuzzy or []
+
+
+def near_miss(line, name, threshold=0.85):
+    """The text of `line` that reads like `name` with a typo / dropped word, or None. A different business is not a near miss (ratio too low).
+    Also tries the tail of a run-together line (breadcrumbs render as 'HomeKYTownCategoryName'). Returns the name-sized text, not the whole line."""
+    import difflib
+    w = exact_name(name); x = exact_name(line)
+    if not w or not x: return None
+    if w in x and len(x) <= len(w) + 12: return line
+    for cand, orig in ((x, line), (x[-(len(w) + 2):], line[-(len(w) + 4):].strip())):
+        r = difflib.SequenceMatcher(None, w, cand).ratio()
+        # close spelling, or most of the name's words (a dropped word) with a still-similar string; a different business fails both
+        if r >= threshold or (r >= 0.7 and len(line) <= 90 and L._name_hit(line, name)):
+            out = orig if len(orig) <= len(name) + 12 and orig is line else orig[-(len(name) + 6):].strip()
+            return re.sub(r"^[a-z]+(?=[A-Z])", "", out)   # drop a cut-off word fragment ("oachesSenior Care ...")
+    return None
+
+
+NOTFOUND_RE = re.compile(r"(?i)^(we (could not|couldn'?t|can'?t) find|no (results|listings?|businesses) (found|for|match)|sorry,? (we|no)|nothing (found|matched)|0 results|your search .{0,60}(did not|didn'?t) match)")
+
+
+def exact_name(s):
+    """Name as compared for a citation match: case, whitespace and &/&amp;/and only. A typo ('Consltng'), a dropped word or 'LLC' is a different name (t_d7a907d5)."""
+    s = html.unescape(s or "").lower().replace("&", " and ")
+    s = re.sub(r"\band\b", " ", s)
+    return " ".join(s.split())
+
+
+def _block_from(lines, i, first):
+    out = [first]
+    for l3 in lines[i + 1:]:
+        if F.STOP_RE.match(l3): break
+        out.append(l3)
+        if len(out) > 120: break
+    return out
 
 
 def compare(text, canonical):
@@ -127,6 +161,8 @@ def compare(text, canonical):
     if not block:
         return {"verdict": "unreadable", "wrong": [], "gaps": [], "nap": None}
     wrong, gaps = [], []
+    if exact_name(block[0]) != exact_name(canonical["name"]):
+        wrong.append(("name", block[0]))   # 'Senior Care Consltng Solutions' is not our name (t_d7a907d5)
     want_phone = _digits(canonical["phone"])[-10:]
     shown = F.phones_in(block)
     if shown:
@@ -144,7 +180,11 @@ def compare(text, canonical):
         czip = re.search(r"\b(\d{5})\b", canonical["address"])
         street_txt_norm = " ".join(F._tok(got[0]))
         want_norm = " ".join(F._tok(canonical["address"].split(",")[0]))
-        same = F.street_equal(got[1], cstreet) or street_txt_norm.startswith(want_norm)   # street and city on one line
+        # exact street: number, name, type (Drive/Dr only) and unit via street_equal; "street + city on one line" must continue with the city, not extra words
+        ccity = F._tok(canonical["address"].split(",")[1])[:1] if canonical["address"].count(",") >= 1 else []
+        rest = street_txt_norm[len(want_norm):].split() if street_txt_norm.startswith(want_norm + " ") or street_txt_norm == want_norm else None
+        same = F.street_equal(got[1], cstreet) or (rest is not None and (not rest or rest[:1] == ccity))   # one line: street + city
+        if same and rest is None and cstreet.get("type") and got[1].get("type") != cstreet["type"]: same = False   # exact: Drive == Dr only; a dropped type is a different street
         if not same or (got[2] and czip and got[2] != czip.group(1)):
             wrong.append(("address", got[0] if (got[2] or "") in got[0] else got[0] + ((" " + got[2]) if got[2] else "")))
     elif not got:
@@ -164,7 +204,7 @@ def note_for(cmp_):
 # Pages that are the way INTO a Directory (add / register / claim / thank-you / lookup / the bare homepage), never the listing itself. A row's
 # evidence_url often holds one of these (brownbook /add-business, showmelocal /, dnb lookup, discoverourtown thankyou.php) while the real
 # listing lives in listing_url. Reading the form page was the "unreadable" of batch 8 (t_560dd259).
-ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing)([/?#.]|$)|thankyou|[?&]flow=lookup")
+ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing|payment(\.php)?|checkout|submission)([/?#.]|$)|thankyou|[?&]flow=lookup")
 
 
 def _is_entry_page(url):
@@ -191,6 +231,34 @@ def resolve_bbb(page, ident, biz="SCC"):
     x = ident["BIZ"][biz]
     url, kind = L.resolve("bbb.org", page.url, page.links, x["name"], x.get("phones") or ())
     return url if (url and kind == "listing" and "/profile/" in url) else None
+
+
+def search_url_for(directory, ident, biz="SCC", cat_rows=None):
+    """Name + city search URL on the Directory itself: the create-discovery builder, else the Catalog template ({name},{short},{city},{st}). None when neither exists."""
+    from urllib.parse import quote_plus as qp
+    x = ident["BIZ"][biz]
+    try:
+        import create_discovery as CD
+        cfg = CD.CREATE_DIRS.get(directory)
+        if cfg and cfg.get("search"): return cfg["search"](x["name"])
+    except Exception:
+        pass
+    if cat_rows is None:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "db", "directories_seed.json"), encoding="utf-8") as f: cat_rows = {r["domain"]: r for r in json.load(f)}
+        except Exception:
+            cat_rows = {}
+    tpl = (cat_rows.get(directory) or {}).get("search_url_template")
+    if not tpl: return None
+    return tpl.replace("{name}", qp(x["name"])).replace("{short}", qp(x.get("short") or x["name"])).replace("{city}", qp(x["city"])).replace("{st}", qp(x["st"]))
+
+
+def resolve_by_search(directory, page, ident, biz="SCC"):
+    """A listing permalink from a Directory's own search-results page: a same-host link whose card names the business (listing.resolve). None when absent."""
+    x = ident["BIZ"][biz]
+    url, kind = L.resolve(directory, page.url, page.links, x["name"], x.get("phones") or ())
+    host = lambda u: (urlparse(u).netloc or "").lower().replace("www.", "")
+    return url if (url and kind == "listing" and host(url) == host(directory if "/" in directory else "https://" + directory) and not _is_entry_page(url)) else None
 
 
 def candidates(q, include_live=False, only=None):
@@ -236,6 +304,14 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
                     note = "weekly recheck: found the BBB profile URL"
                     if write: record("SCC", rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
                     res["note"] = note
+            if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
+                su = search_url_for(d, ident)
+                if su:
+                    sp, _how = get_page(su, plain, chrome)
+                    url = resolve_by_search(d, sp, ident)
+                    if url:
+                        res["note"] = "recheck: found the listing URL by name + city search"
+                        if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
             if url is None:
                 res["verdict"] = "no-permalink"; continue
             res["url"] = url

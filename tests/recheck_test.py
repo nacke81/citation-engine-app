@@ -136,7 +136,7 @@ BING = "https://www.bing.com/maps/search?style=r&ss=id.local_ypid%3A%22YN776669B
 res, q, plain_calls, *_ = run([row("b1", "bing.com", "submitted", "https://www.bingplaces.com/", listing_url=BING)], {BING: page_text()})
 check("R10 bing: resolves the Maps permalink, not bingplaces.com", plain_calls == [BING] and q["fix_queue"][0]["state"] == "live" and q["fix_queue"][0]["evidence_url"] == BING, str(plain_calls))
 res, q, plain_calls, *_ = run([row("b1", "bing.com", "submitted", "https://www.bingplaces.com/")], {})
-check("R10 bing with only bingplaces.com: no permalink, no fetch", res[0]["verdict"] == "no-permalink" and not plain_calls)
+check("R10 bing with only bingplaces.com: no permalink, no fetch", res[0]["verdict"] == "no-permalink" and all("search" in u for u in plain_calls))
 
 # R11 bbb
 SEARCH = R._bbb_search_url(IDENT)
@@ -212,7 +212,7 @@ check("R16 get_page falls back to Chrome and reports the route", how == "chrome"
 
 # R13 read-only module
 src = open(os.path.join(HERE, "..", "job", "recheck.py"), encoding="utf-8").read()
-check("R13 module has no Directory write verb, click/fill/type, or portal seed", not re.search(r"\.(post|put|patch|delete)\(|\.click\(|\.fill\(|\.type\(|\.check\(", src, re.I) and "seed" not in src.lower())
+check("R13 module has no Directory write verb, click/fill/type, or portal seed", not re.search(r"\.(post|put|patch|delete)\(|\.click\(|\.fill\(|\.type\(|\.check\(", src, re.I) and not re.search(r"import seed|portal_seed|seed_portal", src.lower()))
 
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

@@ -1,0 +1,26 @@
+{
+  "site": "citylocalpro",
+  "domain": "citylocalpro.com",
+  "vault_item": "SCC - citylocalpro.com",
+  "steps": [
+    {"name": "open_form", "do": "open", "url": "https://citylocalpro.com/add-your-business",
+     "expect": ["input[name=name]", "input[name=email]", "input[name=password]", "input[name=company_name]", "textarea[name=company_description]", "input[name=term]"]},
+    {"do": "clear_ads"},
+    {"name": "fill_contact_name", "do": "fill", "selector": "input[name=name]", "key": "contact"},
+    {"name": "fill_contact_phone", "do": "fill", "selector": "input[name=phone]", "key": "phone"},
+    {"name": "fill_email", "do": "fill", "selector": "input[name=email]", "key": "email"},
+    {"name": "fill_password", "do": "vault_fill", "selector": "input[name=password]", "url": "https://citylocalpro.com/add-your-business"},
+    {"name": "fill_business_name", "do": "fill", "selector": "input[name=company_name]", "key": "name"},
+    {"name": "fill_business_phone", "do": "fill", "selector": "input[name=company_phone]", "key": "phone"},
+    {"name": "pick_category", "do": "select", "target": "#category", "value": "Business Consultants"},
+    {"name": "fill_description", "do": "fill", "selector": "textarea[name=company_description]", "key": "description"},
+    {"name": "pick_country", "do": "select", "target": "#countryCode", "value": "United States"},
+    {"name": "fill_state", "do": "fill", "selector": "input[name=state]", "key": "state_name"},
+    {"name": "fill_city", "do": "fill", "selector": "input[name=city]", "key": "city"},
+    {"name": "fill_zip", "do": "fill", "selector": "input[name=zipcode]", "key": "zip"},
+    {"name": "upload_logo", "do": "upload_logo", "selector": "input[name=company_logo]"},
+    {"name": "tick_terms", "do": "check", "selector": "input[name=term]"},
+    {"do": "stop_before_submit"},
+    {"name": "submit_form", "do": "click", "selector": "#signupBtn", "submit": true, "settle_ms": 6000}
+  ]
+}

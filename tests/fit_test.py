@@ -87,7 +87,7 @@ check("F6 one homepage GET per judged unknown row, none for known rows", sorted(
 check("F6 --row filter", [r["id"] for r, _, _ in F.run_filter(q, {}, PB, fake_fetch, only={"create-a"})] == ["create-a"])
 n0 = len(calls); nf = F.run_filter(q, {}, PB, None); check("F6 no-fetch mode makes no GET and still judges known rows", len(calls) == n0 and {r["id"]: v for r, v, _ in nf}["create-here"] == "no-fit")
 t = F.table(res)
-check("F6 table has row, verdict, reason and a summary", "create-c" in t and "dead" in t and "fit 1, no-fit 2, dead 1 (of 4 queued rows)" in t, t.splitlines()[-1])
+check("F6 table has row, verdict, reason and a summary", "create-c" in t and "dead" in t and "fit 1, no-fit 2, dead 1, flag 0 (of 4 queued rows)" in t, t.splitlines()[-1])
 
 # ---- playbook text read ----
 open(os.path.join(PB, "x.com.md"), "w", encoding="utf-8").write("# x.com - build playbook\nOutcome: needs-human\nSteps: 1. open\nSecret body line should not be read\nBlocker: Japanese-language only\n")

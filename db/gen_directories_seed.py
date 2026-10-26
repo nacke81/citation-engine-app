@@ -22,10 +22,9 @@ MIGRATION = os.path.join(HERE, "002_directories.sql")
 TEMPLATE = os.path.join(HERE, "002_directories.sql.tpl")
 
 CATEGORY_NICHE_SENIOR = {"caring.com"}
-CATEGORY_NICHE_OTHER = {"accountantfinder.com", "buildzoom.com", "fixr.com", "houzz.com", "thumbtack.com", "macraesbluebook.com",
+CATEGORY_NICHE_OTHER = {"nashvegas.com", "maplenmain.com", "accountantfinder.com", "buildzoom.com", "fixr.com", "houzz.com", "thumbtack.com", "macraesbluebook.com",
                         "vetpronetwork.com", "activityhero.com", "vivinavi.com"}
-CATEGORY_LOCAL = {"tntownsquare.com", "herenashville.com", "nashvegas.com", "nextdoor.com", "citysquares.com", "discoverourtown.com",
-                  "maplenmain.com"}
+CATEGORY_LOCAL = {"tntownsquare.com", "herenashville.com", "nextdoor.com", "citysquares.com", "discoverourtown.com"}
 
 # claim_rules.py markers, copied as facts (quotes are the generic page text, not client data).
 CLAIM_MARKERS = {

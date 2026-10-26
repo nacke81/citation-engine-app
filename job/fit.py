@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PLAYBOOKS = os.environ.get("CE_PLAYBOOKS") or ""   # the vault playbooks/build folder: pass --playbooks or set CE_PLAYBOOKS (no vault path lives in this repo; the leak check denies it)
 SEED = os.path.join(HERE, "..", "db", "directories_seed.json")
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
-VERDICTS = ("fit", "no-fit", "dead")
+VERDICTS = ("fit", "no-fit", "dead", "flag")   # flag = homepage content says it is not a directory (needs a look); --write does NOT reject flags
 
 # Batch 7 (t_db09baa9) findings, keyed by brand label (the part before the first dot).
 KNOWN = {
@@ -88,6 +88,27 @@ def _meta(html):
     return " ".join((t.group(1) if t else "").split())[:200], " ".join(((d.group(1) or d.group(2) or "") if d else "").split())[:300]
 
 
+ADD_SIGNAL_RE = re.compile(r"(?i)\b(add|list|submit|register|claim|get)\b[^.<>]{0,25}\b(your |a |my |free )?(business|listing|company|site|website|directory)\b|\bfree (business )?listings?\b|\bbusiness directory\b|\bcompany directory\b|\bonline directory\b|\bdirectory of\b|\badd (a )?(listing|business)\b|/add[-_]?(listing|business|your)|/(submit|list)[-_]?(your[-_]?)?(business|listing|company)|/list[-_]your")
+PAID_SERVICE_RE = re.compile(r"(?i)\$\s?\d{2,4}(?:\.\d\d)?\s*(?:/|per|a)\s*(?:mo|month)\b[^<]{0,200}")
+MARKETING_RE = re.compile(r"(?i)\b(marketing (service|agency|plan|package)s?|seo (service|package)s?|social media management|web design)\b")
+
+
+def _visible(html):
+    h = re.sub(r"(?is)<(script|style|noscript)\b.*?</\1>", " ", html or "")
+    return " ".join(re.sub(r"(?s)<[^>]+>", " ", h).split())
+
+
+def homepage_flag(html):
+    """-> a reason string when the homepage shows NO add-listing / business-directory signal, or sells a paid monthly marketing service. None when it looks like a directory.
+    Catalog categories were wrong for nashvegas.com (events news) and maplenmain.com ($559/mo marketing service); the page tells the truth."""
+    text = _visible(html)
+    blob = text + " " + " ".join(re.findall(r'(?i)href\s*=\s*"([^"]*)"', html or ""))
+    m = PAID_SERVICE_RE.search(text)
+    if m and MARKETING_RE.search(text): return "paid marketing service on the homepage (%r)" % m.group(0)[:50]
+    if not ADD_SIGNAL_RE.search(blob): return "homepage has no add-listing / business-directory signal"
+    return None
+
+
 def classify(row, cat, pb, page, others):
     """-> (verdict, reason). row: queue row; cat: ce_directories row or None; pb: playbook text; page: fetch_home result or None; others: other queue rows."""
     dom = row["directory"]; lab = label(dom)
@@ -123,6 +144,11 @@ def classify(row, cat, pb, page, others):
     if re.search(r"(?i)\b(japanese|korean|chinese|spanish)[- ]language\b", pb):
         return "no-fit", "non-English Directory (playbook)"
     c = (cat or {}).get("category")
+    if c == "niche-other" and not senior:   # Catalog says not a general or senior-care Directory (t_d7a907d5: nashvegas.com events news, maplenmain.com paid marketing service)
+        return "flag", "Catalog category niche-other (not a general or senior-care Directory); look before spending a build"
+    if page is not None and page.get("status") == 200 and len(page.get("html") or "") > 1500:
+        flag = homepage_flag(page["html"])
+        if flag: return "flag", flag
     return "fit", ("senior-care Directory" if c == "niche-senior" or senior else "general local Directory" if c in ("general", "local", "aggregator") else "no mismatch signal (category %s)" % (c or "unknown"))
 
 
@@ -173,7 +199,7 @@ def table(results):
     out += ["%-*s  %-7s  %s" % (w, r["id"], v, why) for r, v, why in results]
     c = {v: sum(1 for _, x, _ in results if x == v) for v in VERDICTS}
     out.append("")
-    out.append("fit %d, no-fit %d, dead %d (of %d queued rows)" % (c["fit"], c["no-fit"], c["dead"], len(results)))
+    out.append("fit %d, no-fit %d, dead %d, flag %d (of %d queued rows)" % (c["fit"], c["no-fit"], c["dead"], c["flag"], len(results)))
     return "\n".join(out)
 
 
@@ -184,7 +210,7 @@ def write_rejects(results, queue_path, record=None, today=None):
         record = transitions.record_transition
     out = []
     for r, v, why in results:
-        if v == "fit": continue
+        if v in ("fit", "flag"): continue   # a flag is for a human; only no-fit / dead are rejected
         try:
             res = record("SCC", r["id"], "rejected", None, "%s: %s" % (v, why), queue_path=queue_path, today=today, activities_flag=False)
             out.append((r["id"], not res.get("errors"), "; ".join(res.get("errors") or []) or "rejected"))
