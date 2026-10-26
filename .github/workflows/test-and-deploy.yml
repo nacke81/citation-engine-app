@@ -71,6 +71,14 @@ jobs:
         run: python tests/build_chrome_test.py
       - name: Signup URLs (only two fields, backup first, no clobber)
         run: python tests/signup_urls_test.py
+      - name: Snapshot overlay keeps every row; same-state notes
+        run: python tests/snapshot_test.py
+      - name: Recheck job (match goes live, mismatch is a note, no permalink is nothing)
+        run: python tests/recheck_test.py
+      - name: Bizapedia playbook and the https:// website value (network, browser and mailbox mocked)
+        run: python tests/bizapedia_test.py
+      - name: Fill signup and claim URLs (only two fields, https only, backup first)
+        run: python tests/fill_signup_urls_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 

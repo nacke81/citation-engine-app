@@ -20,6 +20,13 @@ REGISTER_URL = "https://www.hotfrog.com/register"
 VERIFY_RE = re.compile(r"https://www\.hotfrog\.com/verify-email/[^\s\"'<>)]+")
 SENDER_HINT = "hotfrog"
 WEBSITE = "https://seniorcaresolutions.co"
+
+
+def site_value(website):
+    """The value hotfrog's website field takes: one https:// in front, nothing doubled (t_64c4d511). The page then shows the bare host and links the https URL."""
+    w = re.sub(r"^(?:https?://)+", "", (website or "").strip(), flags=re.I).strip("/ ")
+    if not w: raise PlaybookError("website is empty")
+    return "https://" + w.lower()
 STEPS = ("register", "read_verify_mail", "open_verify_link", "add_website")
 
 
@@ -51,10 +58,12 @@ def mail_env(env=None):
 
 class ImapMailbox:
     """Read-only: EXAMINE the INBOX and PEEK. Marks nothing read, deletes nothing."""
-    def __init__(self, env=None, imap_cls=imaplib.IMAP4_SSL):
+    def __init__(self, env=None, imap_cls=imaplib.IMAP4_SSL, extract=None, sender_hint=None):
         self.cfg, self.imap_cls = mail_env(env), imap_cls
+        self.extract, self.sender_hint = extract or extract_verify_link, sender_hint or SENDER_HINT   # other playbooks reuse this reader with their own link pattern
 
-    def newest_verify_link(self, since_uid=0, sender_hint=SENDER_HINT):
+    def newest_verify_link(self, since_uid=0, sender_hint=None):
+        sender_hint = sender_hint or self.sender_hint
         m = self.imap_cls(self.cfg["host"], int(self.cfg["port"]))
         try:
             m.login(self.cfg["user"], self.cfg["password"])
@@ -68,7 +77,7 @@ class ImapMailbox:
                 msg = email.message_from_bytes(raw)
                 frm = str(make_header(decode_header(msg.get("From", ""))))
                 if sender_hint not in frm.lower(): continue
-                link = extract_verify_link(raw)
+                link = self.extract(raw)
                 if link: return uid, link
             return None
         finally:
@@ -105,10 +114,10 @@ def add_website(page, website=WEBSITE):
     """On the company edit page: first type=url input, then the Add button after it. Returns True when the site text shows on the page."""
     inp = page.locator("input[type=url]").first
     if page.locator("input[type=url]").count() == 0: raise PlaybookError("website field not found on this page")
-    inp.fill(website)
+    inp.fill(site_value(website))
     inp.locator("xpath=following::button[normalize-space()='Add' or @type='submit'][1]").click(timeout=10000)
     page.wait_for_timeout(5000)
-    return website.replace("https://", "") in page.inner_text("body")
+    return site_value(website).replace("https://", "") in page.inner_text("body")
 
 
 def run(page, mailbox, *, name, email_addr, get_password, website=WEBSITE, poll_seconds=120, poll_every=10, sleep=time.sleep, now=time.time):
