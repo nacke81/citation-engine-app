@@ -291,7 +291,20 @@ def main():
     directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
     proof_step_if_ok(ok_run, checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
     recheck_step()  # public-page recheck of submitted / pending-verify / found rows with a permalink; read-only, non-fatal
+    postcard_step()  # client-sent postcard codes: consume, enter, record the result; code never logged; non-fatal
     return 0 if (ok_run and portal_ok) else 1
+
+
+def postcard_step(run=None):
+    """Same step as the 12-hourly job/postcards.cmd, so a weekly run also drains waiting codes. Loud but non-fatal; prints ids and outcomes only."""
+    try:
+        import postcard_step as PS
+        res = (run or PS.run)()
+        print("POSTCARD OK", json.dumps([{k: r[k] for k in ("id", "outcome")} for r in res]), flush=True)
+        return True
+    except Exception as e:
+        print("POSTCARD FAILED: " + type(e).__name__, file=sys.stderr, flush=True)
+        return False
 
 
 def recheck_step(run=None, **kw):

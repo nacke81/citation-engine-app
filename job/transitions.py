@@ -105,6 +105,22 @@ def check_verify_type(verify_type, new):
     return verify_type
 
 
+ID_CHECK_BAD = re.compile(r"\b(password|passcode)\b", re.I)
+
+
+def check_id_check_fields(verify_type, steps, directory_url):
+    """Mirror the portal DB checks so a bad id-check row is refused here, not by a failed write. steps/directory_url apply to id-check only."""
+    if verify_type != "id-check":
+        if steps or directory_url: raise TransitionRefused("steps and directory_url only apply to an id-check verification")
+        return None, None
+    steps = [str(x).strip() for x in (steps or []) if str(x).strip()]
+    if not steps: raise TransitionRefused("id-check needs at least one plain-language step for the client")
+    if len(steps) > 12 or len("\n".join(steps)) > 3000: raise TransitionRefused("id-check steps: 12 steps and 3000 characters at most")
+    if ID_CHECK_BAD.search("\n".join(steps)): raise TransitionRefused("id-check steps must not mention a password or passcode (the client sees them)")
+    if directory_url and not re.match(r"^https://\S+$", directory_url): raise TransitionRefused("directory_url must be an https URL with no spaces")
+    return steps, (directory_url or None)
+
+
 def build_verification_record(client_id, directory, verify_type, day, deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None):
     """One citation_verification row. parked_at is left to the table default and never resent, so a re-park does not restart the 14-day clock."""
     r = {"client_id": client_id, "directory": directory, "verification_type": verify_type, "state": "requires_verification"}
@@ -193,7 +209,7 @@ def build_activity_record(client_id, row, new, evidence_url, day):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -214,6 +230,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     check_transition(old, new_state, note)
     evidence_url = check_evidence(evidence_url, new_state)
     verify_type = check_verify_type(verify_type, new_state)
+    steps, directory_url = check_id_check_fields(verify_type, steps, directory_url)
     if verify_type: note = verification_note(verify_type)
 
     approval_before = copy.deepcopy(row.get("mike_approval"))
@@ -233,7 +250,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out["activities_written"] = False
     use_act = activities_enabled(activities_flag) and new_state in ACTIVITY_STATES and not same_state
     out["activities_flag_on"] = use_act
-    ver_rec = build_verification_record(client_id, row["directory"], verify_type, day, verify_deadline_days) if verify_type else None
+    ver_rec = build_verification_record(client_id, row["directory"], verify_type, day, verify_deadline_days, steps=steps, directory_url=directory_url) if verify_type else None
     out["verification_record"] = ver_rec
     out["verification_written"] = False
     ver_patch_path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, row["directory"])
@@ -315,12 +332,14 @@ def main(argv=None):
     a.add_argument("--evidence", default=None)
     a.add_argument("--note", default=None)
     a.add_argument("--verify-type", default=None, choices=VERIFY_TYPES, help="needs-human only: stopped at a phone call, SMS or postcard; writes the portal verification queue")
+    a.add_argument("--step", action="append", default=None, help="id-check only: one plain instruction for the client (repeat per step)")
+    a.add_argument("--directory-url", default=None, help="id-check only: the https page where the owner does the check")
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)
     n = a.parse_args(argv)
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type)
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url)
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1
