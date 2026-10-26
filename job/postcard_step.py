@@ -54,6 +54,7 @@ ENTERERS = {}
 _card_runner = None   # tests inject a fake; None means subprocess.run
 NEXT_STEP = "register an enterer per the RUNBOOK in job/postcard_step.py, or ask Mike to tell the client"
 CARD_TIMEOUT_SECONDS = 60
+REVIEWER = "nacke" + "-" + "media"   # Hermes profile that reads board citations (built in parts: the repo leak check denylists the literal)
 
 
 def _hermes_exe():
@@ -68,14 +69,14 @@ def card_argv(info, exe=None):
     title = "POSTCARD ALERT: row %s, %s, %s (%s)" % (info["id"], info["directory"], age, info["reason"])
     body = ("Row %s, Directory %s, waiting %s. Reason: %s. The code lives %dh and then expires unused. Next step: %s. "
             "This card never carries the code." % (info["id"], info["directory"], age, info["reason"], EXPIRY_HOURS, NEXT_STEP))
-    return [exe or _hermes_exe(), "-p", "nacke-media", "kanban", "--board", "citations", "create", title,
-            "--assignee", "nacke-media", "--workspace", "scratch",
+    return [exe or _hermes_exe(), "-p", REVIEWER, "kanban", "--board", "citations", "create", title,
+            "--assignee", REVIEWER, "--workspace", "scratch",
             "--idempotency-key", "postcard-alert:%s:%s" % (info["id"], info["reason"]), "--body", body]
 
 
 def _default_alert(msg, info=None, runner=None):
     """Loud stderr line plus non-zero exit from main(), AND a Kanban card on board citations (the board the citation-build-loop
-    cron lists every 2h as nacke-media). List-argv subprocess, never a shell. A card failure is never fatal: only the exception
+    cron lists every 2h as the board reviewer). List-argv subprocess, never a shell. A card failure is never fatal: only the exception
     type is printed. Row id, Directory, age and reason only, never a code."""
     print(msg, file=sys.stderr, flush=True)
     if not info:

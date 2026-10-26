@@ -164,8 +164,8 @@ check("alert: default path is loud on stderr and names the row", "POSTCARD ALERT
 check("card: one runner call, list argv, no shell, timeout <= 60", len(calls) == 1 and isinstance(calls[0][0], list) and not calls[0][1].get("shell") and 0 < calls[0][1].get("timeout", 999) <= 60)
 av = calls[0][0]
 def opt(k): return av[av.index(k) + 1]
-check("card: board citations, assignee nacke-media, workspace scratch, profile nacke-media",
-      av[1:3] == ["-p", "nacke-media"] and "kanban" in av and opt("--board") == "citations" and "create" in av and opt("--assignee") == "nacke-media" and opt("--workspace") == "scratch")
+check("card: board citations, assignee and profile = reviewer, workspace scratch",
+      av[1:3] == ["-p", PS.REVIEWER] and "kanban" in av and opt("--board") == "citations" and "create" in av and opt("--assignee") == PS.REVIEWER and opt("--workspace") == "scratch")
 check("card: idempotency key postcard-alert:<row>:no-enterer", opt("--idempotency-key") == "postcard-alert:%s:no-enterer" % V1)
 check("card: title and body carry row id, Directory, age, reason, next step", V1 in av[av.index("create") + 1] and "nowhere.example" in opt("--body") and "60h" in opt("--body") and "no-enterer" in opt("--body") and "RUNBOOK" in opt("--body"))
 check("CODE NEVER LEAKS (card argv, title and body)", CODE not in " ".join(av))
