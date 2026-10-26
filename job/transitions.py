@@ -37,7 +37,7 @@ ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
 FLAG = "CE_ACTIVITIES_WRITE"
 ACTIVITY_STATES = ("submitted", "pending-verify", "live", "rejected")  # needs-human is internal, never client news
-VERIFY_TYPES = ("phone-call", "sms", "postcard")
+VERIFY_TYPES = ("phone-call", "sms", "postcard", "id-check")
 POSTCARD_DEADLINE_DAYS = 30
 VERIFY_UPSERT_PATH = "citation_verification?on_conflict=client_id,directory"
 
@@ -105,11 +105,15 @@ def check_verify_type(verify_type, new):
     return verify_type
 
 
-def build_verification_record(client_id, directory, verify_type, day, deadline_days=POSTCARD_DEADLINE_DAYS):
+def build_verification_record(client_id, directory, verify_type, day, deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None):
     """One citation_verification row. parked_at is left to the table default and never resent, so a re-park does not restart the 14-day clock."""
     r = {"client_id": client_id, "directory": directory, "verification_type": verify_type, "state": "requires_verification"}
     if verify_type == "postcard":
         r["deadline"] = (datetime.date.fromisoformat(day) + datetime.timedelta(days=deadline_days)).isoformat()
+    if verify_type == "id-check":
+        # Plain instructions the client sees. Never a credential: the portal DB also refuses password/passcode text.
+        if steps: r["steps"] = list(steps)
+        if directory_url: r["directory_url"] = directory_url
     return r
 
 
