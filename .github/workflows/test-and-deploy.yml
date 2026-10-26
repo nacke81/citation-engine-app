@@ -85,6 +85,12 @@ jobs:
         run: python tests/recheck_phone_test.py
       - name: Recheck reads signed out (fresh context, never the signed-in profile)
         run: python tests/recheck_signedout_test.py
+      - name: CAPTCHA router (widget type, sitekey, capsolver-cli.js command, interstitial stays WALL:cloudflare-click)
+        run: python tests/captcha_route_test.py
+      - name: Batch 11 playbooks (manta, citysquares, openstreetmap; dry run, no guessed pin, mocked)
+        run: python tests/playbooks_b11_test.py
+      - name: OSM reader, Chrome-route Proof, Proof for rows already live
+        run: python tests/recheck_osm_test.py
       - name: Bizapedia playbook and the https:// website value (network, browser and mailbox mocked)
         run: python tests/bizapedia_test.py
       - name: Fill signup and claim URLs (only two fields, https only, backup first)
