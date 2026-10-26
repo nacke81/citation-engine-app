@@ -5,6 +5,8 @@ import { statusOf } from './logic.js';
 const hasErrors = (k) => Array.isArray(k.diffs) && k.diffs.some((d) => d && d.field);
 const dirOf = (s) => s.domain || s.directory;
 const KIND_ACTION = { fix: 'fix', create: 'new' };
+const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
+export const QUEUE_LABEL = { queued: 'Queued', submitted: 'Submitted', 'pending-verify': 'Pending verify', 'needs-human': 'Needs human', live: 'Live', rejected: 'Rejected' };
 
 // Done = Proof: live URL + captured NAP + timestamp, and the captured NAP matched Canonical.
 export const hasProof = (s) => !!s && /^https?:\/\//i.test(s.proof_url || '') && !!(s.proof_nap || '').trim() && !!s.proof_at && s.proof_nap_match === true;
@@ -45,7 +47,16 @@ export function builderRows(checks, status, dirs) {
     else if (cand || q === 'queued') state = 'toBuild'; // a queued row is work to do even when the finder had no candidate (never checked, couldn't check)
     if (state === 'waiting' || state === 'needsPerson') action = s?.build_action || cand || KIND_ACTION[s?.queue_kind] || null;
     if (state === 'toBuild' && !action) action = KIND_ACTION[s?.queue_kind] || null;
-    return { directory, state, action };
+    // Display fields for the company page. State and action above are the only inputs to the counts.
+    const proofPending = q === 'live' && state === 'waiting';
+    // A Directory-level block (agent_access blocked) is the gate when the queue row carries no note of its own.
+    let note = s?.queue_note || null;
+    if (state === 'needsPerson' && !note) note = d?.agent_blocker || null;
+    if (state === 'needsPerson' && d?.cost === 'paid' && !/paid/i.test(note || '')) note = [note, 'Paid' + (d.cost_note ? ': ' + d.cost_note : '')].filter(Boolean).join('. ');
+    const queue = q || (state === 'needsPerson' ? 'needs-human' : state === 'toBuild' ? 'queued' : null);
+    const changed = String(s?.queue_state_at || s?.status_updated_at || s?.last_checked_on || '').slice(0, 10) || null;
+    return { directory, state, action, name: d?.name || directory, queue, queueLabel: proofPending ? 'Live, proof pending' : (QUEUE_LABEL[queue] || queue), proofPending, note,
+      link: safeUrl(s?.proof_url) || safeUrl(s?.last_url) || safeUrl(check?.url) || '', changed };
   });
 }
 
