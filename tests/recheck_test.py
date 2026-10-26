@@ -119,10 +119,10 @@ check("R7 page without the business: unreadable, not a mismatch", res[0]["verdic
 res, q, *_ = run([row("r9", "a.example", "pending-verify", U1)], {U1: "Alder Care Consulting & Solutions\n100 Example\nExampleton, KY 40000\n" + PAD})
 check("R8 no phone on the page: gap note, stays put", res[0]["verdict"] == "gap" and q["fix_queue"][0]["state"] == "pending-verify" and "phone not shown" in q["fix_queue"][0]["history"][-1]["note"], str(res[0]))
 
-# R8b masked / hidden phone is a gap, never a wrong phone (hotfrog "+1 270 ****2550", us-info "Reveal Phone Number")
-for hidden in ("+127****2550", "•• •• •• ••\nReveal Phone Number"):
+# R8b hidden phone is a gap; a masked phone is partial (t_032083dc): visible digits agree -> match (masked), disagree -> mismatch phone
+for hidden, want in (("\u2022\u2022 \u2022\u2022 \u2022\u2022 \u2022\u2022\nReveal Phone Number", "gap"), ("+150****0101", "match"), ("+127****2550", "mismatch")):
     res, q, *_ = run([row("m1", "a.example", "pending-verify", U1)], {U1: "Alder Care Consulting & Solutions\n100 Example\nExampleton, KY 40000\n%s\n" % hidden + PAD})
-    check("R8b hidden phone %r: gap, not mismatch" % hidden[:12], res[0]["verdict"] == "gap" and q["fix_queue"][0]["state"] == "pending-verify", str(res[0]["fields"]))
+    check("R8b hidden/masked phone %r: %s" % (hidden[:12], want), res[0]["verdict"] == want and q["fix_queue"][0]["state"] == ("live" if want == "match" else "pending-verify"), str(res[0]["fields"]))
 
 # R9 other states
 rows = [row("q1", "a.example", "queued", U1), row("n1", "b.example", "needs-human", U2), row("l1", "c.example", "live", "https://c.example/listing/3")]
