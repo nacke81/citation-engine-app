@@ -17,7 +17,7 @@ The code is never logged, printed, put in a queue file, history, Activities, or 
 Expiry: the portal keeps a code 72 hours after the client submits it and purges expired codes on the next consume. This step must
 run at least once inside every 72 hours. It runs every 12 hours (postcards.cmd) and warns when a waiting row is older than 48 hours.
 """
-import json, os, sys, datetime
+import json, os, sys, datetime, subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import portal as P
@@ -47,14 +47,43 @@ SELECT = ("citation_verification?select=id,client_id,directory,code_received_at"
 #      - Test the enterer against a fake portal and a fake Directory page. No real code in tests.
 #      - Never guess a form. A wrong form burns the code: consume() destroys it and the client must be asked again.
 #      - The code lives 72h. Do the first real run with Mike's go and a human watching, not first from the 12-hour job.
-#   Until a Directory is registered, a waiting code raises "POSTCARD ALERT" (stderr + exit 1 in the job log) every real run.
+#   Until a Directory is registered, a waiting code raises "POSTCARD ALERT" (stderr, exit 1, and one Kanban card per row/reason on board citations) every real run.
 ENTERERS = {}
 
 
-def _default_alert(msg):
-    """The engine's existing alert path: a loud stderr line (the '... FAILED' convention in run.py) plus a non-zero exit from main(),
-    which Task Scheduler and the run log show. No new channel. The message carries row id, Directory and age only, never a code."""
+_card_runner = None   # tests inject a fake; None means subprocess.run
+NEXT_STEP = "register an enterer per the RUNBOOK in job/postcard_step.py, or ask Mike to tell the client"
+CARD_TIMEOUT_SECONDS = 60
+
+
+def _hermes_exe():
+    base = os.environ.get("LOCALAPPDATA") or ""
+    venv = os.path.join(base, "hermes", "hermes-agent", "venv", "Scripts", "hermes.exe")
+    return venv if base and os.path.exists(venv) else "hermes"
+
+
+def card_argv(info, exe=None):
+    """argv for the Kanban card on board citations. One card per row and reason (idempotency key). Never holds a code."""
+    age = "unknown age" if info.get("age") is None else "%.0fh" % info["age"]
+    title = "POSTCARD ALERT: row %s, %s, %s (%s)" % (info["id"], info["directory"], age, info["reason"])
+    body = ("Row %s, Directory %s, waiting %s. Reason: %s. The code lives %dh and then expires unused. Next step: %s. "
+            "This card never carries the code." % (info["id"], info["directory"], age, info["reason"], EXPIRY_HOURS, NEXT_STEP))
+    return [exe or _hermes_exe(), "-p", "nacke-media", "kanban", "--board", "citations", "create", title,
+            "--assignee", "nacke-media", "--workspace", "scratch",
+            "--idempotency-key", "postcard-alert:%s:%s" % (info["id"], info["reason"]), "--body", body]
+
+
+def _default_alert(msg, info=None, runner=None):
+    """Loud stderr line plus non-zero exit from main(), AND a Kanban card on board citations (the board the citation-build-loop
+    cron lists every 2h as nacke-media). List-argv subprocess, never a shell. A card failure is never fatal: only the exception
+    type is printed. Row id, Directory, age and reason only, never a code."""
     print(msg, file=sys.stderr, flush=True)
+    if not info:
+        return
+    try:
+        (runner or subprocess.run)(card_argv(info), capture_output=True, timeout=CARD_TIMEOUT_SECONDS, check=True)
+    except Exception as e:
+        print("POSTCARD ALERT CARD FAILED: %s" % type(e).__name__, file=sys.stderr, flush=True)
 
 
 def _age_hours(ts, now):
@@ -69,7 +98,8 @@ def run(portal=None, enterers=None, dry=False, now=None, log=print, alert=None):
     """-> list of {id, directory, outcome, age_hours}. outcome: skipped-no-entry | would-consume | no-code | accepted | rejected | error. Never holds a code."""
     enterers = ENTERERS if enterers is None else enterers
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    alert = alert or _default_alert   # fires once per row, real runs only (never --dry): code waiting with no enterer, or 48h+. Row id, Directory, age; never a code.
+    custom_alert = alert
+    # fires once per row, real runs only (never --dry): code waiting with no enterer, or 48h+. Row id, Directory, age; never a code.
     cid = P.client_for(CLIENT)
     portal = portal or P.Portal(*P.load_portal_env())
     rows = portal.call("GET", SELECT % cid) or []
@@ -86,7 +116,11 @@ def run(portal=None, enterers=None, dry=False, now=None, log=print, alert=None):
             if enter is None: why.append("no enterer registered for this Directory, the waiting code will expire unused")
             if age is not None and age >= WARN_AFTER_HOURS: why.append("code is %.0fh into its %dh life" % (age, EXPIRY_HOURS))
             if why:
-                alert("POSTCARD ALERT: row %s, Directory %s, waiting %s: %s" % (vid, d, "unknown age" if age is None else "%.0fh" % age, "; ".join(why)))
+                amsg = "POSTCARD ALERT: row %s, Directory %s, waiting %s: %s" % (vid, d, "unknown age" if age is None else "%.0fh" % age, "; ".join(why))
+                if custom_alert:
+                    custom_alert(amsg)
+                else:
+                    _default_alert(amsg, {"id": vid, "directory": d, "age": age, "reason": "no-enterer" if enter is None else "48h"}, runner=_card_runner)
                 res["alerted"] = True
         if enter is None:
             res["outcome"] = "skipped-no-entry"   # leave the code in the portal; do not consume what we cannot use

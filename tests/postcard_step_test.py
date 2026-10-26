@@ -152,9 +152,38 @@ p = FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE})
 res, text, sent = go_alert(p, {}, dry=True)
 check("alert: --dry never alerts, even for skipped and 48h+", sent == [] and "alerted" not in res[0])
 
+calls = []
+def fake_runner(argv, **kw): calls.append((argv, kw))
+PS._card_runner = fake_runner   # never call the real hermes from tests
+
 p = FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE})
 res, text = go(p, {})
 check("alert: default path is loud on stderr and names the row", "POSTCARD ALERT" in text and V1 in text and CODE not in text)
+
+# 14 Kanban card (board citations) through the default alert, with a fake runner
+check("card: one runner call, list argv, no shell, timeout <= 60", len(calls) == 1 and isinstance(calls[0][0], list) and not calls[0][1].get("shell") and 0 < calls[0][1].get("timeout", 999) <= 60)
+av = calls[0][0]
+def opt(k): return av[av.index(k) + 1]
+check("card: board citations, assignee nacke-media, workspace scratch, profile nacke-media",
+      av[1:3] == ["-p", "nacke-media"] and "kanban" in av and opt("--board") == "citations" and "create" in av and opt("--assignee") == "nacke-media" and opt("--workspace") == "scratch")
+check("card: idempotency key postcard-alert:<row>:no-enterer", opt("--idempotency-key") == "postcard-alert:%s:no-enterer" % V1)
+check("card: title and body carry row id, Directory, age, reason, next step", V1 in av[av.index("create") + 1] and "nowhere.example" in opt("--body") and "60h" in opt("--body") and "no-enterer" in opt("--body") and "RUNBOOK" in opt("--body"))
+check("CODE NEVER LEAKS (card argv, title and body)", CODE not in " ".join(av))
+calls.clear()
+go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {})
+check("card: same row on a second real run gives the same idempotency key", calls[0][0][calls[0][0].index("--idempotency-key") + 1] == "postcard-alert:%s:no-enterer" % V1)
+calls.clear()
+go(FakePortal(rows((V1, "a.example", 50)), {V1: CODE}), {"a.example": accept})
+check("card: 48h reason key when an enterer exists", len(calls) == 1 and calls[0][0][calls[0][0].index("--idempotency-key") + 1] == "postcard-alert:%s:48h" % V1)
+calls.clear()
+go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {}, dry=True)
+check("card: --dry makes no runner call", calls == [])
+
+def boom(argv, **kw): raise OSError("cannot run " + CODE)
+PS._card_runner = boom
+res, text = go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {})
+check("card: failing runner prints CARD FAILED with the type only, run continues", "POSTCARD ALERT CARD FAILED: OSError" in text and res[0].get("alerted") and CODE not in text and "cannot run" not in text)
+PS._card_runner = fake_runner
 
 _real_run = PS.run
 def _wired(**kw): return _real_run(portal=FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), now=NOW, **kw)
