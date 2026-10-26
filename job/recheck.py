@@ -98,8 +98,46 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
         except Exception: pass
 
 
+OSM_NODE_RE = re.compile(r"^https://www\.openstreetmap\.org/node/(\d+)/?$")
+
+
+def osm_node_id(url):
+    m = OSM_NODE_RE.match(url or "")
+    return m.group(1) if m else None
+
+
+def osm_fetch(url, getter=None):
+    """openstreetmap.org/node/<id> is a JS map page with no readable text: read the public API node tags instead (no login, one GET) and render them
+    as the lines a listing page would show: name / street / city, state zip / phone. Never raises (t_1c503c7f)."""
+    nid = osm_node_id(url)
+    if not nid: return Page(0, url, "", err="not an OSM node URL")
+    api = "https://api.openstreetmap.org/api/0.6/node/%s.json" % nid
+    try:
+        if getter: data = getter(api)
+        else:
+            req = urllib.request.Request(api, headers={"User-Agent": "citation-engine-recheck/1.0 (read-only)", "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r: data = json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        return Page(e.code, url, "", err="HTTP %s" % e.code)
+    except Exception as e:
+        return Page(0, url, "", err=type(e).__name__)
+    els = (data or {}).get("elements") or []
+    if not els or els[0].get("type") != "node" or els[0].get("visible") is False: return Page(404, url, "", err="node not found or deleted")
+    t = els[0].get("tags") or {}
+    lines = [t.get("name", "")]
+    street = " ".join(x for x in (t.get("addr:housenumber"), t.get("addr:street")) if x)
+    if street: lines.append(street)
+    csz = " ".join(x for x in ((t.get("addr:city") or "") + ("," if t.get("addr:city") and t.get("addr:state") else ""), t.get("addr:state"), t.get("addr:postcode")) if x)
+    if csz: lines.append(csz)
+    if t.get("phone"): lines.append(t["phone"])
+    if t.get("website"): lines.append(t["website"])
+    return Page(200, url, "\n".join(l for l in lines if l))
+
+
 def get_page(url, plain=None, chrome=None, canonical=None):
     """Plain GET first. The build Chrome only when the plain page is walled or shows no readable listing block for the canonical name."""
+    if osm_node_id(url):   # the API tags ARE the public listing; the map page has no text, so no plain/Chrome fallback
+        return osm_fetch(url), "osm"
     page = (plain or plain_fetch)(url)
     if not walled(page) and (canonical is None or read_block(page.text, canonical)):
         return page, "plain"
@@ -354,7 +392,7 @@ def _last_note(row):
     return (h[-1].get("note") if h and isinstance(h[-1], dict) else None)
 
 
-def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True):
+def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False):
     """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row."""
     import datetime
     day = today or datetime.date.today().isoformat()
@@ -394,15 +432,19 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
             res["url"] = url
             page, how = get_page(url, plain, chrome, canonical)
             cmp_ = compare(page.text, canonical, getattr(page, "html", None))
-            if cmp_["verdict"] == "match" and how == "chrome":   # t_ac8b1bdd: a rendered page (Bing Maps) can serve old and new data to different signed-out reads; a match must repeat
+            if cmp_["verdict"] == "match" and how in ("chrome", "osm"):   # t_ac8b1bdd: a rendered page (Bing Maps) can serve old and new data to different signed-out reads; a match must repeat
                 for _ in range(STABLE_READS - 1):
-                    again = chrome(url); c2 = compare(again.text, canonical, getattr(again, "html", None))
+                    again = osm_fetch(url) if how == "osm" else chrome(url); c2 = compare(again.text, canonical, getattr(again, "html", None))
                     if c2["verdict"] != "match": page, cmp_ = again, c2; break
             res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["masked"] = bool(cmp_.get("masked"))
             if cmp_["verdict"] == "unreadable":
                 res["error"] = "page not readable (%s)" % (page.err or page.status); continue
             if cmp_["verdict"] == "match":
-                if before == "live": continue   # already live: report only
+                if before == "live":   # already live: report only, unless --proof-live names the row (t_1c503c7f): Proof only, state stays live
+                    if proof_live and write and only:
+                        _proof_only(row, kind, url, cmp_["nap"], day, db)
+                        res["note"] = "proof written (row stays live)"
+                    continue
                 res["note"] = "weekly recheck: listing live, NAP matches canonical"
                 if write:
                     _proof_then_live(row, kind, url, cmp_["nap"], day, db, record, queue_path, res["note"])
@@ -425,6 +467,15 @@ def _proof_then_live(row, kind, url, nap, day, db, record, queue_path, note):
     D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)])
     out = record("SCC", row["id"], "live", url, note, queue_path=queue_path, today=day)
     if out.get("errors"): raise RuntimeError("; ".join(out["errors"])[:200])
+
+
+def _proof_only(row, kind, url, nap, day, db):
+    """Proof columns for a row that is already live and whose signed-out read matched on every stable read. No state change."""
+    import datetime, directories as D, proof as PR
+    db = db or D.DirDB()
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    action = PR.build_action(kind, row, row.get("claim_status"))
+    D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)])
 
 
 def recheck_file(path=None, ident=None, **kw):
@@ -450,10 +501,11 @@ def main(argv=None):
     a.add_argument("--write", action="store_true", help="record transitions and notes (default: dry run, nothing written)")
     a.add_argument("--include-live", action="store_true", help="also read live rows (report only)")
     a.add_argument("--row", action="append", default=None)
+    a.add_argument("--proof-live", action="store_true", help="with --write --include-live --row ID: write Proof for named rows already live (state unchanged)")
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
     n = a.parse_args(argv)
-    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today)
+    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live)
     print(format_report(res))
     print("%d rows read; %d to live; mode=%s" % (len(res), sum(1 for r in res if r["after"] == "live" and r["before"] != "live"), "WRITE" if n.write else "dry run"))
     return 1 if any(r["error"] and r["verdict"] != "unreadable" for r in res) else 0
