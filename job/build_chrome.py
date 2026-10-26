@@ -12,6 +12,7 @@ Output lines: cdp_url=..., windows_before/during/after. Window count before must
 import os, sys, time, argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from owned_chrome import OwnedChrome, window_count
+import chrome_keepalive as KA
 
 PROFILE = os.environ.get("CE_BUILD_PROFILE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/build-profile")
 PORT = 9333
@@ -37,7 +38,8 @@ def main(argv=None):
             print("windows_during=%d" % window_count(oc.job), flush=True)
             end = time.time() + n.seconds if n.seconds else None
             try:
-                while end is None or time.time() < end: time.sleep(1)
+                # t_d7a907d5: the timer does not fire while a card holds the lease (job/chrome_keepalive.py); it asks again every second.
+                while end is None or not KA.should_close(end): time.sleep(1)
             except KeyboardInterrupt:
                 pass
     finally:
