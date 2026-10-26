@@ -82,7 +82,8 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
             try: pg.close()
             except Exception: pass
     except Exception as e:
-        return Page(0, url, "", err=type(e).__name__)
+        down = "connect" in str(e).lower() or "ECONNREFUSED" in str(e)
+        return Page(0, url, "", err=("build Chrome not reachable on %s (start job/build_chrome.py)" % cdp) if down else type(e).__name__)
     finally:
         try: p.stop()
         except Exception: pass
@@ -160,11 +161,23 @@ def note_for(cmp_):
 
 
 # ---- queue ------------------------------------------------------------------------------------------------------------
+# Pages that are the way INTO a Directory (add / register / claim / thank-you / lookup / the bare homepage), never the listing itself. A row's
+# evidence_url often holds one of these (brownbook /add-business, showmelocal /, dnb lookup, discoverourtown thankyou.php) while the real
+# listing lives in listing_url. Reading the form page was the "unreadable" of batch 8 (t_560dd259).
+ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing)([/?#.]|$)|thankyou|[?&]flow=lookup")
+
+
+def _is_entry_page(url):
+    from urllib.parse import urlparse
+    p = urlparse(url)
+    return (not p.path.strip("/") and not p.query) or bool(ENTRY_RE.search(p.path + ("?" + p.query if p.query else "")))
+
+
 def _permalink(row):
     d = row.get("directory")
     for k in ("evidence_url", "listing_url"):   # evidence first; fix-bing keeps its Bing Maps permalink in listing_url, bingplaces.com is not a listing
         u = row.get(k)
-        if u and L.is_permalink(d, u): return u
+        if u and L.is_permalink(d, u) and not _is_entry_page(u): return u
     return None
 
 
