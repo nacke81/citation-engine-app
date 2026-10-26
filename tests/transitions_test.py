@@ -245,5 +245,23 @@ import directories as DIR
 check("T15 Directory sync knows the state", "claimed-unverified" in DIR.QUEUE_STATES)
 sql = open(os.path.join(HERE, "..", "db", "005_claimed_unverified.sql"), encoding="utf-8").read().lower()
 check("T15 migration 005 widens the check constraint, additive only", "claimed-unverified" in sql and "drop table" not in sql and "drop column" not in sql)
+
+# id-check rows carry steps + directory_url (t_35655566)
+STEPS = ["Open the Directory page and sign in as the owner.", "Upload a photo of your driver's license when asked."]
+URL = "https://dir.example/verify-owner"
+p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "needs-human", fp=fp, verify_type="id-check", steps=STEPS, directory_url=URL)
+b = vcalls(fp)[0][2][0]
+check("T16 id-check: steps and directory_url written, no deadline", b["verification_type"] == "id-check" and b["steps"] == STEPS and b["directory_url"] == URL and "deadline" not in b and r["verification_written"])
+for label, kw in (("no steps", dict(steps=None, directory_url=URL)), ("password in steps", dict(steps=["Enter your password here"], directory_url=URL)),
+                  ("13 steps", dict(steps=["x"] * 13, directory_url=URL)), ("http url", dict(steps=STEPS, directory_url="http://dir.example/x")),
+                  ("url with space", dict(steps=STEPS, directory_url="https://dir.example/a b"))):
+    p, rid, d = fresh("submitted"); fp = portal_with(d); before = open(p, "rb").read()
+    try: rec(p, rid, "needs-human", fp=fp, verify_type="id-check", **kw); bad = False
+    except T.TransitionRefused: bad = open(p, "rb").read() == before and not fp.calls
+    check("T16 id-check refused before any write: %s" % label, bad)
+p, rid, d = fresh("submitted"); fp = portal_with(d)
+try: rec(p, rid, "needs-human", fp=fp, verify_type="postcard", steps=STEPS); bad = False
+except T.TransitionRefused: bad = not fp.calls
+check("T16 steps refused on a non id-check type", bad)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
