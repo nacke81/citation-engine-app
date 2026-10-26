@@ -13,7 +13,7 @@ A note identical to the row's last history note is not written again, so a weekl
   python job/recheck.py [--queue PATH] [--write] [--include-live] [--row ID ...] [--no-chrome]
 Without --write nothing is written (dry run); the report still shows before -> after and any mismatch.
 """
-import html, json, os, re, sys, urllib.request, urllib.error
+import html, json, os, re, sys, urllib.parse, urllib.request, urllib.error
 from urllib.parse import quote, urljoin, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -27,12 +27,14 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 WALL_RE = re.compile(r"(?i)just a moment|quick security check|performing a quick|verify you are (a )?human|attention required|access denied|"
                      r"checking your browser|are you a robot|press (&|and) hold|error 1020|request blocked|security verification")
 PLUS_PHONE_RE = re.compile(r"(?<![\w+])\+\d[\d\s().\-]{5,18}\d")
+MASKED_NUM_RE = re.compile(r"\+?(\d[\d\s().\-]{0,6}?)\s*[*xX\u2022]{2,}\s*([\d\s().\-]{0,6}\d)")   # +127****2550
+HEXID_RE = re.compile(r"(?i)^[0-9a-f]{4,}(-[0-9a-f]{2,})+$")
 MASKED_PHONE_RE = re.compile(r"\*{2,}|reveal phone|show phone|click to (call|view)", re.I)   # a hidden phone is not a wrong phone
 
 
 class Page:
-    def __init__(self, status, url, text, links=None, err=None):
-        self.status, self.url, self.text, self.links, self.err = status, url, text or "", links or [], err
+    def __init__(self, status, url, text, links=None, err=None, html=None):
+        self.status, self.url, self.text, self.links, self.err, self.html = status, url, text or "", links or [], err, html
 
 
 # ---- fetching (every edge injectable) -----------------------------------------------------------------------------
@@ -56,7 +58,7 @@ def plain_fetch(url):
     for m in re.finditer(r'(?is)<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html):
         ctx = claim.html_to_text(html[max(0, m.start() - 400):m.end() + 200])
         links.append({"href": urljoin(final, m.group(1)), "text": " ".join(claim.html_to_text(m.group(2)).split())[:80], "card": ctx[-400:], "aria": ""})
-    return Page(status, final, text, links)
+    return Page(status, final, text, links, html=html)
 
 
 def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
@@ -77,7 +79,9 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
                 if not WALL_RE.search(text[:4000]) and len(text.strip()) > 200: break
             try: links = pg.evaluate(core.LINKS_JS)
             except Exception: links = []
-            return Page(status, pg.url, text, links)
+            try: raw = pg.content()
+            except Exception: raw = None
+            return Page(status, pg.url, text, links, html=raw)
         finally:
             try: pg.close()
             except Exception: pass
@@ -104,19 +108,69 @@ def get_page(url, plain=None, chrome=None, canonical=None):
 def _digits(s): return re.sub(r"\D", "", s or "")
 
 
+def phones_in(block):
+    """Phones as 10 digits, from phone-shaped text only: never digits inside a longer alphanumeric token (UUID, id, hash) (t_032083dc)."""
+    seen = []
+    for l in block:
+        if len(l) > 200: continue
+        for m in F.PHONE_RE.finditer(l):
+            a, b = m.start(), m.end()
+            if (a > 0 and (l[a - 1].isalnum() or l[a - 1] == "_")) or (b < len(l) and (l[b].isalnum() or l[b] == "_")): continue
+            sp = l.find(" ", b)
+            tok = l[l.rfind(" ", 0, a) + 1:(sp if sp >= 0 else len(l))]
+            tok = re.sub(r"^\w+[:=]", "", tok.strip(".,;:"))
+            if HEXID_RE.match(tok) or re.search(r"[A-Za-z]", tok): continue   # an id / uuid / hash token, not a phone
+            p = m.group(1) + m.group(2) + m.group(3)
+            if p not in seen: seen.append(p)
+    return seen
+
+
+def structured_phones(html_):
+    """Phone strings from tel: hrefs, JSON-LD telephone and microdata. May be masked (+127****2550)."""
+    if not html_: return []
+    out = []
+    for m in re.finditer(r'(?i)href=["\']tel:([^"\']+)', html_): out.append(urllib.parse.unquote(m.group(1)).strip())
+    for m in re.finditer(r'(?is)"telephone"\s*:\s*(\[[^\]]*\]|"[^"]*")', html_):
+        out += re.findall(r'"([^"]+)"', m.group(1))
+    for m in re.finditer(r'(?is)itemprop=["\']telephone["\'][^>]*>([^<]+)<', html_): out.append(m.group(1).strip())
+    return [html.unescape(x) for x in dict.fromkeys(out) if re.search(r"\d", x)]
+
+
+def masked_match(shown, want10):
+    """True/False: do the visible leading and trailing digits of a masked phone agree with the canonical phone. None when not masked."""
+    m = MASKED_NUM_RE.search(shown or "")
+    if not m: return None
+    pre, suf = _digits(m.group(1)), _digits(m.group(2))
+    return any(full.startswith(pre) and full.endswith(suf) and len(pre) + len(suf) < len(full) for full in (want10, "1" + want10))
+
+
 def read_block(text, canonical):
     """The listing's own lines: from the first short line carrying the canonical name to the next stop marker. [] when no such line."""
     lines = [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
     want, want_x = F._norm_name(canonical["name"]), exact_name(canonical["name"])
-    fuzzy = None
+    fuzzy, exact_blocks = None, []
     for i, l in enumerate(lines):
         if len(l) > 120: continue
         l2 = re.sub(r"^\d+\.\s*", "", l)
         if NOTFOUND_RE.match(l2): continue   # "We couldn't find 'Name'" is a not-found page quoting our name, not a listing
-        if exact_name(l2) == want_x: return _block_from(lines, i, l2)   # an exact line wins over a near miss
+        if exact_name(l2) == want_x:   # an exact line wins over a near miss
+            exact_blocks.append(_block_from(lines, i, l2)); continue
         shown = fuzzy is None and near_miss(l2, canonical["name"])
         if shown:
             fuzzy = _block_from(lines, i, shown)   # near miss (typo): still read, compare() reports name as the mismatch
+    if exact_blocks:   # the name also shows in breadcrumbs / titles (freelistingusa): take the first occurrence whose block carries the NAP
+        has_nap = lambda b: phones_in(b) or MASKED_NUM_RE.search("\n".join(b)) or F.street_in(b)
+        hit = next((b for b in exact_blocks if has_nap(b)), None)
+        if hit: return hit
+        # the name line sits above a "Claim this listing" panel and the NAP follows it (freelistingusa): read past the claim marker, still stopping at other sections
+        for i, l in enumerate(lines):
+            if len(l) <= 120 and exact_name(re.sub(r"^\d+\.\s*", "", l)) == want_x:
+                ext = [l]
+                for l3 in lines[i + 1:i + 40]:
+                    if F.STOP_RE.match(l3) and not re.match(r"(?i)claim ", l3): break
+                    ext.append(l3)
+                if has_nap(ext): return ext
+        return exact_blocks[0]
     return fuzzy or []
 
 
@@ -155,7 +209,7 @@ def _block_from(lines, i, first):
     return out
 
 
-def compare(text, canonical):
+def compare(text, canonical, html_=None):
     """-> {"verdict": match|mismatch|gap|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure."""
     block = read_block(text, canonical)
     if not block:
@@ -164,16 +218,32 @@ def compare(text, canonical):
     if exact_name(block[0]) != exact_name(canonical["name"]):
         wrong.append(("name", block[0]))   # 'Senior Care Consltng Solutions' is not our name (t_d7a907d5)
     want_phone = _digits(canonical["phone"])[-10:]
-    shown = F.phones_in(block)
-    if shown:
+    shown, masked_ok, masked_txt, phone_bad = phones_in(block), False, None, False
+    struct = structured_phones(html_)   # structured data first: JSON-LD telephone, tel: hrefs, microdata
+    if struct:
+        full = [_digits(x)[-10:] for x in struct if not MASKED_NUM_RE.search(x) and len(_digits(x)) >= 10]
+        if want_phone in full: shown = [want_phone]
+        elif full: shown = full
+        else:
+            res = [(x, masked_match(x, want_phone)) for x in struct if MASKED_NUM_RE.search(x)]
+            if res and all(r for _x, r in res): shown, masked_ok, masked_txt = [], True, res[0][0]
+            elif res: wrong.append(("phone", next(x for x, r in res if not r))); phone_bad = True
+    if masked_ok or phone_bad:
+        pass
+    elif shown:
         bad = [p for p in shown if p != want_phone]
         if bad: wrong.append(("phone", F.fmt_phone(bad[0])))
         elif want_phone not in shown: gaps.append("phone")
     else:
-        masked = any(MASKED_PHONE_RE.search(l) for l in block if len(l) <= 200)
-        plus = None if masked else next((m.group(0).strip() for l in block for m in [PLUS_PHONE_RE.search(l)] if m and len(l) <= 200), None)
-        if plus: wrong.append(("phone", plus))
-        else: gaps.append("phone")
+        mk = next((m for l in block if len(l) <= 200 for m in [MASKED_NUM_RE.search(l)] if m), None)
+        if mk:
+            if masked_match(mk.group(0), want_phone): masked_ok, masked_txt = True, mk.group(0)
+            else: wrong.append(("phone", mk.group(0)))
+        else:
+            hidden = any(MASKED_PHONE_RE.search(l) for l in block if len(l) <= 200)
+            plus = None if hidden else next((m.group(0).strip() for l in block for m in [PLUS_PHONE_RE.search(l)] if m and len(l) <= 200), None)
+            if plus: wrong.append(("phone", plus))
+            else: gaps.append("phone")
     cstreet = F.parse_street(canonical["address"].split(",")[0])
     got = F.street_in(block)
     if got and cstreet:
@@ -190,9 +260,9 @@ def compare(text, canonical):
     elif not got:
         gaps.append("address")
     street_txt = got[0] if got else None
-    nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else None) if x)
+    nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else masked_txt) if x)
     verdict = "mismatch" if wrong else "gap" if gaps else "match"
-    return {"verdict": verdict, "wrong": wrong, "gaps": gaps, "nap": nap}
+    return {"verdict": verdict, "wrong": wrong, "gaps": gaps, "nap": nap, "masked": masked_ok}
 
 
 def note_for(cmp_):
@@ -316,8 +386,8 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
                 res["verdict"] = "no-permalink"; continue
             res["url"] = url
             page, how = get_page(url, plain, chrome, canonical)
-            cmp_ = compare(page.text, canonical)
-            res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how
+            cmp_ = compare(page.text, canonical, getattr(page, "html", None))
+            res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["masked"] = bool(cmp_.get("masked"))
             if cmp_["verdict"] == "unreadable":
                 res["error"] = "page not readable (%s)" % (page.err or page.status); continue
             if cmp_["verdict"] == "match":
@@ -358,7 +428,7 @@ def format_report(results):
     lines = []
     for r in results:
         f = "; ".join("%s=%s" % (a, b) if isinstance(a, str) and b else str(a) for a, b in [(x if isinstance(x, tuple) else (x, "")) for x in r["fields"]])
-        lines.append("%-26s %-14s -> %-14s %-12s %s%s" % (r["row"], r["before"], r["after"], r["verdict"], f, ("  ERR " + r["error"]) if r["error"] else ""))
+        lines.append("%-26s %-14s -> %-14s %-12s %s%s" % (r["row"], r["before"], r["after"], (r["verdict"] or "") + (" (masked)" if r.get("masked") and r["verdict"] == "match" else ""), f, ("  ERR " + r["error"]) if r["error"] else ""))
     return "\n".join(lines)
 
 
