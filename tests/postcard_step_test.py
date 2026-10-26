@@ -2,6 +2,8 @@
 The headline test: the code never reaches stdout, stderr, any file the step writes, or any portal write body."""
 import os, sys, io, json, contextlib, tempfile, datetime
 HERE = os.path.dirname(os.path.abspath(__file__))
+os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+os.environ["CE_RUNS"] = tempfile.mkdtemp()   # importing run.py makes a run dir; never the real runs folder
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import portal as P
 import postcard_step as PS
