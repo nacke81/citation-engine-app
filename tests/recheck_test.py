@@ -101,11 +101,11 @@ check("R5 dry run: report says live, queue/db/portal untouched", res[0]["after"]
 
 # R6 walled plain page -> Chrome
 res, q, plain_calls, chrome_calls, *_ = run([row("r7", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "Just a moment...")}, {U1: page_text()})
-check("R6 plain 403 -> Chrome read -> live", chrome_calls == [U1] and q["fix_queue"][0]["state"] == "live")
+check("R6 plain 403 -> Chrome read -> live", chrome_calls == [U1] * R.STABLE_READS and q["fix_queue"][0]["state"] == "live")
 res, q, plain_calls, chrome_calls, *_ = run([row("r7", "a.example", "pending-verify", U1)], {U1: page_text()}, {U1: "x"})
 check("R6 readable plain page: Chrome not used", chrome_calls == [])
 res, q, plain_calls, chrome_calls, *_ = run([row("r7", "a.example", "pending-verify", U1)], {U1: R.Page(200, U1, "Performing a quick security check..." + PAD)}, {U1: page_text()})
-check("R6 Turnstile text on a 200 page counts as a wall", chrome_calls == [U1] and q["fix_queue"][0]["state"] == "live")
+check("R6 Turnstile text on a 200 page counts as a wall", chrome_calls == [U1] * R.STABLE_READS and q["fix_queue"][0]["state"] == "live")
 res, q, plain_calls, chrome_calls, *_ = run([row("r7", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "Just a moment...")}, {U1: page_text()}, use_chrome=False)
 check("R6 --no-chrome: walled page writes nothing", chrome_calls == [] and q["fix_queue"][0]["state"] == "pending-verify" and res[0]["verdict"] == "unreadable")
 
