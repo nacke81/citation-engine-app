@@ -41,6 +41,8 @@ jobs:
         run: python tests/queue_test.py
       - name: Citation state transitions (matrix, approval survives, Activities default-on, verification queue)
         run: python tests/transitions_test.py
+      - name: Postcard code read-and-clear
+        run: python tests/postcard_codes_test.py
       - name: Hard-block retry cap (1 try a day, 3 tries, stopped until Mike)
         run: python tests/walls_test.py
       - name: Create-queue discovery (absent only with a positive control)
