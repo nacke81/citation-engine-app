@@ -79,6 +79,10 @@ jobs:
         run: python tests/bizapedia_test.py
       - name: Fill signup and claim URLs (only two fields, https only, backup first)
         run: python tests/fill_signup_urls_test.py
+      - name: Category-fit filter (verdicts, batch 7 rows, --write goes through transitions, network mocked)
+        run: python tests/fit_test.py
+      - name: CapSolver count (per-row solve log, balance delta, cap)
+        run: python tests/count_capsolver_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 

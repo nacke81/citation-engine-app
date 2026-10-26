@@ -12,7 +12,8 @@ QUEUE_PATH = os.environ.get("CE_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/ci
 LISTING_STATES = ("live", "pending-verify", "submitted")
 PORTAL_STATES = ("submitted", "pending-verify", "needs-human", "live", "rejected")
 # found = SCC is already listed and the claim is not done. Internal only: the client sees needs-human, like queued.
-QUEUE_TO_PORTAL = {"queued": "needs-human", "found": "needs-human"}
+# claimed-unverified = found and claimed (free account linked) but edits are ID-gated (D&B). Internal like found; the client sees needs-human.
+QUEUE_TO_PORTAL = {"queued": "needs-human", "found": "needs-human", "claimed-unverified": "needs-human"}
 for _s in PORTAL_STATES:
     QUEUE_TO_PORTAL[_s] = _s
 
