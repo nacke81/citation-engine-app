@@ -22,7 +22,7 @@ def chrome_reader():
     from playwright.sync_api import sync_playwright
     oc = OwnedChrome()
     oc.__enter__(); p = sync_playwright().start()
-    f = core.ChromeFetcher(p.chromium.connect_over_cdp(oc.cdp_url).contexts[0]); f.caption = "[CE claim read]"
+    f = core.ChromeFetcher(p.chromium.connect_over_cdp(oc.cdp_url).new_context()); f.caption = "[CE claim read]"
 
     def getter(url):
         r = f.fetch(url)
