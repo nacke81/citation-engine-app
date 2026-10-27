@@ -74,6 +74,8 @@ class Ctx:
         self.site, self.page, self.nap, self.mailbox, self.item_id, self.cdp, self.dry_run = site, page, nap, mailbox, item_id, cdp, dry_run
         self._runner, self.sleep, self.now, self.poll_seconds, self.poll_every, self.log = runner or subprocess.run, sleep, now, poll_seconds, poll_every, log
         self.state, self._base_uid = {}, None
+        self.row_id = None      # queue row id of a live run (--row): the CAPTCHA 3-try cap is counted per row
+        self.solve_log = None   # CapSolver solve log path (None = pagekit.SOLVE_LOG)
         self.lease = None  # chrome_keepalive.Lease: refreshed before every step so the build Chrome timer does not fire (t_d7a907d5)
         self.chrome_check = None   # callable() -> "up" | "restarted"; None in tests / non-9333 endpoints
         self.reconnect = None      # callable() -> new page after a restart
@@ -221,13 +223,41 @@ def wall_gate(site, queue_path=None, today=None):
     return W.gate(q, site.domain, today)
 
 
+def find_row(row_id, site, queue_path=None):
+    """The queue row a live run builds. Refuses before any browser starts: unknown row, or a row for a different Directory than the site."""
+    import buildqueue as Q
+    try: rows = Q.load_rows(queue_path)
+    except (OSError, ValueError, Q.QueueError) as e: raise SystemExit("--row: cannot read the queue (%s)" % str(e)[:80])
+    hit = [r for r in rows if r["id"] == row_id]
+    if not hit: raise SystemExit("--row %s is not in the queue" % row_id)
+    if hit[0]["directory"] != site.domain: raise SystemExit("--row %s is for %s, not %s" % (row_id, hit[0]["directory"], site.domain))
+    return hit[0]
+
+
+def record_live(row, site, record=None):
+    """After an ok live run: record `submitted` through buildqueue.submit_row(live=True) -> transitions.record_transition. Returns one log line, never raises:
+    a refusal (no Mike approval, paid row, no vault item) is printed, and nothing is recorded."""
+    import buildqueue as Q
+    if getattr(site, "record", "submitted") == "none":
+        return "not recorded: this spec stops at a verify step (record none). Set the state with transitions.py (needs-human + verify_type)."
+    row = dict(row); row.setdefault("vaultwarden_item", site.vault_item)
+    try:
+        res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True)
+    except Q.SubmitRefused as e:
+        return "NOT recorded (submit_row refused: %s). Record it with transitions.py." % e
+    except Exception as e:
+        return "NOT recorded (recording failed: %s). Record it with transitions.py." % PK.redact(str(e))[:120]
+    return "recorded: %s -> submitted (%s)" % (res["id"], str(res.get("recorded"))[:120])
+
+
 def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Scripted listing build (build Chrome, CDP 9333)")
     a.add_argument("site", help="a registered site or a job/playbooks/<site>.json spec; known: " + ", ".join(all_sites()))
     g = a.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true", help="read and fill only; stop before the first submit/mail step")
-    g.add_argument("--live", action="store_true", help="create the listing; needs --card")
+    g.add_argument("--live", action="store_true", help="create the listing; needs --card and --row")
+    a.add_argument("--row", default=None, help="the queue row id this live run builds (e.g. create-storeboard); a successful run records `submitted` for it")
     a.add_argument("--card", default=None, help="the Nate card that authorizes a live build")
     a.add_argument("--cdp", default=CDP_URL)
     a.add_argument("--item-id", default=None, help="Vaultwarden item id (when two items share the name)")
@@ -235,6 +265,10 @@ def main(argv=None):
     n = a.parse_args(argv)
     if n.live and not n.card: raise SystemExit("--live is refused without --card <id> (a Directory account is written)")
     site = load_site(n.site)
+    row = None
+    if n.live:
+        if not n.row: raise SystemExit("--live needs --row <queue row id> (the transition is recorded for that row)")
+        row = find_row(n.row, site)
     skip = wall_gate(site)
     if skip:
         print(skip); return 0   # hard-block cap: no Chrome, no Directory touched
@@ -249,6 +283,7 @@ def main(argv=None):
     pw, page, close = connect(n.cdp, fresh=not n.live)
     try:
         ctx = Ctx(site, page, nap, mailbox=mailbox, item_id=n.item_id, cdp=n.cdp, dry_run=not n.live)
+        ctx.row_id = n.row
         ctx.lease = lease
         if int(n.cdp.rsplit(":", 1)[-1].strip("/") or 0) == KA.PORT:
             ctx.chrome_check = lambda: KA.ensure_up(KA.PORT)
@@ -266,6 +301,7 @@ def main(argv=None):
         except Exception: pass
         pw.stop()
     print(format_result(res))
+    if n.live and res["ok"]: print("  " + record_live(row, site))
     return 0 if res["ok"] else 1
 
 

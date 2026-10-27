@@ -18,7 +18,15 @@
     {"do": "wait_mail"}                                                                          reads listings@, opens the verify link (dry runs never reach it)
   ]
 }
-Verbs: open, clear_ads, fill, select, upload_logo, check, vault_fill, click, wait_mail, stop_before_submit.
+Verbs: open, clear_ads, fill, select, upload_logo, check, vault_fill, click, wait_mail, stop_before_submit,
+  uncheck {selector, js?}              check {selector, js?:true clicks it by script when the page hides the box}
+  select_native {selector, label|index}  a plain <select> by visible label or position
+  type_pick {selector, key|value, pick_text|pick_selector?, delay_ms?}  type slowly into a type-ahead, then click the suggestion (or ArrowDown+Enter)
+  fill {..., slow:true}  types key by key instead of setting the value
+  click_text {text, tag?, js?, force?}   click the first button/link whose text matches (force:true enables a disabled button first)
+  wait {ms}   expect_url {contains}   list_fields {}  (prints every visible control, so an unseen wizard step is discovered in ONE call)
+  solve_captcha {widget?}  AFTER stop_before_submit only: reads the page, solves the widget with CapSolver (3 tries per row, logged), injects the token
+vault_fill url may be "{current}" (the page's own URL, query string and all). Top-level "record": "none" keeps --live from recording `submitted`.
 Canonical NAP keys (from the approved identity, never typed into a spec): name street city st zip phone site email contact first last description state_name.
 Every spec is validated at load: unknown verb, unknown NAP key, missing field, or a literal phone number / email in a value is refused before any browser starts.
 """
@@ -29,7 +37,8 @@ sys.path.insert(0, HERE)
 from build_core import BuildError, Step, Site
 
 NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name")
-VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit")
+VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit",
+         "uncheck", "select_native", "type_pick", "click_text", "wait", "expect_url", "list_fields", "solve_captcha")
 _REF = re.compile(r"\{([a-z_]+)\}")
 _LITERAL_PHONE = re.compile(r"\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}")
 _LITERAL_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -63,15 +72,21 @@ def validate(spec):
         do = s.get("do")
         if do not in VERBS: _fail(site, i, "unknown verb %r (known: %s)" % (do, ", ".join(VERBS)))
         need = {"open": ("url",), "fill": ("selector",), "select": ("target", "value"), "upload_logo": ("selector",), "check": ("selector",),
-                "vault_fill": ("selector", "url"), "click": ("selector",)}.get(do, ())
+                "vault_fill": ("selector", "url"), "click": ("selector",), "uncheck": ("selector",), "select_native": ("selector",),
+                "type_pick": ("selector",), "click_text": ("text",), "expect_url": ("contains",), "wait": ("ms",)}.get(do, ())
         for k in need:
             if not s.get(k): _fail(site, i, "%s needs %r" % (do, k))
         if do == "fill" and not (s.get("key") or s.get("value") is not None): _fail(site, i, "fill needs key or value")
+        if do == "type_pick" and not (s.get("key") or s.get("value") is not None): _fail(site, i, "type_pick needs key or value")
+        if do == "select_native" and s.get("label") is None and s.get("index") is None: _fail(site, i, "select_native needs label or index")
+        if do == "solve_captcha" and not any(x.get("do") == "stop_before_submit" for x in spec["steps"][:i]):
+            _fail(site, i, "solve_captcha spends money: it must come after a stop_before_submit marker (dry runs never reach it)")
         if s.get("key") and s["key"] not in NAP_KEYS: _fail(site, i, "unknown NAP key %r (known: %s)" % (s["key"], ", ".join(NAP_KEYS)))
         for field in ("value", "url", "selector", "target"):
             v = s.get(field)
             if not isinstance(v, str): continue
             for ref in _REF.findall(v):
+                if ref == "current" and field == "url" and do == "vault_fill": continue
                 if ref not in NAP_KEYS: _fail(site, i, "unknown NAP key {%s} in %s" % (ref, field))
             if field == "value" and (_LITERAL_PHONE.search(v) or _LITERAL_EMAIL.search(v)):
                 _fail(site, i, "literal phone/email in value: use a NAP key ({phone}, {email}), the identity file owns them")
@@ -79,6 +94,7 @@ def validate(spec):
         if do == "stop_before_submit": stop_seen = True
         if do == "click" and s.get("submit") and not stop_seen and not any(x.get("do") == "stop_before_submit" for x in spec["steps"][:i]):
             _fail(site, i, "a submit click must come after a stop_before_submit marker (dry runs stop there)")
+    if spec.get("record", "submitted") not in ("submitted", "none"): raise BuildError("spec record must be 'submitted' or 'none'")
     if spec.get("mail"):
         for k in ("sender", "link_re"):
             if not spec["mail"].get(k): raise BuildError("spec mail needs %r" % k)
@@ -122,6 +138,10 @@ def _v_fill(s):
         sel = _sel(ctx, s)
         val = ctx.nap[s["key"]] if s.get("key") else render(s["value"], ctx.nap)
         if s.get("optional") and not ctx.page.locator(sel).count(): return "skipped (%s absent)" % sel
+        if s.get("slow"):   # forms that only enable their button on real key events (Thryv step 2)
+            ctx.need(sel, wait_ms=int(s.get("wait_ms", 15000)))
+            ctx.page.click(sel); ctx.page.fill(sel, ""); ctx.page.type(sel, str(val), delay=int(s.get("delay_ms", 40)))
+            return "typed %s" % sel
         used = ctx.fill_first(str(val), *([sel] + list(s.get("fallbacks") or [])))
         return "filled %s" % used
     return fn
@@ -146,13 +166,18 @@ def _v_check(s):
     def fn(ctx):
         import pagekit as PK
         sel = _sel(ctx, s); PK.clear_ads(ctx.page, sel)
-        ctx.page.check(sel); return "checked %s" % sel
+        if s.get("js"):
+            ctx.page.evaluate("(s) => { const c = document.querySelector(s); if (c && !c.checked) c.click(); }", sel)
+        else:
+            ctx.page.check(sel)
+        return "checked %s" % sel
     return fn
 
 
 def _v_vault_fill(s):
     def fn(ctx):
-        return ctx.vault_fill(_sel(ctx, s), render(s["url"], ctx.nap))
+        url = ctx.page.url if s["url"] == "{current}" else render(s["url"], ctx.nap)
+        return ctx.vault_fill(_sel(ctx, s), url)
     return fn
 
 
@@ -180,12 +205,111 @@ def _v_wait_mail(s, spec):
     return fn
 
 
+def _v_uncheck(s):
+    def fn(ctx):
+        import pagekit as PK
+        sel = _sel(ctx, s); PK.clear_ads(ctx.page, sel)
+        if s.get("js"):
+            ctx.page.evaluate("(s) => { const c = document.querySelector(s); if (c && c.checked) c.click(); }", sel)
+        else:
+            ctx.page.uncheck(sel)
+        return "unchecked %s" % sel
+    return fn
+
+
+def _v_select_native(s):
+    def fn(ctx):
+        sel = _sel(ctx, s)
+        ctx.need(sel, wait_ms=int(s.get("wait_ms", 15000)))
+        if s.get("label") is not None: ctx.page.select_option(sel, label=render(str(s["label"]), ctx.nap))
+        else: ctx.page.select_option(sel, index=int(s["index"]))
+        return "selected %s in %s" % (s.get("label", "#%s" % s.get("index")), sel)
+    return fn
+
+
+def _v_type_pick(s):
+    def fn(ctx):
+        sel = _sel(ctx, s)
+        val = str(ctx.nap[s["key"]]) if s.get("key") else render(s["value"], ctx.nap)
+        ctx.need(sel, wait_ms=int(s.get("wait_ms", 15000)))
+        ctx.page.click(sel); ctx.page.fill(sel, "")
+        ctx.page.type(sel, val, delay=int(s.get("delay_ms", 100)))
+        ctx.page.wait_for_timeout(int(s.get("settle_ms", 2500)))
+        if s.get("pick_text"): ctx.page.get_by_text(render(s["pick_text"], ctx.nap), exact=bool(s.get("exact", True))).first.click(timeout=8000); how = s["pick_text"]
+        elif s.get("pick_selector"): ctx.page.locator(s["pick_selector"]).first.click(timeout=8000); how = s["pick_selector"]
+        else:
+            ctx.page.keyboard.press("ArrowDown"); ctx.page.wait_for_timeout(400); ctx.page.keyboard.press("Enter"); how = "ArrowDown+Enter"
+        ctx.page.wait_for_timeout(int(s.get("after_ms", 1500)))
+        return "typed %d chars into %s, picked %s" % (len(val), sel, how)
+    return fn
+
+
+CLICK_TEXT_JS = """(a) => {
+  const want = a.text.trim().toLowerCase();
+  const el = [...document.querySelectorAll(a.tag)].find(x => ((x.innerText || x.value || '').trim().toLowerCase()) === want || (!a.exact && (x.innerText || x.value || '').trim().toLowerCase().includes(want)));
+  if (!el) return false;
+  if (a.force) { el.disabled = false; el.removeAttribute('disabled'); }
+  el.click(); return true;
+}"""
+
+
+def _v_click_text(s):
+    def fn(ctx):
+        import pagekit as PK
+        PK.clear_ads(ctx.page)
+        ok = ctx.page.evaluate(CLICK_TEXT_JS, {"text": render(s["text"], ctx.nap), "tag": s.get("tag", "button,a,input[type=submit]"), "exact": bool(s.get("exact", True)), "force": bool(s.get("force"))})
+        if not ok: raise BuildError("no %s reading %r on %s" % (s.get("tag", "button/link"), s["text"], ctx.page.url.split("?")[0][-50:]))
+        if s.get("settle_ms"): ctx.page.wait_for_timeout(int(s["settle_ms"]))
+        return "clicked text %r" % s["text"]
+    return fn
+
+
+def _v_wait(s):
+    def fn(ctx):
+        ctx.page.wait_for_timeout(int(s["ms"])); return "waited %s ms" % s["ms"]
+    return fn
+
+
+def _v_expect_url(s):
+    def fn(ctx):
+        waited = 0
+        while s["contains"] not in ctx.page.url:
+            if waited >= int(s.get("wait_ms", 15000)): raise BuildError("expected the URL to contain %r, it is %s" % (s["contains"], ctx.page.url.split("?")[0][-70:]))
+            ctx.page.wait_for_timeout(500); waited += 500
+        return "url has %s" % s["contains"]
+    return fn
+
+
+LIST_FIELDS_JS = """() => [...document.querySelectorAll('input,select,textarea,button')].filter(e => e.type !== 'hidden' && e.getClientRects().length)
+  .slice(0, 60).map(e => [e.tagName.toLowerCase(), e.type || '', e.id, e.name, (e.placeholder || e.innerText || e.value || '').toString().slice(0, 30).replace(/\\s+/g, ' '), e.disabled ? 'disabled' : ''].join('|'))"""
+
+
+def _v_list_fields(s):
+    def fn(ctx):
+        rows = ctx.page.evaluate(LIST_FIELDS_JS) or []
+        ctx.log("  fields on %s:" % ctx.page.url.split("?")[0][-60:])
+        for r in rows: ctx.log("    " + str(r))
+        return "%d visible controls listed (no values)" % len(rows)
+    return fn
+
+
+def _v_solve_captcha(s):
+    def fn(ctx):
+        import pagekit as PK
+        if ctx.dry_run: raise BuildError("solve_captcha refused in a dry run (it spends money)")
+        if not ctx.row_id: raise BuildError("solve_captcha needs the queue row id (--row): the 3-try cap is counted per row")
+        r = PK.solve_and_inject(ctx.page, ctx.row_id, widget_type=s.get("widget"), log_path=getattr(ctx, "solve_log", None))
+        return "solved %s: %d field(s), %d callback(s), call %d of 3" % (r["kind"], r["fields"], r["callbacks"], r["tries"])
+    return fn
+
+
 def _v_stop(s):
     return lambda ctx: "live run passes the dry-run stop"
 
 
 KIND = {"open": "read", "clear_ads": "fill", "fill": "fill", "select": "fill", "upload_logo": "fill", "check": "fill", "vault_fill": "fill",
-        "wait_mail": "mail", "stop_before_submit": "submit"}
+        "wait_mail": "mail", "stop_before_submit": "submit", "uncheck": "fill", "select_native": "fill", "type_pick": "fill",
+        "click_text": "fill", "wait": "read", "expect_url": "read", "list_fields": "read", "solve_captcha": "submit"}
 
 
 def build_site(spec):
@@ -195,12 +319,17 @@ def build_site(spec):
     for i, s in enumerate(spec["steps"]):
         do = s["do"]
         fn = _v_wait_mail(s, spec) if do == "wait_mail" else {"open": _v_open, "clear_ads": _v_clear_ads, "fill": _v_fill, "select": _v_select, "upload_logo": _v_upload_logo,
-              "check": _v_check, "vault_fill": _v_vault_fill, "click": _v_click, "stop_before_submit": _v_stop}[do](s)
-        kind = ("submit" if s.get("submit") else "fill") if do == "click" else KIND[do]
+              "check": _v_check, "vault_fill": _v_vault_fill, "click": _v_click, "stop_before_submit": _v_stop, "uncheck": _v_uncheck,
+              "select_native": _v_select_native, "type_pick": _v_type_pick, "click_text": _v_click_text, "wait": _v_wait, "expect_url": _v_expect_url,
+              "list_fields": _v_list_fields, "solve_captcha": _v_solve_captcha}[do](s)
+        kind = ("submit" if s.get("submit") else "fill") if do in ("click", "click_text") else KIND[do]
+        if do == "click_text" and s.get("submit"): kind = "submit"
         name = s.get("name") or "%02d_%s" % (i + 1, do)
         steps.append(Step(name, kind, fn))
     mail = spec.get("mail")
-    return Site(spec["site"], spec["domain"], steps, spec.get("vault_item"), mail)
+    site = Site(spec["site"], spec["domain"], steps, spec.get("vault_item"), mail)
+    site.record = spec.get("record", "submitted")   # 'none': a live run does not record `submitted` (the flow stops at a verify step)
+    return site
 
 
 def load_spec(name_or_path, spec_dir=None):

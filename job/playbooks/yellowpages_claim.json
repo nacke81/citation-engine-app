@@ -1,0 +1,85 @@
+{
+  "site": "yellowpages_claim",
+  "domain": "yellowpages.com",
+  "vault_item": "SCC - accounts.yellowpages.com (Thryv)",
+  "record": "none",
+  "notes": "b12. Thryv claim for yellowpages.com / dexknows (one Thryv record). Opens the claim page for the SCC listing (ypid 577699341), picks it in the type-ahead, solves the reCAPTCHA v2 (rcToken), fills step 2, submits and STOPS at /claim/claim-verify (only Verify by Call / Text there: needs-human, verify_type=phone-call, set it with transitions.py; the spec never clicks Call/Text). The Claim Now submit is the Thryv marketing-consent step Mike approved in batch 11. Account password: the vault item above, filled with the registrable-domain match (accounts.yellowpages.com page, www.yellowpages.com item). The listing name is the typo 'Senior Care Consltng-Solutions': the name correction is a later edit after verify, not part of this spec. Step-2 phone/website selectors were not recorded in batch 12: list_fields prints them before the submit.",
+  "steps": [
+    {
+      "name": "open_claim",
+      "do": "open",
+      "url": "https://www.yellowpages.com/claim-your-listing?ypid=577699341",
+      "wall_seconds": 90,
+      "expect": [
+        "#query"
+      ]
+    },
+    {
+      "name": "find_listing",
+      "do": "type_pick",
+      "selector": "#query",
+      "value": "Senior Care Cons",
+      "delay_ms": 100,
+      "settle_ms": 3500
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "solve_recaptcha",
+      "do": "solve_captcha",
+      "widget": "recaptcha-v2"
+    },
+    {
+      "name": "claim_now",
+      "do": "click",
+      "selector": "input[type=submit]",
+      "submit": true,
+      "settle_ms": 5000
+    },
+    {
+      "name": "step2_first",
+      "do": "fill",
+      "selector": "#first-name",
+      "key": "first",
+      "slow": true
+    },
+    {
+      "name": "step2_last",
+      "do": "fill",
+      "selector": "#last-name",
+      "key": "last",
+      "slow": true
+    },
+    {
+      "name": "step2_email",
+      "do": "fill",
+      "selector": "#email-address",
+      "key": "email",
+      "slow": true
+    },
+    {
+      "name": "step2_password",
+      "do": "vault_fill",
+      "selector": "input[name=\"user[new_password]\"]",
+      "url": "{current}"
+    },
+    {
+      "name": "step2_fields",
+      "do": "list_fields"
+    },
+    {
+      "name": "submit_step2",
+      "do": "click",
+      "selector": "input[type=submit]",
+      "submit": true,
+      "settle_ms": 6000
+    },
+    {
+      "name": "stop_at_claim_verify",
+      "do": "expect_url",
+      "contains": "/claim/claim-verify",
+      "wait_ms": 30000
+    }
+  ]
+}

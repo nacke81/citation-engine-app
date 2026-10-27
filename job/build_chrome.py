@@ -6,7 +6,8 @@ cookies survive between batches, and the CDP port is fixed (default 9333) so the
 This is an ordinary Chrome. No spoofing, no stealth flags, no CAPTCHA handling. A human still solves any challenge.
 
   python job/build_chrome.py                 # start, print cdp_url, run until Ctrl+C
-  python job/build_chrome.py --seconds 600   # start, run 10 minutes, close
+  python job/build_chrome.py --seconds 600   # start, run 10 minutes, close (logs a WARNING line 5 minutes before)
+  python job/build_chrome.py --seconds 0     # a BATCH: run until stopped (taskkill /PID <pid> /T /F); never closes on a timer
 Output lines: cdp_url=..., windows_before/during/after. Window count before must equal after.
 """
 import os, sys, time, argparse
@@ -37,9 +38,19 @@ def main(argv=None):
             print("profile=%s (persistent, kept on exit)" % oc.profile, flush=True)
             print("windows_during=%d" % window_count(oc.job), flush=True)
             end = time.time() + n.seconds if n.seconds else None
+            print("lease=%s" % ("until stopped (--seconds 0), pid %d" % os.getpid() if end is None else "closes in %d s unless a card lease is fresh" % n.seconds), flush=True)
+            try:
+                swept = KA.sweep_foreign_tabs(oc.port)
+                print("tabs_closed=%d%s" % (len(swept), (" (" + ", ".join(swept) + ")") if swept else ""), flush=True)
+            except Exception as e:
+                print("tabs_closed=0 (sweep skipped: %s)" % str(e)[:80], flush=True)
+            warned = False
             try:
                 # t_d7a907d5: the timer does not fire while a card holds the lease (job/chrome_keepalive.py); it asks again every second.
-                while end is None or not KA.should_close(end): time.sleep(1)
+                while end is None or not KA.should_close(end):
+                    w = KA.close_warning(end, warned)
+                    if w: print(w, flush=True); warned = True
+                    time.sleep(1)
             except KeyboardInterrupt:
                 pass
     finally:
