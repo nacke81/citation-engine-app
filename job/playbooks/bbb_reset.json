@@ -1,0 +1,51 @@
+{
+  "site": "bbb_reset",
+  "domain": "bbb.org",
+  "record": "none",
+  "vault_item": "SCC - bbb.org",
+  "notes": "t_2d15878c (batch 19). LIVE-SEEN 2026-10-27 in the build Chrome: the sign-in form's 'Forgot password?' link goes to https://www.bbb.org/account/forgot-password. The page says 'we will send you a code to reset your password' (a CODE mail, not a link): one input#email and a Submit button. A dry run stops BEFORE Submit (nothing sent). A --live run submits and reads the answer; the code arrives at listings@ (`python job/mail_scan.py --reset-link --directory bbb.org`). Resolve the vault item with `python job/vault_item.py --domain bbb.org`.",
+  "steps": [
+    {
+      "name": "open_forgot",
+      "do": "open",
+      "url": "https://www.bbb.org/account/forgot-password",
+      "wall_seconds": 90,
+      "expect": [
+        "input#email"
+      ]
+    },
+    {
+      "name": "fill_email",
+      "do": "fill",
+      "selector": "input#email",
+      "key": "email"
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "submit_reset",
+      "do": "click_text",
+      "text": "Submit",
+      "tag": "form button[type=submit]",
+      "exact": true,
+      "submit": true,
+      "settle_ms": 5000
+    },
+    {
+      "name": "read_answer",
+      "do": "read_text",
+      "expect_any": [
+        "code",
+        "sent",
+        "check your email",
+        "no account",
+        "not found",
+        "doesn't exist",
+        "does not exist",
+        "not registered",
+        "invalid"
+      ]
+    }
+  ]
+}

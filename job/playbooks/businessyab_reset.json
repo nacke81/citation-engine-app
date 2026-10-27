@@ -1,0 +1,52 @@
+{
+  "site": "businessyab_reset",
+  "domain": "businessyab.com",
+  "record": "none",
+  "vault_item": "SCC - businessyab.com",
+  "notes": "t_2d15878c (batch 19). LIVE-SEEN 2026-10-27 in the build Chrome: the login modal's 'Forgot Password?' link goes to https://www.businessyab.com/forgot_password: heading 'Forgot Your Password?', one text input named `forget` (placeholder email) and a Submit button, form has a hidden do_forgot field. A dry run stops BEFORE Submit (nothing sent). A --live run submits and reads the answer; instructions arrive at listings@ (`python job/mail_scan.py --reset-link --directory businessyab.com`). Resolve the vault item with `python job/vault_item.py --domain businessyab.com`.",
+  "steps": [
+    {
+      "name": "open_forgot",
+      "do": "open",
+      "url": "https://www.businessyab.com/forgot_password",
+      "wall_seconds": 60,
+      "expect": [
+        "input[name=forget]"
+      ]
+    },
+    {
+      "name": "fill_email",
+      "do": "fill",
+      "selector": "input[name=forget]",
+      "key": "email"
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "submit_reset",
+      "do": "click_text",
+      "text": "Submit",
+      "tag": "button[type=submit]",
+      "exact": true,
+      "submit": true,
+      "settle_ms": 5000
+    },
+    {
+      "name": "read_answer",
+      "do": "read_text",
+      "expect_any": [
+        "instructions",
+        "sent",
+        "check your email",
+        "no account",
+        "not found",
+        "doesn't exist",
+        "does not exist",
+        "not registered",
+        "invalid",
+        "no user"
+      ]
+    }
+  ]
+}

@@ -79,7 +79,25 @@ def resolve_for_domain(domain, runner=None, items=None):
     return it["id"], it["name"]
 
 
-def main(argv=None, runner=None, items=None, out=print, err=None):
+SET_JS = os.path.join(HERE, "vault_set_password.cjs")
+
+
+def set_password(domain, password, runner=None, items=None, node="node", timeout=240):
+    """t_2d15878c: put a NEW password (after a site reset) into the ONE existing item for `domain`. Never creates an item: the item is resolved first
+    (not-found / ambiguous = VaultItemError, nothing written). The password goes to vault_set_password.cjs on STDIN only (never argv, never printed).
+    -> the item NAME (safe to print)."""
+    if not password or len(password) < 8: raise VaultItemError("refused: empty or short password")
+    it = resolve_item(domain, items if items is not None else list_items(runner))
+    import build_runner as B
+    cmd = [node, SET_JS, "--item-id", it["id"], "--organization", B.ORG, "--collection", B.COLLECTION, "--fill-js", B.FILL_JS]
+    r = (runner or subprocess.run)(cmd, input=password, capture_output=True, text=True, timeout=timeout)
+    if getattr(r, "returncode", 1) != 0:
+        e = ((getattr(r, "stderr", "") or "") + (getattr(r, "stdout", "") or "")).strip()
+        raise VaultItemError("vault set-password failed: %s" % (e.splitlines()[-1] if e else "no output")[:120])
+    return it["name"]
+
+
+def main(argv=None, runner=None, items=None, out=print, err=None, stdin=None):
     """CLI (t_d2f75685): `python job/vault_item.py --domain citylocalpro.com` prints the resolved item NAME only (`--print id` prints the id).
     Never a username, password or note: resolve_item sees id / name / uris only. Exit 0 found, 1 not-found / not-unique / vault problem.
     Feed the name to the fill helper (`--name`) or to `build_runner --item-name`, so `SCC - citylocalpro` vs `SCC - citylocalpro.com` never fails."""
@@ -87,8 +105,16 @@ def main(argv=None, runner=None, items=None, out=print, err=None):
     a = argparse.ArgumentParser(description="Print the name of the one Citations vault item for a Directory domain (never the secret)")
     a.add_argument("--domain", required=True)
     a.add_argument("--print", dest="what", choices=("name", "id"), default="name")
+    a.add_argument("--set-password-from-stdin", action="store_true", help="read a NEW password from stdin and write it into the ONE existing item for --domain (never creates an item; t_2d15878c)")
     n = a.parse_args(argv)
     err = err or (lambda m: print(m, file=sys.stderr))
+    if n.set_password_from_stdin:
+        pw = ((stdin or sys.stdin).read() or "").rstrip("\r\n")
+        try: name = set_password(n.domain, pw, runner=runner, items=items)
+        except VaultItemError as e:
+            err("REFUSED: %s" % e); return 1
+        out("password updated in the existing item: %s" % name)
+        return 0
     try:
         it = resolve_item(n.domain, items if items is not None else list_items(runner))
     except VaultItemError as e:

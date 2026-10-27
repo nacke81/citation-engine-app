@@ -559,7 +559,7 @@ def _last_note(row):
     return (h[-1].get("note") if h and isinstance(h[-1], dict) else None)
 
 
-def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None):
+def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False):
     """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row."""
     import datetime
     day = today or datetime.date.today().isoformat()
@@ -575,7 +575,7 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
     if use_chrome and chrome is None: chrome = own_reader = SignedOutReader(); own_reader.canonical = canonical   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
     elif not use_chrome: chrome = None
     try:
-        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail)
+        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail, backoff_only)
     finally:
         if own_reader: own_reader.close()
 
@@ -604,8 +604,9 @@ def _backoff(res, row, write, record, queue_path, day, note=None):
     record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due)
 
 
-def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None):
+def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False):
     results = []
+    bw = write or backoff_only   # t_2d15878c: a dry-run batch still moves recheck_due (backoff only; no transition, never live)
     for kind, row in candidates(q, include_live, only, day):
         d, rid, before = row["directory"], row["id"], row["state"]
         res = {"row": rid, "directory": d, "url": None, "before": before, "after": before, "verdict": None, "fields": [], "note": None, "error": None}
@@ -621,7 +622,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     res["note"] = note
             if d in UNREADABLE_PUBLIC:   # t_bbc32230: no public source exists: never fetched, never counted live, never retried
                 res["url"] = url; res["verdict"] = "unreadable-public"; res["note"] = UNREADABLE_PUBLIC[d]
-                _backoff(res, row, write, record, queue_path, day); continue
+                _backoff(res, row, bw, record, queue_path, day); continue
             searched_ok = False
             if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
                 su = search_url_for(d, ident)
@@ -643,7 +644,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, None, res["note"], queue_path=queue_path, today=day, listing_url=url)
             if url is None:
                 res["verdict"] = "not-public" if searched_ok else "no-permalink"
-                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", ""); _backoff(res, row, write, record, queue_path, day)
+                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", ""); _backoff(res, row, bw, record, queue_path, day)
                 continue
             res["url"] = url
             page, how, cmp_ = read_listing(url, plain, chrome, canonical)   # t_03a74bae: the one read + verdict path for dry run and --write
@@ -651,7 +652,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
             if cmp_["verdict"] == "unreadable":
                 why = not_public(page, how)
                 if why:   # t_3ac43137: the Directory answered and nothing is published for us at this URL: a real verdict, nothing written
-                    res["verdict"] = "not-public"; res["fields"] = []; res["note"] = "signed-out page shows no listing: " + why; _backoff(res, row, write, record, queue_path, day); continue
+                    res["verdict"] = "not-public"; res["fields"] = []; res["note"] = "signed-out page shows no listing: " + why; _backoff(res, row, bw, record, queue_path, day); continue
                 res["error"] = "page not readable (%s)" % (page.err or page.status); continue
             if cmp_["verdict"] == "match":
                 final = final_url(url, page)   # t_962161f4: the Directory redirected to a new slug (us-info): the FINAL url is the listing url from here on
@@ -672,7 +673,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
             elif before != "live":
                 note = note_for(cmp_) + (" (repeat reads disagreed: %s; not counted live)" % ", ".join(cmp_["unstable"]) if cmp_.get("unstable") else ""); res["note"] = note
                 if cmp_["verdict"] == "not-public":   # t_962161f4: a hidden / paused banner: back off 2 days (the same one note write carries the date)
-                    _backoff(res, row, write and note != _last_note(row), record, queue_path, day, note=note)
+                    _backoff(res, row, bw and note != _last_note(row), record, queue_path, day, note=note)
                 elif write and note != _last_note(row):
                     record("SCC", rid, before, None, note, queue_path=queue_path, today=day)
         except Exception as e:
@@ -724,15 +725,16 @@ def main(argv=None):
     a.add_argument("--include-live", action="store_true", help="also read live rows (report only)")
     a.add_argument("--row", action="append", default=None)
     a.add_argument("--proof-live", action="store_true", help="with --write --include-live --row ID: write Proof for named rows already live (state unchanged)")
+    a.add_argument("--backoff-only", action="store_true", help="dry run that still writes ONLY recheck_due (+2 days) on not-public / unreadable-public waiting rows; no transition, never live")
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
     n = a.parse_args(argv)
     from cfg import IDENT
     mail = MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal.
-    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail)
+    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write)
     if mail.error: print("MAILBOX NOT READ: %s (rows that need the approval mail were left alone)" % mail.error, file=sys.stderr)
     print(format_report(res))
-    print("%d rows read; %d to live; mode=%s" % (len(res), sum(1 for r in res if r["after"] == "live" and r["before"] != "live"), "WRITE" if n.write else "dry run"))
+    print("%d rows read; %d to live; mode=%s" % (len(res), sum(1 for r in res if r["after"] == "live" and r["before"] != "live"), "WRITE" if n.write else ("dry run + backoff-only" if n.backoff_only else "dry run")))
     return 1 if any(r["error"] and r["verdict"] != "unreadable" for r in res) else 0
 
 
