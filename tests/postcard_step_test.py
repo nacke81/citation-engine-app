@@ -8,6 +8,15 @@ sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import portal as P
 import postcard_step as PS
 
+# Tripwire (t_20ccb0b4): this test must never reach the real hermes CLI / a real Kanban card.
+os.environ["CE_NO_CARDS"] = "1"
+leaked = []
+def _trip_runner(argv, **kw): leaked.append(list(argv))
+def _trip_subprocess(argv, *a, **kw): leaked.append(list(argv) if isinstance(argv, (list, tuple)) else [str(argv)])
+_REAL_SUBPROCESS_RUN = PS.subprocess.run
+PS._card_runner = _trip_runner
+PS.subprocess.run = _trip_subprocess
+
 ok = []
 def check(n, c, d=""):
     ok.append(bool(c)); print(("PASS " if c else "FAIL ") + n + ((" [%s]" % d) if d else ""), flush=True)
@@ -75,7 +84,7 @@ check("CODE NEVER LEAKS (exception text carried it)", CODE not in every_byte(p, 
 
 # 4 no entry registered: consume NOT called, code left in the portal
 p = FakePortal(rows((V1, "nowhere.example", 5)), {V1: CODE})
-res, text = go(p, {"a.example": accept})
+res, text = go(p, {"a.example": accept}, alert=[].append)
 check("no entry for the Directory: skipped", res[0]["outcome"] == "skipped-no-entry")
 check("no entry: consume was NOT called and the code is still waiting", not any(c[1] == "rpc/consume_postcard_code" for c in p.calls) and p.codes == {V1: CODE})
 
@@ -92,7 +101,7 @@ check("purged code: no-code, nothing entered, nothing recorded", res[0]["outcome
 
 # 7 age warning at 48h
 p = FakePortal(rows((V1, "nowhere.example", 50), (V2, "nowhere.example", 3)), {})
-res, text = go(p, {})
+res, text = go(p, {}, alert=[].append)
 check("waiting 50h warns; 3h does not", text.count("POSTCARD WARNING") == 1 and V1 in text.split("POSTCARD WARNING")[1].split("\n")[0])
 
 # 8 consume failure: error outcome, message holds no code
@@ -152,6 +161,16 @@ p = FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE})
 res, text, sent = go_alert(p, {}, dry=True)
 check("alert: --dry never alerts, even for skipped and 48h+", sent == [] and "alerted" not in res[0])
 
+check("no test reaches the real card runner (cases 1-13)", leaked == [], leaked)
+
+# CE_NO_CARDS=1 (the permanent guard): the default alert prints, skips the card, and never calls any runner
+p = FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE})
+res, text = go(p, {})
+check("CE_NO_CARDS=1: default alert is loud, says CARD SKIPPED: CE_NO_CARDS, and runs nothing",
+      "POSTCARD ALERT" in text and "POSTCARD ALERT CARD SKIPPED: CE_NO_CARDS" in text and "CARD FAILED" not in text and leaked == [] and res[0].get("alerted") and CODE not in text)
+
+# section 14 uses its own fake runner and needs the guard off; the tripwire comes back right after
+del os.environ["CE_NO_CARDS"]
 calls = []
 def fake_runner(argv, **kw): calls.append((argv, kw))
 PS._card_runner = fake_runner   # never call the real hermes from tests
@@ -194,6 +213,13 @@ with contextlib.redirect_stdout(_o), contextlib.redirect_stderr(_e):
 PS.run = _real_run
 check("main: exit 1 and ALERT on stderr for a real run; exit 0 and no ALERT for --dry", rc_real == 1 and rc_dry == 0 and _e.getvalue().count("POSTCARD ALERT") == 1 and CODE not in _o.getvalue() + _e.getvalue())
 check("ENTERERS stays empty (no Directory registered)", PS.ENTERERS == {})
+
+# end of section 14: tripwire back, guard back on
+PS._card_runner = _trip_runner
+os.environ["CE_NO_CARDS"] = "1"
+go(FakePortal(rows((V1, "nowhere.example", 60)), {V1: CODE}), {})
+check("no test reaches the real card runner (whole file outside section 14)", leaked == [], leaked)
+PS.subprocess.run = _REAL_SUBPROCESS_RUN
 
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

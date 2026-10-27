@@ -81,6 +81,9 @@ def _default_alert(msg, info=None, runner=None):
     print(msg, file=sys.stderr, flush=True)
     if not info:
         return
+    if os.environ.get("CE_NO_CARDS") == "1":   # tests and dry environments: print only, never shell out
+        print("POSTCARD ALERT CARD SKIPPED: CE_NO_CARDS", file=sys.stderr, flush=True)
+        return
     try:
         (runner or subprocess.run)(card_argv(info), capture_output=True, timeout=CARD_TIMEOUT_SECONDS, check=True)
     except Exception as e:
