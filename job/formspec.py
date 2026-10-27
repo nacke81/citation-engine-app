@@ -41,7 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from build_core import BuildError, Step, Site
 
-NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name", "phone_digits")
+NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name", "phone_digits", "description_long")
 VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit",
          "uncheck", "select_native", "type_pick", "click_text", "wait", "expect_url", "list_fields", "solve_captcha",
          "type_text", "set_value", "remove", "login", "read_text")
@@ -130,6 +130,7 @@ def render(template, nap):
     """'{name}, {city}' -> text. Missing key is a BuildError (validate() already refused unknown names)."""
     def sub(m):
         k = m.group(1)
+        if k == "description_long" and nap.get("_description_long_error"): raise BuildError(nap["_description_long_error"])   # t_d2f75685: validated before any form is touched
         if k not in nap or nap[k] in (None, ""): raise BuildError("NAP key %r has no value" % k)
         return str(nap[k])
     return _REF.sub(sub, template)
@@ -364,9 +365,12 @@ def _v_read_text(s):
     def fn(ctx):
         if s.get("url"): ctx.page.goto(render(s["url"], ctx.nap), wait_until="domcontentloaded"); ctx.page.wait_for_timeout(int(s.get("settle_ms", 3000)))
         body = ctx.page.inner_text("body").lower()
-        hit = next((p for p in s["expect_any"] if p.lower() in body), None)
+        # t_d2f75685: whole words (so 'active' is not found inside 'inactive'), and the LIST ORDER is the precedence: the first listed phrase that shows wins.
+        # A page that shows both 'rejected' and 'pending' reports whichever the spec lists first (terminal words go first), never page order.
+        shown = [p for p in s["expect_any"] if re.search(r"(?<![a-z0-9])" + re.escape(p.lower()) + r"(?![a-z0-9])", body)]
+        hit = shown[0] if shown else None
         if hit is None and not s.get("optional"): raise BuildError("none of %s found on %s" % (s["expect_any"], ctx.page.url.split("?")[0][-60:]))
-        return "status text: %s" % (hit or "none matched")
+        return "status text: %s" % (hit or "none matched") + ((" (also shown: %s)" % ", ".join(shown[1:])) if len(shown) > 1 else "")
     return fn
 
 

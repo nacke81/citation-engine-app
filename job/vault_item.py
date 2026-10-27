@@ -77,3 +77,26 @@ def resolve_for_domain(domain, runner=None, items=None):
     """-> (item_id, item_name). Name only is safe to print."""
     it = resolve_item(domain, items if items is not None else list_items(runner))
     return it["id"], it["name"]
+
+
+def main(argv=None, runner=None, items=None, out=print, err=None):
+    """CLI (t_d2f75685): `python job/vault_item.py --domain citylocalpro.com` prints the resolved item NAME only (`--print id` prints the id).
+    Never a username, password or note: resolve_item sees id / name / uris only. Exit 0 found, 1 not-found / not-unique / vault problem.
+    Feed the name to the fill helper (`--name`) or to `build_runner --item-name`, so `SCC - citylocalpro` vs `SCC - citylocalpro.com` never fails."""
+    import argparse, sys
+    a = argparse.ArgumentParser(description="Print the name of the one Citations vault item for a Directory domain (never the secret)")
+    a.add_argument("--domain", required=True)
+    a.add_argument("--print", dest="what", choices=("name", "id"), default="name")
+    n = a.parse_args(argv)
+    err = err or (lambda m: print(m, file=sys.stderr))
+    try:
+        it = resolve_item(n.domain, items if items is not None else list_items(runner))
+    except VaultItemError as e:
+        err("REFUSED: %s" % e); return 1
+    out(it["name"] if n.what == "name" else it["id"])
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

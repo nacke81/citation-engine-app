@@ -34,6 +34,10 @@ class PlaybookError(Exception):
     pass
 
 
+class MailboxNotRead(PlaybookError):
+    """The mailbox login could not be had (env empty and vault unreadable). The message starts MAILBOX NOT READ."""
+
+
 def extract_verify_link(raw_message):
     """First hotfrog verify-email link in a raw RFC822 message (text or html part, quoted-printable decoded). None if absent."""
     msg = email.message_from_bytes(raw_message) if isinstance(raw_message, bytes) else email.message_from_string(raw_message)
@@ -46,20 +50,29 @@ def extract_verify_link(raw_message):
     return None
 
 
-def mail_env(env=None):
+def mail_env(env=None, vault=None):
+    """listings@ IMAP login. The env wins. LISTINGS_IMAP_PASSWORD empty -> read the vault item (job/imap_vault.py, t_d2f75685), password in memory only.
+    The vault is asked when env is None (the real process env) or a `vault` callable is passed; an explicit env dict without a password is an error."""
+    use_vault_ok = env is None or vault is not None
     env = os.environ if env is None else env
-    out = {}
-    for k in ("HOST", "PORT", "USER", "PASSWORD"):
-        v = env.get("LISTINGS_IMAP_" + k)
-        if not v: raise PlaybookError("LISTINGS_IMAP_%s is not set" % k)
-        out[k.lower()] = v
+    out = {k.lower(): env.get("LISTINGS_IMAP_" + k) for k in ("HOST", "PORT", "USER", "PASSWORD")}
+    if not out["password"] and use_vault_ok:
+        import imap_vault as IV
+        try: got = (vault or IV.fetch)()
+        except IV.MailboxNotRead as e: raise MailboxNotRead(str(e))
+        for k in ("host", "port", "user", "password"):
+            out[k] = out[k] or got.get(k)
+    for k in ("host", "port", "user", "password"):
+        if not out[k]:
+            if k == "password": raise MailboxNotRead("MAILBOX NOT READ: LISTINGS_IMAP_PASSWORD is not set and the vault was not asked")
+            raise PlaybookError("LISTINGS_IMAP_%s is not set" % k.upper())
     return out
 
 
 class ImapMailbox:
     """Read-only: EXAMINE the INBOX and PEEK. Marks nothing read, deletes nothing."""
-    def __init__(self, env=None, imap_cls=imaplib.IMAP4_SSL, extract=None, sender_hint=None):
-        self.cfg, self.imap_cls = mail_env(env), imap_cls
+    def __init__(self, env=None, imap_cls=imaplib.IMAP4_SSL, extract=None, sender_hint=None, vault=None):
+        self.cfg, self.imap_cls = mail_env(env, vault), imap_cls   # t_d2f75685: vault fallback when the env has no password
         self.extract, self.sender_hint = extract or extract_verify_link, sender_hint or SENDER_HINT   # other playbooks reuse this reader with their own link pattern
 
     def newest_verify_link(self, since_uid=0, sender_hint=None):

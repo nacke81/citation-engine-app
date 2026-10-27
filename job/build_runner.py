@@ -44,7 +44,17 @@ def nap_from_identity(ident, contact="Lea Ann Klarner", email_addr="listings@sen
     first, last = (contact.rsplit(" ", 1) + [""])[:2] if " " in contact else (contact, "")
     return {"name": x["name"], "street": x["street"], "city": x["city"], "st": x["st"], "zip": x["zip"], "phone": "%s-%s-%s" % (p[:3], p[3:6], p[6:]),
             "site": x.get("site") or "https://seniorcaresolutions.co", "email": email_addr, "contact": contact, "first": first, "last": last,
-            "description": description or "Senior care consulting for families in %s, %s and the surrounding area." % (x["city"], STATE_NAMES.get(x["st"], x["st"])), "state_name": STATE_NAMES.get(x["st"], x["st"]), "phone_digits": p}
+            "description": description or "Senior care consulting for families in %s, %s and the surrounding area." % (x["city"], STATE_NAMES.get(x["st"], x["st"])), "state_name": STATE_NAMES.get(x["st"], x["st"]), "phone_digits": p, **_description_long(x)}
+
+
+def _description_long(biz):
+    """t_d2f75685: the canonical `description_long` (identity BIZ.SCC.description_long, written by the batch from seniorcaresolutions.co). Only a text that passes
+    description_long.validate becomes a NAP key; a bad one leaves a reason that formspec.render raises, so no form is ever filled with it. Absent = no key."""
+    import description_long as DL
+    raw = biz.get("description_long")
+    if raw in (None, ""): return {}
+    try: return {"description_long": DL.validate(raw)}
+    except DL.DescriptionError as e: return {"_description_long_error": str(e)}
 
 
 # ---- mail ------------------------------------------------------------------------------------------------------------
@@ -74,6 +84,7 @@ class Ctx:
         self.site, self.page, self.nap, self.mailbox, self.item_id, self.cdp, self.dry_run = site, page, nap, mailbox, item_id, cdp, dry_run
         self._runner, self.sleep, self.now, self.poll_seconds, self.poll_every, self.log = runner or subprocess.run, sleep, now, poll_seconds, poll_every, log
         self.state, self._base_uid = {}, None
+        self.item_name = None   # vault item NAME resolved by `python job/vault_item.py --domain D` (build_runner --item-name); beats the spec's vault_item
         self.row_id = None      # queue row id of a live run (--row): the CAPTCHA 3-try cap is counted per row
         self.solve_log = None   # CapSolver solve log path (None = pagekit.SOLVE_LOG)
         self.lease = None  # chrome_keepalive.Lease: refreshed before every step so the build Chrome timer does not fire (t_d7a907d5)
@@ -85,7 +96,7 @@ class Ctx:
     def vault_fill(self, selector, url):
         url = url.split("#")[0]   # an ad adds #google_vignette; the helper ignores fragments, but never pass one on
         cmd = ["node", FILL_JS, "--organization", ORG, "--collection", COLLECTION, "--url", url, "--field", selector, "--cdp", self.cdp]
-        cmd += ["--item-id", self.item_id] if self.item_id else ["--name", self.site.vault_item]
+        cmd += ["--item-id", self.item_id] if self.item_id else ["--name", getattr(self, "item_name", None) or self.site.vault_item]   # item_name: the name `python job/vault_item.py --domain D` printed (t_d2f75685)
         if self.dry_run: cmd = [c for c in cmd if c not in ("--field", selector)] + ["--lookup-only"]
         r = self._runner(cmd, capture_output=True, text=True, timeout=180)
         out = ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()
@@ -335,6 +346,8 @@ def main(argv=None):
     a.add_argument("--card", default=None, help="the Nate card that authorizes a live build")
     a.add_argument("--cdp", default=CDP_URL)
     a.add_argument("--item-id", default=None, help="Vaultwarden item id (when two items share the name)")
+    a.add_argument("--item-name", default=None, help="Vaultwarden item NAME as printed by `python job/vault_item.py --domain <domain>` (overrides the spec's vault_item)")
+    a.add_argument("--ignore-due", action="store_true", help="work a row whose recheck_due is still in the future")
     a.add_argument("--only", default=None, help="comma list of step names")
     a.add_argument("--new-listing", action="store_true", help="the Directory has no listing for us yet (needed by specs guarded for new listings only, e.g. showmelocal_claim)")
     n = a.parse_args(argv)
@@ -346,6 +359,9 @@ def main(argv=None):
     if n.live:
         if not n.row: raise SystemExit("--live needs --row <queue row id> (the transition is recorded for that row)")
         row = find_row(n.row, site)
+        import buildqueue as Q
+        due = Q.not_due(row)
+        if due and not n.ignore_due: print("SKIP %s: recheck_due %s (retry later; --ignore-due to work it anyway)" % (n.row, due)); return 0   # t_d2f75685: before any browser
     skip = wall_gate(site)
     if skip:
         print(skip); return 0   # hard-block cap: no Chrome, no Directory touched
@@ -361,6 +377,7 @@ def main(argv=None):
     try:
         ctx = Ctx(site, page, nap, mailbox=mailbox, item_id=n.item_id, cdp=n.cdp, dry_run=not n.live)
         ctx.row_id = n.row
+        ctx.item_name = n.item_name
         ctx.lease = lease
         if int(n.cdp.rsplit(":", 1)[-1].strip("/") or 0) == KA.PORT:
             ctx.chrome_check = lambda: KA.ensure_up(KA.PORT)

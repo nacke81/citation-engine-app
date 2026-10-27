@@ -1,0 +1,85 @@
+{
+  "site": "cylex",
+  "domain": "cylex.us",
+  "record": "none",
+  "vault_item": "SCC - cylex.us",
+  "notes": "t_d2f75685, scripted so hard-block try 3 is a script, not a hand walk. NEVER RUN LIVE FROM THIS CARD: tests use a fixture page only. Facts: cylex.us.com puts the agent browser behind Cloudflare 'Sorry, you have been blocked' (403, Ray ID). Try 1 was 10/26 (logged by hand as a prose note), try 2 was 10/27 (a50f7322cf193555); walls.gate counts both (2 of 3), allows one try per calendar day, and STOPS the row after try 3 until Mike resets it. The runner checks walls.gate BEFORE any browser starts, so a stopped or same-day row opens nothing. Flow from the Cylex FAQ (public): Register (user account by email) -> email code at listings@ -> Sign in -> 'Register business' -> company details -> submit. Free listing only; Premium Entry ($11.90/month) is never taken. record is none: this spec only creates the account and fills the business form; the row state is set by hand from what the page showed (created-unlisted / needs-human) until the form selectors are proven. Every selector below was NOT seen live (cylex was never opened past the wall): they are the generic Register-form names and carry UNPROVEN in the step name; step 'discover_form' prints every visible control (list_fields) so the first run that gets through the wall fixes the spec in one call. If the first step shows the Cloudflare block page: stop, record the try with `python job/walls.py --record-try create-cylex --ray-id <id>`, do not retry the same day. A Turnstile/reCAPTCHA inside the form goes to CapSolver (solve_captcha, 3 tries per row). The dry run stops before the first submit/mail step: it opens the page, clears the wall wait, reads the form and fills nothing that is sent.",
+  "mail": {
+    "sender": "cylex",
+    "link_re": "(?:code|verification code)[^0-9A-Za-z]{0,20}(?P<v>[0-9]{4,8})"
+  },
+  "steps": [
+    {
+      "name": "open_register",
+      "do": "open",
+      "url": "https://www.cylex.us.com/",
+      "wall_seconds": 60,
+      "expect": ["body"]
+    },
+    {
+      "name": "discover_form",
+      "do": "list_fields"
+    },
+    {
+      "name": "cookies_UNPROVEN",
+      "do": "click_text",
+      "text": "Accept",
+      "tag": "button",
+      "optional": true,
+      "settle_ms": 500
+    },
+    {
+      "name": "open_register_form_UNPROVEN",
+      "do": "click_text",
+      "text": "Register",
+      "tag": "a,button",
+      "settle_ms": 2500
+    },
+    {
+      "name": "email_UNPROVEN",
+      "do": "fill",
+      "selector": "input[type=email]",
+      "key": "email"
+    },
+    {
+      "name": "first_UNPROVEN",
+      "do": "fill",
+      "selector": "input[name*=first i]",
+      "key": "first",
+      "optional": true
+    },
+    {
+      "name": "last_UNPROVEN",
+      "do": "fill",
+      "selector": "input[name*=last i]",
+      "key": "last",
+      "optional": true
+    },
+    {
+      "name": "password_UNPROVEN",
+      "do": "vault_fill",
+      "selector": "input[type=password]",
+      "url": "{current}"
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "submit_register_UNPROVEN",
+      "do": "click",
+      "selector": "button[type=submit]",
+      "submit": true,
+      "settle_ms": 5000
+    },
+    {
+      "name": "email_code",
+      "do": "wait_mail",
+      "as": "code",
+      "selector": "input[name*=code i]"
+    },
+    {
+      "name": "discover_business_form",
+      "do": "list_fields"
+    }
+  ]
+}
