@@ -57,6 +57,15 @@ def summary_from_rows(directories):
     }
 
 
+def apply_authority(payload, authority):
+    """Copy of payload with every directory row's `authority` set from `authority` ({domain: DA}, built from ce_directories rows with da_source='moz').
+    A domain not in the map gets None: a worksheet number is never shown as Moz. authority None -> every row None. Same rule on every write path."""
+    amap = authority or {}
+    out = dict(payload)
+    out["directories"] = [dict(d, authority=amap.get(d.get("domain"))) for d in payload.get("directories") or []]
+    return out
+
+
 def finalize(payload):
     """Copy of payload: any leftover needs-human row becomes nap-fix / blocked, the frozen scan totals are dropped, summary recounted from the rows."""
     out = dict(payload)

@@ -143,7 +143,7 @@ class Portal:
         return rows[0]
 
 
-def write_run(checks, captured_day, portal=None, queue_rows=None):
+def write_run(checks, captured_day, portal=None, queue_rows=None, authority=None):
     """Write both businesses. Validates every id BEFORE the first network call. Returns {biz: readback summary}."""
     by = {b: [c for c in checks if c["biz"] == b] for b in ALLOWED}
     for b in {c["biz"] for c in checks}:
@@ -158,6 +158,8 @@ def write_run(checks, captured_day, portal=None, queue_rows=None):
         if b == "SCC":  # fix/create queue state is shown on SCC only
             import buildqueue
             p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_all_rows(), captured_day)
+        import snapshot as SN
+        p = SN.apply_authority(p, authority)   # t_295208a6: Moz DA only (da_source='moz'), else null
         row = portal.upsert_snapshot(ids[b], captured_day, p)
         out[b] = {"client_id": row["client_id"], "source": row["source"], "captured_day": row["captured_day"],
                   "summary": p["summary"]}

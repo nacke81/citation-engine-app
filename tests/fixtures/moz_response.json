@@ -1,0 +1,21 @@
+{
+  "jsonrpc": "2.0",
+  "id": "fixture",
+  "result": {
+    "results_by_site": [
+      {"site_query": {"query": "bing.com", "scope": "domain", "original_site_query": {"query": "bing.com", "scope": "domain"}, "site_query_suggestion": null},
+       "site_metrics": {"page": "bing.com/", "root_domain": "bing.com", "domain_authority": 93, "page_authority": 80, "spam_score": 1}},
+      {"site_query": {"query": "yelp.com", "scope": "domain", "original_site_query": {"query": "yelp.com", "scope": "domain"}, "site_query_suggestion": null},
+       "site_metrics": {"page": "yelp.com/", "root_domain": "yelp.com", "domain_authority": 94, "page_authority": 78, "spam_score": 1}},
+      {"site_query": {"query": "manta.com", "scope": "domain", "original_site_query": {"query": "manta.com", "scope": "domain"}, "site_query_suggestion": null},
+       "site_metrics": {"page": "manta.com/", "root_domain": "manta.com", "domain_authority": 62, "page_authority": 55, "spam_score": 4}},
+      {"site_query": {"query": "nulldir.example", "scope": "domain", "original_site_query": {"query": "nulldir.example", "scope": "domain"}, "site_query_suggestion": null},
+       "site_metrics": {"page": "nulldir.example/", "root_domain": "nulldir.example", "domain_authority": null}}
+    ],
+    "errors_by_site": [
+      {"site_query": {"query": "newdir.example", "scope": "domain", "original_site_query": {"query": "newdir.example", "scope": "domain"}},
+       "error": {"code": -32600, "status": 404, "message": "no data for target"}}
+    ]
+  },
+  "quota": {"used": 5}
+}
