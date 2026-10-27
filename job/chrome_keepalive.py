@@ -19,6 +19,46 @@ PORT = 9333
 LEASE_TTL = 900   # seconds without a refresh before a lease no longer holds Chrome open
 
 
+# t_df278575: a Job-Object kill counts as a crash, so the next start of the persistent profile restored whatever tabs the last session had (a stray
+# localhost:3177/reviews tab appeared in batch 12; no job in this repo opens it). These flags hide the restore bubble; sweep_foreign_tabs() closes the rest.
+CLEAN_FLAGS = ("--disable-session-crashed-bubble", "--hide-crash-restore-bubble", "--no-restore-session-state")
+WARN_BEFORE_CLOSE = 300   # seconds: build_chrome.py logs a WARNING line this long before a timed close
+
+
+def _http_json(url, urlopen=urllib.request.urlopen, method="GET", timeout=5):
+    req = urllib.request.Request(url, method=method)
+    with urlopen(req, timeout=timeout) as r: body = r.read()
+    try: return json.loads(body.decode("utf-8", "replace"))
+    except ValueError: return body.decode("utf-8", "replace")
+
+
+def sweep_foreign_tabs(port=PORT, urlopen=urllib.request.urlopen, keep=("about:blank", "chrome://newtab/", "chrome://new-tab-page/")):
+    """Close every page target that is not a blank tab (a restored or foreign tab). Chrome exits when its last tab closes, so a blank tab is opened FIRST
+    when none exists. Call once at start / after a restart, NEVER mid-step. Uses the DevTools HTTP endpoints only. -> list of closed URLs (query stripped)."""
+    base = "http://127.0.0.1:%d" % port
+    pages = [t for t in _http_json(base + "/json/list", urlopen) if t.get("type") == "page"]
+    foreign = [t for t in pages if (t.get("url") or "") not in keep]
+    if not foreign: return []
+    if not any((t.get("url") or "") in keep for t in pages):
+        _http_json(base + "/json/new?about:blank", urlopen, method="PUT")
+    closed = []
+    for t in foreign:
+        try: _http_json(base + "/json/close/" + t["id"], urlopen)
+        except Exception: continue
+        closed.append((t.get("url") or "").split("?")[0].split("#")[0][:80])
+    return closed
+
+
+def close_warning(end_time, warned, now=time.time, lease_path=None):
+    """The line to print once, WARN_BEFORE_CLOSE seconds before a timed close (None when there is nothing to say yet / it was already said)."""
+    if end_time is None or warned: return None
+    left = end_time - now()
+    if left > WARN_BEFORE_CLOSE: return None
+    held = lease_active(lease_path or LEASE_PATH, now) is not None
+    return "WARNING: build Chrome closes in %d s (--seconds timer)%s. A batch should start it with --seconds 0 and stop it itself." % (
+        max(0, int(left)), "; a card lease is fresh, so it will wait while the lease holds" if held else "; no card lease is held, it WILL close")
+
+
 def cdp_alive(port=PORT, urlopen=urllib.request.urlopen, timeout=2):
     """True when something answers /json/version on 127.0.0.1:port."""
     try:
@@ -30,7 +70,7 @@ def cdp_alive(port=PORT, urlopen=urllib.request.urlopen, timeout=2):
 
 def chrome_args(profile=PROFILE, port=PORT, chrome=CHROME):
     return [chrome, "--remote-debugging-port=%d" % port, "--user-data-dir=%s" % profile, "--window-position=40,40", "--window-size=1400,900",
-            "--no-first-run", "--no-default-browser-check", "about:blank"]
+            "--no-first-run", "--no-default-browser-check", *CLEAN_FLAGS, "about:blank"]
 
 
 def _detached_flags():

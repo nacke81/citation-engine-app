@@ -90,7 +90,7 @@ class OwnedChrome:
         self.port = self.port or _free_port()
         self.job = _make_kill_job()
         args = [CHROME, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile}", "--window-position=40,40",
-                "--window-size=1400,900", "--no-first-run", "--no-default-browser-check", "about:blank"]
+                "--window-size=1400,900", "--no-first-run", "--no-default-browser-check", "--disable-session-crashed-bubble", "--hide-crash-restore-bubble", "about:blank"]
         try:
             self.proc = subprocess.Popen(args)
             h = k32.OpenProcess(0x1F0FFF, False, self.proc.pid)

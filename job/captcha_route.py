@@ -73,6 +73,16 @@ def command(widget, url, cli=None):
     return "node %s --kind %s --url %s --sitekey %s --cap %s" % (cli, t, url, widget["sitekey"], CAP)
 
 
+def argv(widget, url, cli=None, extra=None):
+    """The same command as command(), as an argument list for subprocess (no shell quoting). Image widgets pass extra={"body": <base64>}."""
+    line = command(widget, url, cli)
+    t = widget["type"]
+    base = ["node", cli or CLI, "--kind", t, "--url", url]
+    if t != "image": base += ["--sitekey", widget["sitekey"]]
+    if t == "image" and extra: base += ["--extra", json.dumps(extra)]
+    return base + ["--cap", CAP]
+
+
 def plan(html, url, cli=None):
     """One dict the caller can print or act on: {"route", "wall", "commands", "max_tries", "notes"}."""
     d = detect(html, url)

@@ -17,4 +17,5 @@ class Step:
 class Site:
     def __init__(self, name, domain, steps, vault_item=None, mail=None):
         self.name, self.domain, self.steps, self.vault_item = name, domain, steps, vault_item or "SCC - %s" % domain
+        self.record = "submitted"
         self.mail = mail   # {"sender": "freelistingusa", "link_re": r"https://..."} or None

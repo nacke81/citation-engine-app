@@ -6,7 +6,7 @@
   ensure_logo()           the stored local copy of SCC's own published logo (md5 prefix 72900a7f), copied from the vault source if missing.
   redact(text)            mask password-looking values in page text (find-us-here dashboards print the account password in plain text).
 """
-import hashlib, os, re, shutil
+import hashlib, json, os, re, shutil
 
 LOGO_URL = "https://seniorcaresolutions.co/wp-content/uploads/2023/11/senior-care-consulting-logo.png"
 LOGO_MD5_PREFIX = "72900a7f"
@@ -271,3 +271,113 @@ _SECRET_LINE = re.compile(r"(?im)^(.*(?:password|passwd|pass word)\b[^\n:=]*[:=]
 def redact(text):
     """Mask the value after a 'password' label. Use for any page text that is printed or logged; find-us-here dashboards show the password in plain text."""
     return _SECRET_LINE.sub(lambda m: m.group(1) + "****", text or "")
+
+
+# ---- CAPTCHA solve helper (t_df278575; moved out of the submitter's scratch/b12_solvelib.py) ---------------------------------------------
+# solve_captcha() asks CapSolver through capsolver-cli.js (job/captcha_route.py builds the command), inject_token() puts the answer in the page
+# and calls the widget's own callback. Every CLI call is one line in the solve log (the format count_capsolver_builds.py reads). At most
+# MAX_TRIES calls per row, counted from the LOG, so a restarted run cannot start over. ERROR_CAPTCHA_SOLVE_FAILED (CapSolver gave up on that image
+# of the widget) retries inside the cap; any other failure stops at once.
+SOLVE_LOG = os.environ.get("CE_SOLVE_LOG") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/logs/capsolver-solves.jsonl")
+RETRYABLE = ("ERROR_CAPTCHA_SOLVE_FAILED",)
+CAPSOLVER_CWD = os.environ.get("CAPSOLVER_CWD")   # folder holding the built capsolver-cli.js, when it is not run by absolute path
+
+INJECT_TOKEN_JS = """(tok) => {
+  let fields = 0, callbacks = 0;
+  document.querySelectorAll('textarea[name=g-recaptcha-response],#g-recaptcha-response,[name=cf-turnstile-response],input[name=cf-turnstile-response],[name=rcToken],#rcToken,[name=h-captcha-response]').forEach(e => {
+    e.value = tok; fields++;
+    e.dispatchEvent(new Event('input', {bubbles: true})); e.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+  const seen = new Set();
+  const walk = (o, d) => {
+    if (!o || typeof o !== 'object' || d > 6 || seen.has(o)) return; seen.add(o);
+    for (const k of Object.keys(o)) {
+      let v; try { v = o[k]; } catch (e) { continue; }
+      if (k === 'callback' && typeof v === 'function') { try { v(tok); callbacks++; } catch (e) {} }
+      else if (k === 'callback' && typeof v === 'string' && typeof window[v] === 'function') { try { window[v](tok); callbacks++; } catch (e) {} }
+      else if (v && typeof v === 'object') { try { walk(v, d + 1); } catch (e) {} }
+    }
+  };
+  try { walk(window.___grecaptcha_cfg && window.___grecaptcha_cfg.clients, 0); } catch (e) {}
+  return {fields: fields, callbacks: callbacks};
+}"""
+
+
+class CaptchaError(RuntimeError):
+    pass
+
+
+def solve_tries(row, log_path=None):
+    """Calls already logged for this row (the cap is per row, across runs)."""
+    n = 0
+    try:
+        with open(log_path or SOLVE_LOG, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"): continue
+                try: d = json.loads(line)
+                except ValueError: continue
+                if d.get("row") == row: n += 1
+    except OSError:
+        return 0
+    return n
+
+
+def _log_solve(log_path, rec):
+    p = log_path or SOLVE_LOG
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f: f.write(json.dumps(rec) + "\n")
+
+
+def _token_of(solution):
+    if isinstance(solution, str): return solution
+    if isinstance(solution, dict): return solution.get("gRecaptchaResponse") or solution.get("token") or solution.get("text")
+    return None
+
+
+def solve_captcha(row, widget, url, *, runner=None, log_path=None, max_tries=3, extra=None, cwd=None, timeout=200):
+    """-> the token (str). Raises CaptchaError when the cap is used up or CapSolver fails for a reason a retry will not fix.
+    Each CLI call is logged BEFORE the next one starts, with its cost; the key is never read or printed here (the CLI reads it by name)."""
+    import subprocess, captcha_route as CR
+    runner = runner or subprocess.run
+    cmd = CR.argv(widget, url, extra=extra)
+    last = ""
+    while solve_tries(row, log_path) < max_tries:
+        try:
+            p = runner(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd or CAPSOLVER_CWD)
+            out = (getattr(p, "stdout", "") or "").strip()
+            d = json.loads(out.splitlines()[-1]) if out else {"ok": False, "reason": "no output"}
+        except Exception as e:
+            d = {"ok": False, "reason": "unparseable: %s" % str(e)[:80]}
+        tok = _token_of(d.get("solution")) if d.get("ok") else None
+        reason = "" if tok else str(d.get("reason") or d.get("error") or "no solution")[:120]
+        _log_solve(log_path, {"row": row, "kind": widget["type"], "ok": bool(tok), "cost": d.get("cost") or 0, "note": reason})
+        if tok: return tok
+        last = reason
+        if not any(r in reason for r in RETRYABLE):
+            raise CaptchaError("CAPTCHA: %s solve failed, not retried: %s" % (widget["type"], reason))
+    raise CaptchaError("CAPTCHA: %s solve rejected x%d (last: %s)" % (widget["type"], max_tries, last or "cap already used"))
+
+
+def inject_token(page, token):
+    """Write the token into the page's response fields and call the widget callbacks. -> {'fields': n, 'callbacks': n}. CaptchaError when nothing took it."""
+    r = page.evaluate(INJECT_TOKEN_JS, token) or {}
+    if not r.get("fields") and not r.get("callbacks"):
+        raise CaptchaError("CAPTCHA token had nowhere to go: no response field and no widget callback on the page")
+    return r
+
+
+def solve_and_inject(page, row, url=None, *, runner=None, log_path=None, max_tries=3, widget_type=None):
+    """Read the page, find its CAPTCHA widget with captcha_route.detect, solve it, inject. -> {'kind', 'fields', 'callbacks', 'tries'}."""
+    import captcha_route as CR
+    url = (url or page.url).split("#")[0]
+    d = CR.detect(page.content(), url)
+    if d["interstitial"]: raise CaptchaError("WALL:cloudflare-click (full-page interstitial: not a form widget, never CapSolver)")
+    ws = [w for w in d["widgets"] if CR.verdict(w["type"])[0] == "capsolver" and (not widget_type or w["type"] == widget_type)]
+    if not ws:
+        parked = [w["type"] for w in d["widgets"]]
+        raise CaptchaError("no CapSolver widget on the page%s" % (" (found %s: %s)" % (parked, CR.verdict(parked[0])[1]) if parked else ""))
+    w = ws[0]
+    tok = solve_captcha(row, w, url, runner=runner, log_path=log_path, max_tries=max_tries)
+    r = inject_token(page, tok)
+    return {"kind": w["type"], "fields": r.get("fields", 0), "callbacks": r.get("callbacks", 0), "tries": solve_tries(row, log_path)}

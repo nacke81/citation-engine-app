@@ -73,11 +73,16 @@ def approval_ok(row):
     return isinstance(a, dict) and a.get("approved_by") == "mike" and bool(a.get("at")) and a.get("row_id") == row.get("id")
 
 
-def submit_row(row, get_login, free_only=True, record=None):
-    """DRY RUN of one submit. Returns the intended transition; never contacts a Directory."""
+LIVE_FROM = ("queued", "found", "needs-human")   # states the transition matrix lets move to submitted
+
+
+def submit_row(row, get_login, free_only=True, record=None, live=False):
+    """One submit. live=False (default) is a DRY RUN: returns the intended transition, never records unless CE_RECORD_TRANSITIONS=1 or record= is given.
+    live=True is build_runner --live after the Directory build succeeded (t_df278575): the same refusals apply, a queued/found/needs-human row may move,
+    and the `submitted` transition is recorded by default (no env flag). Refusals raise before anything is recorded. This function itself never contacts a Directory."""
     if not approval_ok(row):
         raise SubmitRefused("no Mike approval recorded for row %s" % row.get("id"))
-    if row.get("state") != "queued":
+    if row.get("state") != "queued" and not (live and row.get("state") in LIVE_FROM):
         raise SubmitRefused("row %s is not queued" % row.get("id"))
     if free_only and not str(row.get("cost", "")).startswith("free"):
         raise SubmitRefused("paid rows are out of scope")
@@ -90,10 +95,10 @@ def submit_row(row, get_login, free_only=True, record=None):
         raise SubmitRefused("Vaultwarden read failed for row %s" % row.get("id")) from None
     if not cred:
         raise SubmitRefused("Vaultwarden item missing for row %s" % row.get("id"))
-    res = {"id": row["id"], "dry_run": True, "directory": row["directory"], "field": row["wrong_field"], "to": row["right_value"], "next_state": "submitted"}
+    res = {"id": row["id"], "dry_run": not live, "directory": row["directory"], "field": row.get("wrong_field"), "to": row.get("right_value"), "next_state": "submitted"}
     # Success path: record the submitted state (queue + Local SEO + gated Activities). submit_row is still a dry run (no Directory adapter
     # exists), so recording is opt-in via CE_RECORD_TRANSITIONS=1 or an injected record(); once a live adapter lands, flip the default.
-    if record is None and os.environ.get("CE_RECORD_TRANSITIONS") == "1":
+    if record is None and (live or os.environ.get("CE_RECORD_TRANSITIONS") == "1"):
         import transitions
         record = transitions.record_transition
     if record:

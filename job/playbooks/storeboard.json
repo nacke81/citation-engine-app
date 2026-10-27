@@ -1,0 +1,203 @@
+{
+  "site": "storeboard",
+  "domain": "storeboard.com",
+  "vault_item": "SCC - storeboard.com",
+  "notes": "b12 playbook storeboard.com.md. Signup (reCAPTCHA v2) then the /welcome/ business wizard. ids are SWAPPED: #regReceiveSubscribe is the REQUIRED Terms box, #chkagree is the OPTIONAL SMS consent (leave unchecked). Password 8-16 chars, letters/digits/@!$ only (the vault item must be made with mkpayload --alnum). No email verify. Logo upload is rejected: skipped. A Cloudflare 'Just a moment' page clears by itself in the build Chrome (open waits it out).",
+  "steps": [
+    {
+      "name": "open_signup",
+      "do": "open",
+      "url": "https://www.storeboard.com/sign-up/",
+      "wall_seconds": 90,
+      "expect": [
+        "#tbFirstName",
+        "#tbLastName",
+        "#tbEmail",
+        "#tbPassword",
+        "#tbPassword2",
+        "#regReceiveSubscribe",
+        "#chkagree",
+        "#sbsuSubmit"
+      ]
+    },
+    {
+      "name": "fill_first",
+      "do": "fill",
+      "selector": "#tbFirstName",
+      "key": "first"
+    },
+    {
+      "name": "fill_last",
+      "do": "fill",
+      "selector": "#tbLastName",
+      "key": "last"
+    },
+    {
+      "name": "fill_email",
+      "do": "fill",
+      "selector": "#tbEmail",
+      "key": "email"
+    },
+    {
+      "name": "password_1",
+      "do": "vault_fill",
+      "selector": "#tbPassword",
+      "url": "{current}"
+    },
+    {
+      "name": "password_2",
+      "do": "vault_fill",
+      "selector": "#tbPassword2",
+      "url": "{current}"
+    },
+    {
+      "name": "optional_sms_unchecked",
+      "do": "uncheck",
+      "selector": "#chkagree",
+      "js": true
+    },
+    {
+      "name": "terms_checked",
+      "do": "check",
+      "selector": "#regReceiveSubscribe",
+      "js": true
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "solve_recaptcha",
+      "do": "solve_captcha",
+      "widget": "recaptcha-v2"
+    },
+    {
+      "name": "submit_signup",
+      "do": "click",
+      "selector": "#sbsuSubmit",
+      "submit": true,
+      "settle_ms": 6000
+    },
+    {
+      "name": "welcome_page",
+      "do": "expect_url",
+      "contains": "/welcome",
+      "wait_ms": 30000
+    },
+    {
+      "name": "i_run_a_business",
+      "do": "click_text",
+      "text": "I run a business",
+      "tag": "div,label,button,a,span",
+      "exact": false,
+      "settle_ms": 800
+    },
+    {
+      "name": "continue_1",
+      "do": "click_text",
+      "text": "Continue",
+      "exact": false,
+      "settle_ms": 1500
+    },
+    {
+      "name": "professional",
+      "do": "click_text",
+      "text": "Lawyer, doctor, accountant",
+      "tag": "div,label,button,a,span",
+      "exact": false,
+      "settle_ms": 800
+    },
+    {
+      "name": "next_1",
+      "do": "click",
+      "selector": "#next, button[name=next]",
+      "submit": false,
+      "settle_ms": 3000
+    },
+    {
+      "name": "business_name",
+      "do": "fill",
+      "selector": "#bn",
+      "key": "name"
+    },
+    {
+      "name": "main_category",
+      "do": "type_pick",
+      "selector": "#dirIn",
+      "value": "business consult",
+      "pick_selector": "div[data-n]",
+      "delay_ms": 120
+    },
+    {
+      "name": "address",
+      "do": "fill",
+      "selector": "#addr",
+      "key": "street"
+    },
+    {
+      "name": "state",
+      "do": "select_native",
+      "selector": "#state",
+      "label": "{state_name}"
+    },
+    {
+      "name": "wait_cities",
+      "do": "wait",
+      "ms": 2500
+    },
+    {
+      "name": "city",
+      "do": "select_native",
+      "selector": "#city",
+      "label": "{city}"
+    },
+    {
+      "name": "zip",
+      "do": "select_native",
+      "selector": "#zip",
+      "label": "{zip}"
+    },
+    {
+      "name": "phone",
+      "do": "fill",
+      "selector": "#phone",
+      "key": "phone"
+    },
+    {
+      "name": "website",
+      "do": "fill",
+      "selector": "#web",
+      "key": "site"
+    },
+    {
+      "name": "mail_list_unchecked",
+      "do": "uncheck",
+      "selector": "#mailList",
+      "js": true
+    },
+    {
+      "name": "next_2",
+      "do": "click",
+      "selector": "#next",
+      "settle_ms": 3000
+    },
+    {
+      "name": "service_category",
+      "do": "type_pick",
+      "selector": "#catIn",
+      "value": "consult",
+      "pick_selector": "#catSugg div[data-n='3']",
+      "delay_ms": 100,
+      "settle_ms": 2000
+    },
+    {
+      "name": "next_3",
+      "do": "click",
+      "selector": "#next",
+      "settle_ms": 4000
+    },
+    {
+      "name": "list_after_services",
+      "do": "list_fields"
+    }
+  ]
+}
