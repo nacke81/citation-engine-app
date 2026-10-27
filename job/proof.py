@@ -54,7 +54,7 @@ def _waiting_rows(queue):
     out = {}
     for _key, kind, rows in T._row_lists(queue):
         for r in rows:
-            if r.get("state") in WAITING and r.get("directory"):
+            if r.get("state") in WAITING and r.get("directory") and not Q.not_due(r):   # t_d2f75685: recheck_due in the future = not touched
                 out.setdefault(r["directory"], []).append((kind, r))
     return out
 

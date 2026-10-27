@@ -82,6 +82,15 @@ def overlay_directories(payload, rows, day):
     return out
 
 
+def not_due(row, today=None):
+    """recheck_due (YYYY-MM-DD) on a row = retry later (t_6b1e01ff foursquare edit review; t_d2f75685 citylocalpro 24h sender limit).
+    Returns the due date while it is still in the future, else None. Batch tools skip such a row; a row NAMED by id on the command line is still worked."""
+    due = (row or {}).get("recheck_due")
+    import datetime
+    day = today or datetime.date.today().isoformat()
+    return str(due) if due and str(due) > str(day) else None
+
+
 def approval_ok(row):
     a = row.get("mike_approval")
     return isinstance(a, dict) and a.get("approved_by") == "mike" and bool(a.get("at")) and a.get("row_id") == row.get("id")

@@ -142,7 +142,7 @@ names = [s.get("name") or s["do"] for s in acs]
 stops = [i for i, s in enumerate(acs) if s["do"] == "stop_before_submit"]
 check("N4 acompio has Contact, Description and Finish Listing steps", all(x in names for x in ("contact_phone", "contact_name", "contact_web", "contact_email", "description", "finish_listing")))
 check("N4 acompio Contact selectors are the ones seen live", {s["selector"]: s["key"] for s in acs if s.get("name", "").startswith("contact_") and s.get("selector")} == {"#company-phone": "phone", "#company-contact": "contact", "#company-webpage": "site", "#company-email": "email"})
-check("N4 acompio Description types into SunEditor .se-wrapper-wysiwyg from the identity description", any(s["do"] == "type_text" and s["selector"] == ".se-wrapper-wysiwyg" and s["key"] == "description" for s in acs))
+check("N4 acompio Description types into SunEditor .se-wrapper-wysiwyg from the identity description_long (t_d2f75685: acompio rejected the short one)", any(s["do"] == "type_text" and s["selector"] == ".se-wrapper-wysiwyg" and s.get("value") == "{description_long}" for s in acs))
 check("N4 acompio: Finish Listing is a submit click behind a stop marker", stops and stops[-1] < names.index("finish_listing") and next(s for s in acs if s.get("name") == "finish_listing").get("submit") is True)
 check("N4 acompio has no list_fields discovery step left", not any(s["do"] == "list_fields" for s in acs))
 site, page, ctx, res = dry("acompio", "https://account.acompio.com/signup.php?source=8")
@@ -150,12 +150,13 @@ check("N4 acompio dry run ok, stopped before signup submit, only read/fill steps
 check("N4 acompio dry run: vault LOOKED UP only, no --field", ctx._runner.calls and all("--lookup-only" in c and "--field" not in c for c in ctx._runner.calls))
 # run the post-login steps (Contact .. Description) on the fake page by --only, dry-run: they are fill kinds up to the final marker
 fills = [s.name for s in site.steps if s.kind == "fill" and s.name in ("clear_overlay", "contact_phone", "contact_name", "contact_web", "contact_email", "next_contact", "clear_overlay_2", "description", "next_description")]
-page2 = FakePage("https://account.acompio.com/dashboard"); ctx2 = B.Ctx(site, page2, NAP, runner=Runner(), log=lambda *a: None, dry_run=True)
+NAP2 = dict(NAP, description_long="We help families compare senior living and care options in plain language. Our consultants explain costs and guide each family through every step of the decision.")
+page2 = FakePage("https://account.acompio.com/dashboard"); ctx2 = B.Ctx(site, page2, NAP2, runner=Runner(), log=lambda *a: None, dry_run=True)
 res2 = B.run_site(site, ctx2, only=set(fills))
 check("N4 acompio Contact/Description steps run on a fake page and use the identity NAP", res2["ok"] and len(res2["steps"]) == len(fills)
       and ("fill", "#company-phone", NAP["phone"]) in page2.acts and ("fill", "#company-contact", NAP["contact"]) in page2.acts
       and ("fill", "#company-webpage", NAP["site"]) in page2.acts and ("fill", "#company-email", NAP["email"]) in page2.acts
-      and ("type", ".se-wrapper-wysiwyg", NAP["description"]) in page2.acts, str(res2["steps"]))
+      and ("type", ".se-wrapper-wysiwyg", NAP2["description_long"]) in page2.acts, str(res2["steps"]))
 check("N4 acompio description has no phone or street in it (the Directory refuses them)", not F._LITERAL_PHONE.search(NAP["description"]) and NAP["street"] not in NAP["description"])
 check("N4 acompio dry run never clicks Finish Listing", not [a for a in page2.acts if a[0] == "eval" and isinstance(a[2], dict) and a[2].get("text") == "Finish Listing"])
 

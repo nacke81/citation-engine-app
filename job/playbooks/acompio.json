@@ -7,7 +7,7 @@
     "sender": "acompio",
     "link_re": "https://account\\.acompio\\.com/confirm\\.php\\?code=[0-9a-f]+"
   },
-  "notes": "b12 + b12 resume. Account at account.acompio.com, then a company wizard (Category, Branches/Employees, Contact, Description, Summary, Finish Listing). Turnstile on signup passed by itself in the build Chrome (0 solves). Branches=1 / Employees=1-10 are Nate's ruling. 'Proceed to Next' is an <a>; force:true enables it. Contact (#company-phone/#company-contact/#company-webpage/#company-email), Description (SunEditor .se-wrapper-wysiwyg, min 50 chars, no address/phone in it) and the Summary page's 'Finish Listing' were all seen live in batch 12 (t_03181a0a). Result of a full run: dashboard status 'pending', free tier shows 'Address not listed', so the row is `created-unlisted` (record), never `submitted`. Logo: not attempted. Premium upsell: not taken.",
+  "notes": "b12 + b12 resume. Account at account.acompio.com, then a company wizard (Category, Branches/Employees, Contact, Description, Summary, Finish Listing). Turnstile on signup passed by itself in the build Chrome (0 solves). Branches=1 / Employees=1-10 are Nate's ruling. 'Proceed to Next' is an <a>; force:true enables it. Contact (#company-phone/#company-contact/#company-webpage/#company-email), Description (SunEditor .se-wrapper-wysiwyg; the step now types the canonical {description_long}, t_d2f75685: acompio REJECTED listing 47872152 as 'Insufficient description', so the text must be original full sentences, 100 to 300 chars, no address, no phone, no hours; job/description_long.py refuses anything else before the form is touched, and a run without the text fails instead of inventing one) and the Summary page's 'Finish Listing' were all seen live in batch 12 (t_03181a0a). Result of a full run: dashboard status 'pending', free tier shows 'Address not listed', so the row is `created-unlisted` (record), never `submitted`. Logo: not attempted. Premium upsell: not taken.",
   "steps": [
     {
       "name": "open_signup",
@@ -223,7 +223,7 @@
       "name": "description",
       "do": "type_text",
       "selector": ".se-wrapper-wysiwyg",
-      "key": "description",
+      "value": "{description_long}",
       "delay_ms": 10
     },
     {

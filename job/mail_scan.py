@@ -100,11 +100,11 @@ def _text_of(msg):
     return "\n".join(out)
 
 
-def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300):
+def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vault=None):
     """Recent mail from listings@ as dicts. Read-only (EXAMINE + PEEK). Raises PlaybookError when LISTINGS_IMAP_* is not set."""
     sys.path.insert(0, os.path.join(HERE, "playbooks"))
     import hotfrog as H
-    cfg = H.mail_env(env)
+    cfg = H.mail_env(env, vault)   # t_d2f75685: env empty -> the vault item (password in memory only); unreadable -> MailboxNotRead "MAILBOX NOT READ"
     since = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%d-%b-%Y")
     m = imap_cls(cfg["host"], int(cfg["port"]))
     out = []
@@ -164,11 +164,15 @@ def main(argv=None):
     n = a.parse_args(argv)
     import buildqueue as Q
     wanted = set(n.directory) if n.directory else set(SCAN_DIRECTORIES)
-    rows = [(r["id"], r["directory"]) for r in Q.load_all_rows(n.queue) if r.get("directory") in wanted and r.get("state") in ("submitted", "pending-verify", "found", "created-unlisted")]
+    import datetime
+    today = datetime.date.today().isoformat()
+    rows = [(r["id"], r["directory"]) for r in Q.load_all_rows(n.queue) if r.get("directory") in wanted and r.get("state") in ("submitted", "pending-verify", "found", "created-unlisted")
+            and not Q.not_due(r, today)]   # t_d2f75685: recheck_due in the future = skip
     from cfg import IDENT
     sc = MailScanner(reader=lambda: read_messages(days=n.days), name=IDENT["BIZ"]["SCC"]["name"])
     print(report(rows, sc))
-    return 2 if sc.error else 0
+    if sc.error and rows: print("MAILBOX NOT READ: %s" % sc.error, file=sys.stderr)   # t_d2f75685: never read as "no approval mail"
+    return 2 if sc.error and rows else 0
 
 
 if __name__ == "__main__":

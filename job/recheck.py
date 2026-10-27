@@ -518,8 +518,8 @@ def candidates(q, include_live=False, only=None, today=None):
             if r.get("state") in states and r.get("directory") and (not only or r["id"] in only):
                 if W.is_stopped(r):  # hard-block cap (t_fccbb7ef): a STOPPED row is not touched until Mike resets it
                     print("SKIP %s (%s): hard-block STOPPED, waiting on Mike" % (r.get("directory"), r.get("id"))); continue
-                due = r.get("recheck_due")   # t_6b1e01ff: foursquare's edit is reviewed by the Directory; reading it earlier only repeats the old value. A row NAMED with --row is read anyway.
-                if due and today and not only and str(due) > str(today):
+                due = Q.not_due(r, today) if today else None   # t_6b1e01ff: foursquare's edit is reviewed by the Directory; t_d2f75685: citylocalpro 24h sender limit. A row NAMED with --row is read anyway.
+                if due and not only:
                     print("SKIP %s (%s): recheck due %s" % (r.get("directory"), r.get("id"), due)); continue
                 out.append((kind, r))
     return out
@@ -670,7 +670,10 @@ def main(argv=None):
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
     n = a.parse_args(argv)
-    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live)
+    from cfg import IDENT
+    mail = MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal.
+    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail)
+    if mail.error: print("MAILBOX NOT READ: %s (rows that need the approval mail were left alone)" % mail.error, file=sys.stderr)
     print(format_report(res))
     print("%d rows read; %d to live; mode=%s" % (len(res), sum(1 for r in res if r["after"] == "live" and r["before"] != "live"), "WRITE" if n.write else "dry run"))
     return 1 if any(r["error"] and r["verdict"] != "unreadable" for r in res) else 0

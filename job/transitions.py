@@ -38,7 +38,10 @@ ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
 FLAG = "CE_ACTIVITIES_WRITE"
 ACTIVITY_STATES = ("submitted", "pending-verify", "live", "rejected")  # needs-human is internal, never client news
-VERIFY_TYPES = ("phone-call", "sms", "postcard", "id-check")
+VERIFY_TYPES = ("phone-call", "sms", "postcard", "id-check", "client-email")
+# client-email (t_d2f75685, Nate 2026-10-27): the Directory wants the owner to attest the email "belongs directly to the business and is not a proxy or
+# agency-controlled address" (showmelocal ACTIVATE). listings@ is ours, so we NEVER attest it. The client's own address is needed: a client gate in the portal.
+CLIENT_EMAIL_NOTE = "parked for client verification (client-email): needs the client's own email address; we never attest listings@ as the business's own address"
 POSTCARD_DEADLINE_DAYS = 30
 VERIFY_UPSERT_PATH = "citation_verification?on_conflict=client_id,directory"
 
@@ -50,8 +53,19 @@ class TransitionRefused(Exception):
 NOTE_ONLY_STATES = ("found", "claimed-unverified", "created-unlisted", "needs-human", "submitted", "pending-verify")  # a same-state move is a note refresh on a waiting row (the weekly recheck names a wrong field); needs a note
 
 
-def check_transition(old, new, note=None):
-    if new not in STATES or new == "queued":
+REASON_MIN = 10
+
+
+def check_transition(old, new, note=None, reason=None):
+    if new == "queued":   # t_d2f75685: the ONE way back. A rejected listing may be re-created, with a written reason; never a silent reset.
+        if old != "rejected":
+            raise TransitionRefused("only a rejected row can go back to queued (row is %s)" % (old,))
+        if len((reason or "").strip()) < REASON_MIN:
+            raise TransitionRefused("rejected -> queued needs --reason (at least %d characters: why a re-create can succeed this time)" % REASON_MIN)
+        return
+    if reason:
+        raise TransitionRefused("--reason only applies to rejected -> queued")
+    if new not in STATES:
         raise TransitionRefused("unknown or unsupported target state %r" % (new,))
     if old not in STATES:
         raise TransitionRefused("row has unknown current state %r" % (old,))
@@ -93,6 +107,7 @@ def activities_enabled(explicit=None):
 
 
 def verification_note(verify_type):
+    if verify_type == "client-email": return CLIENT_EMAIL_NOTE
     return "parked for client verification (%s)" % verify_type
 
 
@@ -100,7 +115,7 @@ def check_verify_type(verify_type, new):
     if verify_type in (None, ""):
         return None
     if verify_type not in VERIFY_TYPES:
-        raise TransitionRefused("verify type must be one of %s, got %r (email verifications never use this path)" % ("/".join(VERIFY_TYPES), verify_type))
+        raise TransitionRefused("verify type must be one of %s, got %r (a mailbox-link email verification never uses this path; client-email is the client's own address)" % ("/".join(VERIFY_TYPES), verify_type))
     if new != "needs-human":
         raise TransitionRefused("verify type only applies to a needs-human transition")
     return verify_type
@@ -210,7 +225,7 @@ def build_activity_record(client_id, row, new, evidence_url, day):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -228,7 +243,9 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     old = row["state"]
     if W.is_stopped(row) and new_state != "needs-human":
         raise TransitionRefused("row %s is STOPPED by the hard-block cap; only Mike's --reset-wall (job/walls.py) clears it" % row_id)
-    check_transition(old, new_state, note)
+    check_transition(old, new_state, note, reason)
+    requeue = new_state == "queued"
+    if requeue: note = "re-create after rejection: %s" % reason.strip()   # t_d2f75685: logged, never a silent reset (the history entry also carries requeue + reason)
     evidence_url = check_evidence(evidence_url, new_state)
     verify_type = check_verify_type(verify_type, new_state)
     steps, directory_url = check_id_check_fields(verify_type, steps, directory_url)
@@ -238,6 +255,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     new_row = copy.deepcopy(row)
     new_row["state"] = new_state
     if evidence_url: new_row["evidence_url"] = evidence_url
+    if old != new_state: new_row.pop("recheck_due", None)   # t_d2f75685: a retry-later marker belongs to the state it was set in
     listing_url = check_evidence(listing_url, "submitted") if listing_url else None   # t_3ac43137: the URL the Directory showed at submit (permalink, owner view or confirmation); plain http(s) only
     if listing_url: new_row["listing_url"] = listing_url
     if recheck_due:   # t_6b1e01ff: the earliest day recheck reads this row (foursquare: 2 days after the edit is sent)
@@ -246,6 +264,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if listing_id and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-]{2,40}", str(listing_id)): new_row["listing_id"] = str(listing_id)
     entry = {"at": day, "from": old, "to": new_state, "evidence_url": evidence_url, "note": note or None}
     if verify_type: entry["verify_type"] = verify_type  # history carries the type, not only the note text (t_568f1ee6)
+    if requeue: entry["requeue"] = True; entry["reason"] = reason.strip()
+    if recheck_due: entry["recheck_due"] = str(recheck_due)
     new_row.setdefault("history", [])
     new_row["history"] = list(new_row["history"]) + [entry]
     assert new_row.get("mike_approval") == approval_before  # never touched
@@ -344,9 +364,11 @@ def main(argv=None):
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)
+    a.add_argument("--reason", default=None, help="rejected -> queued only: why a re-create can succeed this time (10+ characters; logged in the row history)")
+    a.add_argument("--recheck-due", default=None, help="YYYY-MM-DD: batch tools skip this row until that day (retry later, e.g. a Directory sender limit)")
     n = a.parse_args(argv)
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url)
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due)
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1
