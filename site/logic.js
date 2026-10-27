@@ -81,3 +81,21 @@ export function stats(checks) {
   const c = counts(checks);
   return { found: cards.length, notFound: c.not_found, correct: cards.length - withErrors, withErrors, couldntCheck: c.couldnt_check + c.unsearchable };
 }
+
+// t_f6267312: stat cards read the footprint_snapshot summary (job/snapshot.py), recounted from the rows on every write. Never a stored scan total.
+export const SUMMARY_KEYS = ["live", "inProgress", "napCorrect", "napChecked", "napFix", "blocked", "declined"];
+export function snapshotSummary(snapshots, biz) {
+  const row = (snapshots || []).find((r) => r && r.biz === biz);
+  const s = row && row.payload && row.payload.summary;
+  return s && SUMMARY_KEYS.every((k) => Number.isInteger(s[k])) ? s : null;
+}
+export function snapshotCardsHtml(s) {
+  const card = (id, n, label, cls = "stat", extra = "") => `<div class="${cls}" data-testid="${id}"><b>${n}</b><span>${label}</span>${extra}</div>`;
+  const nap = s.napChecked < s.live ? `<small>${s.live - s.napChecked} not read yet</small>` : "";
+  return `<div class="stats">
+        ${card("stat-live", s.live, "Live", "stat good")}
+        ${card("stat-inprogress", s.inProgress, "In progress")}
+        ${card("stat-napcorrect", `${s.napCorrect} of ${s.live}`, "NAP correct", "stat good", nap)}
+        ${card("stat-declined", s.declined, "Declined")}
+      </div>`;
+}

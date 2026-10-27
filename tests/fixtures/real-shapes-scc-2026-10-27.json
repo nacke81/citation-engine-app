@@ -1,0 +1,1449 @@
+{
+ "payload": {
+  "directories": [
+   {
+    "name": "bbb.org",
+    "domain": "bbb.org",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "unavailable",
+    "authority": null
+   },
+   {
+    "name": "bing.com",
+    "domain": "bing.com",
+    "state": "submitted",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://bing.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "bizapedia.com",
+    "domain": "bizapedia.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://bizapedia.com/listing-placeholder",
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "brownbook.net",
+    "domain": "brownbook.net",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://brownbook.net/listing-placeholder",
+    "issues": [],
+    "status": "unavailable",
+    "authority": null
+   },
+   {
+    "name": "chamberofcommerce.com",
+    "domain": "chamberofcommerce.com",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "cybo.com",
+    "domain": "cybo.com",
+    "state": "live",
+    "napConsistent": true,
+    "urlKind": "listing",
+    "url": "https://cybo.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "dexknows.com",
+    "domain": "dexknows.com",
+    "state": "needs-human",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://dexknows.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "ezlocal.com",
+    "domain": "ezlocal.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "unavailable",
+    "authority": null
+   },
+   {
+    "name": "facebook.com",
+    "domain": "facebook.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "foursquare.com",
+    "domain": "foursquare.com",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://foursquare.com/listing-placeholder",
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "google.com",
+    "domain": "google.com",
+    "state": "live",
+    "napConsistent": true,
+    "urlKind": "listing",
+    "url": "https://google.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "hotfrog.com",
+    "domain": "hotfrog.com",
+    "state": "live",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://hotfrog.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "localstack.com",
+    "domain": "localstack.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "manta.com",
+    "domain": "manta.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://manta.com/listing-placeholder",
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "mapquest.com",
+    "domain": "mapquest.com",
+    "state": "needs-human",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://mapquest.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "maps.apple.com",
+    "domain": "maps.apple.com",
+    "state": "live",
+    "napConsistent": true,
+    "urlKind": "listing",
+    "url": "https://maps.apple.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "merchantcircle.com",
+    "domain": "merchantcircle.com",
+    "state": "needs-human",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://merchantcircle.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "n49.com",
+    "domain": "n49.com",
+    "state": "live",
+    "napConsistent": true,
+    "urlKind": "listing",
+    "url": "https://n49.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "nextdoor.com",
+    "domain": "nextdoor.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "showmelocal.com",
+    "domain": "showmelocal.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://showmelocal.com/listing-placeholder",
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "superpages.com",
+    "domain": "superpages.com",
+    "state": "needs-human",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://superpages.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "yellowbook.com",
+    "domain": "yellowbook.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "unavailable",
+    "authority": null
+   },
+   {
+    "name": "yellowbot.com",
+    "domain": "yellowbot.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "yellowpages.com",
+    "domain": "yellowpages.com",
+    "state": "needs-human",
+    "napConsistent": false,
+    "urlKind": "listing",
+    "url": "https://yellowpages.com/listing-placeholder",
+    "issues": [],
+    "status": "nap",
+    "authority": null
+   },
+   {
+    "name": "yelp.com",
+    "domain": "yelp.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "blocked",
+    "authority": null
+   },
+   {
+    "name": "botw.org",
+    "domain": "botw.org",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "enrollbusiness.com",
+    "domain": "enrollbusiness.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "citysquares.com",
+    "domain": "citysquares.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://citysquares.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "tupalo.com",
+    "domain": "tupalo.com",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://tupalo.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "2findlocal.com",
+    "domain": "2findlocal.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "cortera.com",
+    "domain": "cortera.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "data-axle.com",
+    "domain": "data-axle.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "cylex.us",
+    "domain": "cylex.us",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "justlanded.com",
+    "domain": "justlanded.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "neustarlocaleze.biz",
+    "domain": "neustarlocaleze.biz",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "storeboard.com",
+    "domain": "storeboard.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://storeboard.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "whatsnearby.com",
+    "domain": "whatsnearby.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "yellow.place",
+    "domain": "yellow.place",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "americasbestcompanies.com",
+    "domain": "americasbestcompanies.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "us-info.com",
+    "domain": "us-info.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://us-info.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "dnb.com",
+    "domain": "dnb.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "8coupons.com",
+    "domain": "8coupons.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "ailoq.com",
+    "domain": "ailoq.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "accountantfinder.com",
+    "domain": "accountantfinder.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "here.com",
+    "domain": "here.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "infobel.com",
+    "domain": "infobel.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "activityhero.com",
+    "domain": "activityhero.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "vivinavi.com",
+    "domain": "vivinavi.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "fyple.com",
+    "domain": "fyple.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "buildzoom.com",
+    "domain": "buildzoom.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "fixr.com",
+    "domain": "fixr.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "golocalpages.com",
+    "domain": "golocalpages.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "businessyab.com",
+    "domain": "businessyab.com",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://businessyab.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "caring.com",
+    "domain": "caring.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "citylocalpro.com",
+    "domain": "citylocalpro.com",
+    "state": "pending-verify",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://citylocalpro.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "com-yellowpages.com",
+    "domain": "com-yellowpages.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "discoverourtown.com",
+    "domain": "discoverourtown.com",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://discoverourtown.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "find-us-here.com",
+    "domain": "find-us-here.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://find-us-here.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "freelistingusa.com",
+    "domain": "freelistingusa.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://freelistingusa.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "getlistedusa.com",
+    "domain": "getlistedusa.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://getlistedusa.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "herenashville.com",
+    "domain": "herenashville.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "houzz.com",
+    "domain": "houzz.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "ibdb.us",
+    "domain": "ibdb.us",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "joomlocal.com",
+    "domain": "joomlocal.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "ibegin.com",
+    "domain": "ibegin.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "macraesbluebook.com",
+    "domain": "macraesbluebook.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "loc8nearme.com",
+    "domain": "loc8nearme.com",
+    "state": "submitted",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://loc8nearme.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "judysbook.com",
+    "domain": "judysbook.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "maplenmain.com",
+    "domain": "maplenmain.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "mylocalservices.com",
+    "domain": "mylocalservices.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "nashvegas.com",
+    "domain": "nashvegas.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "sbdpro.com",
+    "domain": "sbdpro.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "listyourbusiness.us",
+    "domain": "listyourbusiness.us",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://listyourbusiness.us/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "localsolution.com",
+    "domain": "localsolution.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://localsolution.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "openstreetmap.org",
+    "domain": "openstreetmap.org",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://openstreetmap.org/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "tntownsquare.com",
+    "domain": "tntownsquare.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "vetpronetwork.com",
+    "domain": "vetpronetwork.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "pages24.com",
+    "domain": "pages24.com",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://pages24.com/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "thumbtack.com",
+    "domain": "thumbtack.com",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "topratedlocal.com",
+    "domain": "topratedlocal.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "uscity.net",
+    "domain": "uscity.net",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "uscolist.com",
+    "domain": "uscolist.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "usdirectory.com",
+    "domain": "usdirectory.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "usindex.app",
+    "domain": "usindex.app",
+    "state": "rejected",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "uslocaldir.com",
+    "domain": "uslocaldir.com",
+    "state": "needs-human",
+    "napConsistent": null,
+    "urlKind": null,
+    "url": null,
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   },
+   {
+    "name": "acompio.us",
+    "domain": "acompio.us",
+    "state": "live",
+    "napConsistent": null,
+    "urlKind": "listing",
+    "url": "https://acompio.us/listing-placeholder",
+    "issues": [],
+    "status": "undiscovered",
+    "authority": null
+   }
+  ]
+ },
+ "queue": {
+  "fix_queue": [
+   {
+    "id": "fix-bing",
+    "directory": "bing.com",
+    "state": "submitted",
+    "listing_url": "https://bing.com/listing-placeholder",
+    "evidence_url": "https://bing.com/evidence-placeholder"
+   },
+   {
+    "id": "fix-mapquest",
+    "directory": "mapquest.com",
+    "state": "needs-human",
+    "listing_url": "https://mapquest.com/listing-placeholder",
+    "evidence_url": "https://mapquest.com/evidence-placeholder"
+   },
+   {
+    "id": "fix-yellowpages",
+    "directory": "yellowpages.com",
+    "state": "needs-human",
+    "listing_url": "https://yellowpages.com/listing-placeholder",
+    "evidence_url": "https://yellowpages.com/evidence-placeholder"
+   },
+   {
+    "id": "fix-superpages",
+    "directory": "superpages.com",
+    "state": "needs-human",
+    "listing_url": "https://superpages.com/listing-placeholder",
+    "evidence_url": "https://superpages.com/evidence-placeholder"
+   },
+   {
+    "id": "fix-dexknows",
+    "directory": "dexknows.com",
+    "state": "needs-human",
+    "listing_url": "https://dexknows.com/listing-placeholder",
+    "evidence_url": "https://dexknows.com/evidence-placeholder"
+   },
+   {
+    "id": "fix-merchantcircle",
+    "directory": "merchantcircle.com",
+    "state": "needs-human",
+    "listing_url": "https://merchantcircle.com/listing-placeholder",
+    "evidence_url": "https://merchantcircle.com/evidence-placeholder"
+   },
+   {
+    "id": "fix-hotfrog",
+    "directory": "hotfrog.com",
+    "state": "live",
+    "listing_url": "https://hotfrog.com/listing-placeholder",
+    "evidence_url": "https://hotfrog.com/evidence-placeholder"
+   }
+  ],
+  "create_rows": [],
+  "create_queue": {
+   "rows": [
+    {
+     "id": "create-acompio",
+     "directory": "acompio.us",
+     "state": "live",
+     "evidence_url": "https://acompio.us/evidence-placeholder"
+    },
+    {
+     "id": "create-yelp",
+     "directory": "yelp.com",
+     "state": "needs-human",
+     "evidence_url": "https://yelp.com/evidence-placeholder"
+    },
+    {
+     "id": "create-bbb",
+     "directory": "bbb.org",
+     "state": "submitted",
+     "evidence_url": "https://bbb.org/evidence-placeholder"
+    },
+    {
+     "id": "create-manta",
+     "directory": "manta.com",
+     "state": "live",
+     "evidence_url": "https://manta.com/evidence-placeholder"
+    },
+    {
+     "id": "create-brownbook",
+     "directory": "brownbook.net",
+     "state": "live",
+     "listing_url": "https://brownbook.net/listing-placeholder",
+     "evidence_url": "https://brownbook.net/evidence-placeholder"
+    },
+    {
+     "id": "create-chamberofcommerce",
+     "directory": "chamberofcommerce.com",
+     "state": "created-unlisted",
+     "evidence_url": "https://chamberofcommerce.com/evidence-placeholder"
+    },
+    {
+     "id": "create-bizapedia",
+     "directory": "bizapedia.com",
+     "state": "live",
+     "evidence_url": "https://bizapedia.com/evidence-placeholder"
+    },
+    {
+     "id": "create-ezlocal",
+     "directory": "ezlocal.com",
+     "state": "needs-human",
+     "evidence_url": "https://ezlocal.com/evidence-placeholder"
+    },
+    {
+     "id": "create-showmelocal",
+     "directory": "showmelocal.com",
+     "state": "needs-human",
+     "listing_url": "https://showmelocal.com/listing-placeholder",
+     "evidence_url": "https://showmelocal.com/evidence-placeholder"
+    },
+    {
+     "id": "create-yellowbook",
+     "directory": "yellowbook.com",
+     "state": "rejected",
+     "evidence_url": "https://yellowbook.com/evidence-placeholder"
+    },
+    {
+     "id": "create-localstack",
+     "directory": "localstack.com",
+     "state": "rejected",
+     "evidence_url": "https://localstack.com/evidence-placeholder"
+    },
+    {
+     "id": "create-facebook",
+     "directory": "facebook.com",
+     "state": "rejected",
+     "evidence_url": "https://facebook.com/evidence-placeholder"
+    },
+    {
+     "id": "create-yellowbot",
+     "directory": "yellowbot.com",
+     "state": "needs-human",
+     "evidence_url": "https://yellowbot.com/evidence-placeholder"
+    },
+    {
+     "id": "create-botw",
+     "directory": "botw.org",
+     "state": "needs-human",
+     "evidence_url": "https://botw.org/evidence-placeholder"
+    },
+    {
+     "id": "create-enrollbusiness",
+     "directory": "enrollbusiness.com",
+     "state": "needs-human",
+     "evidence_url": "https://enrollbusiness.com/evidence-placeholder"
+    },
+    {
+     "id": "create-data-axle",
+     "directory": "data-axle.com",
+     "state": "needs-human",
+     "evidence_url": "https://data-axle.com/evidence-placeholder"
+    },
+    {
+     "id": "create-citysquares",
+     "directory": "citysquares.com",
+     "state": "live",
+     "evidence_url": "https://citysquares.com/evidence-placeholder"
+    },
+    {
+     "id": "create-tupalo",
+     "directory": "tupalo.com",
+     "state": "created-unlisted",
+     "evidence_url": "https://tupalo.com/evidence-placeholder"
+    },
+    {
+     "id": "create-yellow",
+     "directory": "yellow.place",
+     "state": "rejected",
+     "evidence_url": "https://yellow.place/evidence-placeholder"
+    },
+    {
+     "id": "create-2findlocal",
+     "directory": "2findlocal.com",
+     "state": "needs-human",
+     "evidence_url": "https://2findlocal.com/evidence-placeholder"
+    },
+    {
+     "id": "create-cortera",
+     "directory": "cortera.com",
+     "state": "rejected",
+     "evidence_url": "https://cortera.com/evidence-placeholder"
+    },
+    {
+     "id": "create-cylex",
+     "directory": "cylex.us",
+     "state": "needs-human",
+     "evidence_url": "https://cylex.us/evidence-placeholder"
+    },
+    {
+     "id": "create-justlanded",
+     "directory": "justlanded.com",
+     "state": "rejected",
+     "evidence_url": "https://justlanded.com/evidence-placeholder"
+    },
+    {
+     "id": "create-neustarlocaleze",
+     "directory": "neustarlocaleze.biz",
+     "state": "needs-human",
+     "evidence_url": "https://neustarlocaleze.biz/evidence-placeholder"
+    },
+    {
+     "id": "create-storeboard",
+     "directory": "storeboard.com",
+     "state": "live",
+     "evidence_url": "https://storeboard.com/evidence-placeholder"
+    },
+    {
+     "id": "create-us-info",
+     "directory": "us-info.com",
+     "state": "live",
+     "listing_url": "https://us-info.com/listing-placeholder",
+     "evidence_url": "https://us-info.com/evidence-placeholder"
+    },
+    {
+     "id": "create-whatsnearby",
+     "directory": "whatsnearby.com",
+     "state": "rejected",
+     "evidence_url": "https://whatsnearby.com/evidence-placeholder"
+    },
+    {
+     "id": "create-foursquare",
+     "directory": "foursquare.com",
+     "state": "submitted",
+     "evidence_url": "https://foursquare.com/evidence-placeholder"
+    },
+    {
+     "id": "create-nextdoor",
+     "directory": "nextdoor.com",
+     "state": "needs-human",
+     "evidence_url": "https://nextdoor.com/evidence-placeholder"
+    },
+    {
+     "id": "create-dnb",
+     "directory": "dnb.com",
+     "state": "found",
+     "evidence_url": "https://dnb.com/evidence-placeholder"
+    },
+    {
+     "id": "create-here",
+     "directory": "here.com",
+     "state": "rejected",
+     "evidence_url": "https://here.com/evidence-placeholder"
+    },
+    {
+     "id": "create-infobel",
+     "directory": "infobel.com",
+     "state": "rejected",
+     "evidence_url": "https://infobel.com/evidence-placeholder"
+    },
+    {
+     "id": "create-americasbestcompanies",
+     "directory": "americasbestcompanies.com",
+     "state": "needs-human",
+     "evidence_url": "https://americasbestcompanies.com/evidence-placeholder"
+    },
+    {
+     "id": "create-activityhero",
+     "directory": "activityhero.com",
+     "state": "rejected",
+     "evidence_url": "https://activityhero.com/evidence-placeholder"
+    },
+    {
+     "id": "create-vivinavi",
+     "directory": "vivinavi.com",
+     "state": "rejected",
+     "evidence_url": "https://vivinavi.com/evidence-placeholder"
+    },
+    {
+     "id": "create-fyple",
+     "directory": "fyple.com",
+     "state": "needs-human",
+     "evidence_url": "https://fyple.com/evidence-placeholder"
+    },
+    {
+     "id": "create-houzz",
+     "directory": "houzz.com",
+     "state": "rejected",
+     "evidence_url": "https://houzz.com/evidence-placeholder"
+    },
+    {
+     "id": "create-ibdb",
+     "directory": "ibdb.us",
+     "state": "rejected",
+     "evidence_url": "https://ibdb.us/evidence-placeholder"
+    },
+    {
+     "id": "create-joomlocal",
+     "directory": "joomlocal.com",
+     "state": "rejected",
+     "evidence_url": "https://joomlocal.com/evidence-placeholder"
+    },
+    {
+     "id": "create-judysbook",
+     "directory": "judysbook.com",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-loc8nearme",
+     "directory": "loc8nearme.com",
+     "state": "submitted",
+     "evidence_url": "https://loc8nearme.com/evidence-placeholder"
+    },
+    {
+     "id": "create-localsolution",
+     "directory": "localsolution.com",
+     "state": "live",
+     "evidence_url": "https://localsolution.com/evidence-placeholder"
+    },
+    {
+     "id": "create-macraesbluebook",
+     "directory": "macraesbluebook.com",
+     "state": "rejected"
+    },
+    {
+     "id": "create-maplenmain",
+     "directory": "maplenmain.com",
+     "state": "rejected"
+    },
+    {
+     "id": "create-mylocalservices",
+     "directory": "mylocalservices.com",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-openstreetmap",
+     "directory": "openstreetmap.org",
+     "state": "live",
+     "evidence_url": "https://openstreetmap.org/evidence-placeholder"
+    },
+    {
+     "id": "create-pages24",
+     "directory": "pages24.com",
+     "state": "live",
+     "evidence_url": "https://pages24.com/evidence-placeholder"
+    },
+    {
+     "id": "create-thumbtack",
+     "directory": "thumbtack.com",
+     "state": "rejected"
+    },
+    {
+     "id": "create-topratedlocal",
+     "directory": "topratedlocal.com",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-uscity",
+     "directory": "uscity.net",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-usindex",
+     "directory": "usindex.app",
+     "state": "rejected"
+    },
+    {
+     "id": "create-vetpronetwork",
+     "directory": "vetpronetwork.com",
+     "state": "rejected"
+    },
+    {
+     "id": "create-ailoq",
+     "directory": "ailoq.com",
+     "state": "needs-human",
+     "evidence_url": "https://ailoq.com/evidence-placeholder"
+    },
+    {
+     "id": "create-tntownsquare",
+     "directory": "tntownsquare.com",
+     "state": "rejected"
+    },
+    {
+     "id": "create-herenashville",
+     "directory": "herenashville.com",
+     "state": "rejected",
+     "evidence_url": "https://herenashville.com/evidence-placeholder"
+    },
+    {
+     "id": "create-nashvegas",
+     "directory": "nashvegas.com",
+     "state": "rejected"
+    },
+    {
+     "id": "create-uscolist",
+     "directory": "uscolist.com",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-com-yellowpages",
+     "directory": "com-yellowpages.com",
+     "state": "needs-human",
+     "evidence_url": "https://com-yellowpages.com/evidence-placeholder"
+    },
+    {
+     "id": "create-listyourbusiness",
+     "directory": "listyourbusiness.us",
+     "state": "live",
+     "evidence_url": "https://listyourbusiness.us/evidence-placeholder"
+    },
+    {
+     "id": "create-getlistedusa",
+     "directory": "getlistedusa.com",
+     "state": "live",
+     "evidence_url": "https://getlistedusa.com/evidence-placeholder"
+    },
+    {
+     "id": "create-sbdpro",
+     "directory": "sbdpro.com",
+     "state": "needs-human",
+     "evidence_url": "https://sbdpro.com/evidence-placeholder"
+    },
+    {
+     "id": "create-uslocaldir",
+     "directory": "uslocaldir.com",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-freelistingusa",
+     "directory": "freelistingusa.com",
+     "state": "live",
+     "evidence_url": "https://freelistingusa.com/evidence-placeholder"
+    },
+    {
+     "id": "create-8coupons",
+     "directory": "8coupons.com",
+     "state": "needs-human",
+     "evidence_url": "https://8coupons.com/evidence-placeholder"
+    },
+    {
+     "id": "create-businessyab",
+     "directory": "businessyab.com",
+     "state": "submitted",
+     "evidence_url": "https://businessyab.com/evidence-placeholder"
+    },
+    {
+     "id": "create-usdirectory",
+     "directory": "usdirectory.com",
+     "state": "needs-human"
+    },
+    {
+     "id": "create-ibegin",
+     "directory": "ibegin.com",
+     "state": "needs-human",
+     "evidence_url": "https://ibegin.com/evidence-placeholder"
+    },
+    {
+     "id": "create-accountantfinder",
+     "directory": "accountantfinder.com",
+     "state": "rejected",
+     "evidence_url": "https://accountantfinder.com/evidence-placeholder"
+    },
+    {
+     "id": "create-buildzoom",
+     "directory": "buildzoom.com",
+     "state": "rejected",
+     "evidence_url": "https://buildzoom.com/evidence-placeholder"
+    },
+    {
+     "id": "create-caring",
+     "directory": "caring.com",
+     "state": "rejected",
+     "evidence_url": "https://caring.com/evidence-placeholder"
+    },
+    {
+     "id": "create-citylocalpro",
+     "directory": "citylocalpro.com",
+     "state": "pending-verify",
+     "evidence_url": "https://citylocalpro.com/evidence-placeholder"
+    },
+    {
+     "id": "create-discoverourtown",
+     "directory": "discoverourtown.com",
+     "state": "submitted",
+     "evidence_url": "https://discoverourtown.com/evidence-placeholder"
+    },
+    {
+     "id": "create-find-us-here",
+     "directory": "find-us-here.com",
+     "state": "live",
+     "evidence_url": "https://find-us-here.com/evidence-placeholder"
+    },
+    {
+     "id": "create-fixr",
+     "directory": "fixr.com",
+     "state": "rejected",
+     "evidence_url": "https://fixr.com/evidence-placeholder"
+    },
+    {
+     "id": "create-golocalpages",
+     "directory": "golocalpages.com",
+     "state": "rejected",
+     "evidence_url": "https://golocalpages.com/evidence-placeholder"
+    }
+   ]
+  }
+ }
+}

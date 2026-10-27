@@ -56,8 +56,6 @@ def _status(c):
 STATE = {"found": "live", "absent": "absent"}  # everything else -> couldnt_check
 
 
-CATALOG_TOTAL = 86      # Catalog Directories; the weekly scan covers 25 of them
-SCANNED = 25
 
 
 def _errors(diffs):
@@ -93,15 +91,10 @@ def build_payload(checks, captured_day=""):
             "reason": reason, "reasonText": text,
             "claim_status": cl.get("claim_status", "unknown"), "claim_evidence": cl.get("claim_evidence"),   # extra fields; portal rendering ignores them for now
         })
-    found = sum(1 for c in checks if c["result"] == "found")
-    correct = sum(1 for d in dirs if d["state"] == "live" and d["napConsistent"] is True)
-    not_found = sum(1 for c in checks if c["result"] == "absent")
-    cant = sum(1 for c in checks if c["result"] in ("couldnt_check", "unsearchable"))
-    denom = found + not_found
-    return {"keyScore": None, "keyScoreMax": 100, "found": found, "notFound": not_found, "correct": correct,
-            "withNapErrors": found - correct, "couldntCheck": cant, "checked": denom,
-            "catalogTotal": CATALOG_TOTAL, "directoriesChecked": SCANNED,
-            "pctFound": None if denom == 0 else round(found / denom * 100), "pctFoundBasis": "checked", "directories": dirs}
+    # t_f6267312: the scan totals (found / correct / couldntCheck / checked / directoriesChecked) were frozen at the last scan and went stale
+    # against the queue overlay. They are no longer written; `summary` is recounted from `directories` here and again after every overlay.
+    import snapshot as SN
+    return SN.finalize({"keyScore": None, "keyScoreMax": 100, "directories": dirs})
 
 
 def load_portal_env(path=None):
@@ -145,7 +138,7 @@ class Portal:
                   [{"client_id": client_id, "source": SOURCE, "captured_day": captured_day, "payload": payload}],
                   prefer="resolution=merge-duplicates,return=minimal")
         rows = self.call("GET", "footprint_snapshot?select=client_id,source,captured_day,payload&client_id=eq.%s&source=eq.%s&captured_day=eq.%s" % (client_id, SOURCE, captured_day))
-        if not rows or rows[0]["payload"].get("found") != payload["found"]:
+        if not rows or rows[0]["payload"].get("summary") != payload.get("summary"):
             raise PortalWriteError("portal readback did not match what was written")
         return rows[0]
 
@@ -164,8 +157,8 @@ def write_run(checks, captured_day, portal=None, queue_rows=None):
         p = build_payload(cs, captured_day)
         if b == "SCC":  # fix/create queue state is shown on SCC only
             import buildqueue
-            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_rows(), captured_day)
+            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_all_rows(), captured_day)
         row = portal.upsert_snapshot(ids[b], captured_day, p)
         out[b] = {"client_id": row["client_id"], "source": row["source"], "captured_day": row["captured_day"],
-                  "found": p["found"], "correct": p["correct"], "withNapErrors": p["withNapErrors"], "notFound": p["notFound"], "couldntCheck": p["couldntCheck"]}
+                  "summary": p["summary"]}
     return out

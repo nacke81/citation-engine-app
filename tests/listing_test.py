@@ -74,7 +74,7 @@ unchecked = [d for d in p["directories"] if d["state"] == "couldnt_check"]
 check("L2 every couldn't-check row has napConsistent None (not False)", unchecked and all(d["napConsistent"] is None for d in unchecked))
 check("L2 absent row napConsistent None", D["bbb.org"]["napConsistent"] is None)
 check("L2 found rows are strictly True/False", all(isinstance(D[x]["napConsistent"], bool) for x in ("yellowpages.com", "bing.com", "maps.apple.com")))
-check("L2 correct counts only found+True; found = correct + withNapErrors", (p["found"], p["correct"], p["withNapErrors"]) == (5, 3, 2))
+check("L2 napCorrect counts only live+True; napChecked = live rows with a NAP verdict", (p["summary"]["live"], p["summary"]["napCorrect"], p["summary"]["napChecked"]) == (5, 3, 5))
 
 # L3
 R = {d: D[d]["reason"] for d in D}
@@ -87,9 +87,9 @@ check("L3 every unchecked row has plain-English reasonText, no 'blocked or unava
 check("L3 found/absent rows carry no reason", all(D[x]["reason"] is None for x in ("yellowpages.com", "bbb.org")))
 
 # L4
-check("L4 pctFound is found/(found+absent) over checked rows only: 5 of 6 = 83, not 100", (p["pctFound"], p["checked"], p["pctFoundBasis"]) == (83, 6, "checked"))
+check("L4 no percentage is stored (it went stale with the scan totals)", "pctFound" not in p and "checked" not in p)
 all_unchecked = P.build_payload([row("yelp.com", "couldnt_check", note="blocked")], "2026-10-19")
-check("L4 nothing checked -> pctFound None (not 0, not 100)", all_unchecked["pctFound"] is None and all_unchecked["checked"] == 0)
+check("L4 nothing checked -> napChecked 0 and napCorrect 0 (never a made-up pass)", all_unchecked["summary"]["napChecked"] == 0 and all_unchecked["summary"]["napCorrect"] == 0)
 
 # L5
 e = D["bing.com"]["napErrors"]
@@ -98,7 +98,7 @@ check("L5 name error carries live + right", D["yellowpages.com"]["napErrors"][0]
 check("L5 correct row has no napErrors; unchecked row has none", D["mapquest.com"]["napErrors"] == [] and D["facebook.com"]["napErrors"] == [])
 
 # L6
-check("L6 scope numbers in payload: 25 of 86", (p["directoriesChecked"], p["catalogTotal"]) == (25, 86))
+check("L6 no frozen scope numbers in payload (directoriesChecked / catalogTotal)", "directoriesChecked" not in p and "catalogTotal" not in p)
 psrc = open(os.path.join(HERE, "..", "job", "portal.py"), encoding="utf-8").read(); lsrc = open(os.path.join(HERE, "..", "job", "listing.py"), encoding="utf-8").read()
 check("L6 listing.py and portal.py make no network, browser or Directory call", not any(w in lsrc for w in ("urllib.request", "urlopen", "requests", "playwright", "subprocess", "socket", "import core", "import discover")))
 check("L6 no portal-seed or Directory import in portal.py", not any(w in psrc for w in ("import core", "import discover", "owned_chrome", "seed-nm", "subprocess")))
