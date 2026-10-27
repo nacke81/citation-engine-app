@@ -95,6 +95,12 @@ def validate(spec):
         if do == "click" and s.get("submit") and not stop_seen and not any(x.get("do") == "stop_before_submit" for x in spec["steps"][:i]):
             _fail(site, i, "a submit click must come after a stop_before_submit marker (dry runs stop there)")
     if spec.get("record", "submitted") not in ("submitted", "none"): raise BuildError("spec record must be 'submitted' or 'none'")
+    if spec.get("record", "submitted") == "submitted":
+        steps = spec["steps"]
+        stop_i = next((i for i, x in enumerate(steps) if x.get("do") == "stop_before_submit"), None)
+        def _is_submit(x): return (x.get("do") in ("click", "click_text") and x.get("submit")) or x.get("do") == "solve_captcha"
+        if steps[-1].get("do") == "list_fields" or (stop_i is not None and not any(_is_submit(x) for x in steps[stop_i + 1:])):
+            raise BuildError("spec %s: record 'submitted' needs a final submit step after stop_before_submit (this spec ends at %s); set \"record\": \"none\" until the fills land" % (site, steps[-1].get("do")))
     if spec.get("mail"):
         for k in ("sender", "link_re"):
             if not spec["mail"].get(k): raise BuildError("spec mail needs %r" % k)

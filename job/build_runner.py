@@ -79,6 +79,7 @@ class Ctx:
         self.lease = None  # chrome_keepalive.Lease: refreshed before every step so the build Chrome timer does not fire (t_d7a907d5)
         self.chrome_check = None   # callable() -> "up" | "restarted"; None in tests / non-9333 endpoints
         self.reconnect = None      # callable() -> new page after a restart
+        self.sweep = None          # callable() -> closed URLs; run after a Chrome restart (a restored foreign tab must not be acted on)
 
     # Vaultwarden: the helper reads the item and sets the field in the page; stdout is `fill=success ...` only.
     def vault_fill(self, selector, url):
@@ -154,8 +155,12 @@ def run_site(site, ctx, only=None):
             if ctx.lease is not None: ctx.lease.touch()
             if ctx.chrome_check is not None and ctx.chrome_check() == "restarted":
                 if ctx.reconnect is None: raise BuildError("build Chrome had exited and was restarted, but this run cannot reconnect; rerun the build")
+                swept = []
+                if ctx.sweep is not None:
+                    try: swept = ctx.sweep() or []
+                    except Exception: swept = []
                 ctx.page = ctx.reconnect()
-                res["steps"].append({"name": "chrome_restart", "kind": "read", "status": "ok", "detail": "build Chrome had exited; restarted on the same profile"})
+                res["steps"].append({"name": "chrome_restart", "kind": "read", "status": "ok", "detail": "build Chrome had exited; restarted on the same profile" + ("; closed %d foreign tab(s)" % len(swept) if swept else "")})
                 if last_open is not None: last_open.fn(ctx)
             detail = st.fn(ctx)
             if st.kind == "read": last_open = st
@@ -234,6 +239,13 @@ def find_row(row_id, site, queue_path=None):
     return hit[0]
 
 
+def is_full_run(site, res, only=None):
+    """True only when NO --only filter was used and every spec step ran with status ok. A subset or discovery run sent no listing and never records."""
+    if only: return False
+    done = [x for x in res["steps"] if x["name"] != "chrome_restart"]
+    return bool(res["ok"]) and len(done) == len(site.steps) and all(x["status"] == "ok" for x in done)
+
+
 def record_live(row, site, record=None):
     """After an ok live run: record `submitted` through buildqueue.submit_row(live=True) -> transitions.record_transition. Returns one log line, never raises:
     a refusal (no Mike approval, paid row, no vault item) is printed, and nothing is recorded."""
@@ -294,14 +306,18 @@ def main(argv=None):
                 pw, pg2, close = connect(n.cdp, fresh=not n.live)
                 return pg2
             ctx.reconnect = _reconnect
-        res = run_site(site, ctx, set(n.only.split(",")) if n.only else None)
+            ctx.sweep = lambda: KA.sweep_foreign_tabs(KA.PORT)
+        only = set(n.only.split(",")) if n.only else None
+        res = run_site(site, ctx, only)
     finally:
         lease.__exit__()
         try: close()
         except Exception: pass
         pw.stop()
     print(format_result(res))
-    if n.live and res["ok"]: print("  " + record_live(row, site))
+    if n.live and res["ok"]:
+        if is_full_run(site, res, only): print("  " + record_live(row, site))
+        else: print("  NOT recorded (partial run: --only or a discovery run sends no listing, so it never records). Run the full spec to record.")
     return 0 if res["ok"] else 1
 
 
