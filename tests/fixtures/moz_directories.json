@@ -1,0 +1,14 @@
+{
+  "today": "2026-10-27",
+  "env": {},
+  "directories": [
+    {"domain": "google.com", "priority": 1, "da": 100, "da_source": "worksheet", "da_checked_on": null},
+    {"domain": "bing.com", "priority": 1, "da": 93, "da_source": "worksheet", "da_checked_on": null},
+    {"domain": "yelp.com", "priority": 1, "da": 93, "da_source": "worksheet", "da_checked_on": null},
+    {"domain": "manta.com", "priority": 2, "da": null, "da_checked_on": null},
+    {"domain": "hotfrog.com", "priority": 3, "da": 60, "da_source": "moz", "da_checked_on": "2026-02-01"},
+    {"domain": "brownbook.net", "priority": 3, "da": 50, "da_source": "moz", "da_checked_on": "2025-06-01"},
+    {"domain": "cybo.com", "priority": 4, "da": null, "da_checked_on": null},
+    {"domain": "deadsite.example", "priority": 4, "da": null, "da_checked_on": null, "dead": true}
+  ]
+}

@@ -63,6 +63,8 @@ jobs:
         run: python tests/weekly_claim_test.py
       - name: Directory database (seed 86, upserts, create-row fix, migration shape)
         run: python tests/directories_test.py
+      - name: Moz Domain Authority (free plan cap, yearly refresh, snapshot authority, no live API)
+        run: python tests/moz_test.py
       - name: Catalog helpers (paid-row cost + period, dead flag) and migration 004
         run: python tests/catalog_test.py
       - name: Hotfrog playbook (network, browser and mailbox mocked)

@@ -289,6 +289,7 @@ def main():
     create_queue_step()  # after the 25; GET-only, never changes the exit code or the portal payload
     buildrows_step(checks, datetime.now().date().isoformat())  # one row per Directory; adds missing rows only, never resets one; non-fatal
     directories_step(checks, datetime.now().date().isoformat())  # Directory database; loud but non-fatal
+    moz_step()  # t_295208a6: Domain Authority from Moz, 50 rows per calendar month; no-op without MOZ_API_TOKEN; non-fatal
     proof_step_if_ok(ok_run, checks, datetime.now().date().isoformat())  # Proof for waiting queue rows from THIS run only; loud but non-fatal
     recheck_step()  # public-page recheck of submitted / pending-verify / found rows with a permalink, plus a NAP read of every live row; read-only, non-fatal
     portal_publish(checks, datetime.now().date().isoformat())  # t_f6267312: second same-day snapshot write so the NAP results and any new live row land now (idempotent upsert); non-fatal
@@ -386,11 +387,33 @@ def create_queue_step(merge=None, path=None):
         return False
 
 
+def moz_authority(portal=None):
+    """{domain: DA} for Moz-sourced Directories, or None. Only a real run (portal None) reads it; a failure never blocks the portal write."""
+    if portal is not None: return None
+    try:
+        import moz, directories as D
+        return moz.authority_map(D.DirDB())
+    except Exception as e:
+        print("MOZ authority unavailable (snapshot authority stays null): " + (str(e)[:120] or type(e).__name__), file=sys.stderr, flush=True)
+        return None
+
+
+def moz_step():
+    """Monthly Moz Domain Authority refresh (50 rows per calendar month, free plan). Skips without MOZ_API_TOKEN. Never fatal."""
+    try:
+        import moz
+        moz.run()
+        return True
+    except Exception as e:
+        print("MOZ FAILED: " + (str(e)[:200] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
+
+
 def portal_publish(checks, day, portal=None):
     """Portal write AFTER the build-DB write. A failure is loud in the run log (PORTAL WRITE FAILED) and never touches build-DB rows."""
     import portal as P
     try:
-        res = P.write_run(checks, day, portal)
+        res = P.write_run(checks, day, portal, authority=moz_authority(portal))
         print("PORTAL WRITE OK", json.dumps(res), flush=True)
         return True
     except Exception as e:
