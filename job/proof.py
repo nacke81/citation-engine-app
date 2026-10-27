@@ -16,7 +16,7 @@ import buildqueue as Q
 import directories as D
 import listing as L
 
-WAITING = ("submitted", "pending-verify", "needs-human")
+WAITING = ("submitted", "pending-verify", "needs-human", "created-unlisted")
 PROOF_COLS = ("build_action", "proof_url", "proof_nap", "proof_at", "proof_nap_match")
 
 

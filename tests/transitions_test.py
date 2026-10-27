@@ -55,7 +55,10 @@ ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted
            ("needs-human", "submitted"), ("needs-human", "pending-verify"),
            # t_d13bd638: claimed-unverified (found, claimed, edits ID-gated)
            ("queued", "claimed-unverified"), ("found", "claimed-unverified"), ("needs-human", "claimed-unverified"),
-           ("claimed-unverified", "live"), ("claimed-unverified", "rejected"), ("claimed-unverified", "needs-human")]
+           ("claimed-unverified", "live"), ("claimed-unverified", "rejected"), ("claimed-unverified", "needs-human"),
+           # t_f707b644: created-unlisted (listing exists, not public yet or no full NAP)
+           ("queued", "created-unlisted"), ("found", "created-unlisted"), ("needs-human", "created-unlisted"),
+           ("created-unlisted", "live"), ("created-unlisted", "rejected"), ("created-unlisted", "needs-human")]
 for old, new in ALLOWED:
     p, rid, d = fresh(old)
     try: r = rec(p, rid, new); good = r["to"] == new and json.load(open(p))["fix_queue"][0]["state"] == new
@@ -245,6 +248,28 @@ import directories as DIR
 check("T15 Directory sync knows the state", "claimed-unverified" in DIR.QUEUE_STATES)
 sql = open(os.path.join(HERE, "..", "db", "005_claimed_unverified.sql"), encoding="utf-8").read().lower()
 check("T15 migration 005 widens the check constraint, additive only", "claimed-unverified" in sql and "drop table" not in sql and "drop column" not in sql)
+
+# T17 created-unlisted (t_f707b644): exists on the Directory, not public yet or no full NAP. Edges are in the T1 matrix above.
+for st in ("submitted", "pending-verify", "live"):
+    check("T17 %s -> created-unlisted refused" % st, refused(*fresh(st), "created-unlisted", note="x"))
+check("T17 created-unlisted -> submitted refused", refused(*fresh("created-unlisted"), "submitted", note="x"))
+check("T17 created-unlisted -> pending-verify refused", refused(*fresh("created-unlisted"), "pending-verify", note="x"))
+p, rid, d = fresh("needs-human"); fp = portal_with(d)
+r = rec(p, rid, "created-unlisted", "https://dir.example/listing/1", fp, note="created; page not public yet")
+check("T17 no client activity row (internal state)", r["activity_record"] is None and "created-unlisted" not in T.ACTIVITY_STATES and not any(c[0] == "POST" and "deliverables" in str(c[1]) for c in fp.calls))
+check("T17 portal maps it to submitted (In flight), not needs-human", Q.QUEUE_TO_PORTAL["created-unlisted"] == "submitted" and fp.snaps[SCC]["directories"][0]["state"] == "submitted")
+p, rid, d = fresh("created-unlisted"); fp = portal_with(d)
+r = rec(p, rid, "created-unlisted", None, fp, note="recheck: phone not shown")
+check("T17 same-state note refresh is accepted with a note and refused without", r["from"] == r["to"] == "created-unlisted" and refused(*fresh("created-unlisted"), "created-unlisted"))
+check("T17 parse_rows accepts it", Q.parse_rows(json.load(open(p))) is not None)
+import directories as DIR
+check("T17 Directory sync knows the state", "created-unlisted" in DIR.QUEUE_STATES)
+sql = open(os.path.join(HERE, "..", "db", "006_created_unlisted.sql"), encoding="utf-8").read().lower()
+check("T17 migration 006 widens the check constraint, additive only, re-lists every older state", "created-unlisted" in sql and "drop table" not in sql and "drop column" not in sql and sql.count("drop ") == 1 and all("'%s'" % x in sql for x in T.STATES))
+import proof as PR, recheck as RC
+check("T17 recheck and proof both pick created-unlisted rows up", "created-unlisted" in RC.WAITING and "created-unlisted" in PR.WAITING)
+builder_js = open(os.path.join(HERE, "..", "site", "builder.js"), encoding="utf-8").read()
+check("T17 Builder page: created-unlisted is In flight (waiting), never needsPerson", "q === 'created-unlisted') state = 'waiting'" in builder_js and builder_js.index("created-unlisted') state = 'waiting'") < builder_js.index("needsPerson'"))
 
 # id-check rows carry steps + directory_url (t_35655566)
 STEPS = ["Open the Directory page and sign in as the owner.", "Upload a photo of your driver's license when asked."]

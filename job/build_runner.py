@@ -250,16 +250,17 @@ def record_live(row, site, record=None):
     """After an ok live run: record `submitted` through buildqueue.submit_row(live=True) -> transitions.record_transition. Returns one log line, never raises:
     a refusal (no Mike approval, paid row, no vault item) is printed, and nothing is recorded."""
     import buildqueue as Q
-    if getattr(site, "record", "submitted") == "none":
+    to = getattr(site, "record", "submitted")
+    if to == "none":
         return "not recorded: this spec stops at a verify step (record none). Set the state with transitions.py (needs-human + verify_type)."
     row = dict(row); row.setdefault("vaultwarden_item", site.vault_item)
     try:
-        res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True)
+        res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True, to=to)
     except Q.SubmitRefused as e:
         return "NOT recorded (submit_row refused: %s). Record it with transitions.py." % e
     except Exception as e:
         return "NOT recorded (recording failed: %s). Record it with transitions.py." % PK.redact(str(e))[:120]
-    return "recorded: %s -> submitted (%s)" % (res["id"], str(res.get("recorded"))[:120])
+    return "recorded: %s -> %s (%s)" % (res["id"], to, str(res.get("recorded"))[:120])
 
 
 def main(argv=None):

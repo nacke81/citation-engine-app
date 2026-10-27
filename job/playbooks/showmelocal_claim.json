@@ -1,0 +1,71 @@
+{
+  "site": "showmelocal_claim",
+  "domain": "showmelocal.com",
+  "vault_item": "SCC - showmelocal.com",
+  "record": "none",
+  "mail": {
+    "sender": "showmelocal",
+    "link_re": "https://www\\.showmelocal\\.com/activate-registration\\.aspx[^\\s\"'<>)]+"
+  },
+  "notes": "b12 resume (t_03181a0a). Claim flow for listing bid 37893637: listing page (slider 'Security Verification' cleared in the build Chrome) -> claim dropdown -> 'claim this listing' -> /claim-listing.aspx?bid=37893637. Seen live: txtEmail, txtPassword (vault), txtBusinessEmail, reCAPTCHA v2 sitekey 6LdtzyYTAAAAADVeyuff9jRrfNO-Bs7Yr6cjn8zh (1 solve ok), cmdRegister, activation mail from donotreply@ (activate-registration.aspx, valid 72h), plan page 'CONTINUE WITH FREE PACKAGE'. NOT recorded live: the first/last-name input ids and the owner-certification checkbox id, so 'discover_claim_fields' lists them and this spec keeps record none; read the list once, add the fills, then flip the record. Stops at the plan page: /dashboard/correct-data.aspx 'Confirm Business Email' is a manual step (see playbook, email check). NEVER click RELEASE LISTING (it deletes the listing).",
+  "steps": [
+    {
+      "name": "open_claim",
+      "do": "open",
+      "url": "https://www.showmelocal.com/claim-listing.aspx?bid=37893637",
+      "wall_seconds": 120,
+      "expect": [
+        "[id$=txtEmail]",
+        "[id$=txtPassword]"
+      ]
+    },
+    {
+      "name": "discover_claim_fields",
+      "do": "list_fields"
+    },
+    {
+      "name": "email",
+      "do": "fill",
+      "selector": "[id$=txtEmail]",
+      "key": "email"
+    },
+    {
+      "name": "password",
+      "do": "vault_fill",
+      "selector": "[id$=txtPassword]",
+      "url": "{current}"
+    },
+    {
+      "name": "business_email",
+      "do": "fill",
+      "selector": "[id$=txtBusinessEmail]",
+      "key": "email"
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "recaptcha",
+      "do": "solve_captcha"
+    },
+    {
+      "name": "register",
+      "do": "click",
+      "selector": "[id$=cmdRegister]",
+      "submit": true,
+      "settle_ms": 6000
+    },
+    {
+      "name": "activate_mail",
+      "do": "wait_mail"
+    },
+    {
+      "name": "free_package",
+      "do": "click_text",
+      "text": "CONTINUE WITH FREE PACKAGE",
+      "tag": "a,button,input[type=submit]",
+      "exact": false,
+      "settle_ms": 5000
+    }
+  ]
+}
