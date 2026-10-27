@@ -3,7 +3,7 @@
   "domain": "businessyab.com",
   "record": "none",
   "vault_item": "SCC - businessyab.com",
-  "notes": "t_962161f4 (batch 18). READ-ONLY owner read for businessyab. LIVE-SEEN login path: the home page has NO 'Sign in' control. The header shows `li.quest` 'Log in' inside #user-links; it opens the #login-box modal (tabs Log in / Sign up). A bare 'Log in' text click is wrong: the first match can be the hidden tab inside the modal, so the spec targets #user-links li.quest. There is no /login URL (404). Then `login` (from_page) fills input[name=email] / input[type=password] (the fill helper takes the first VISIBLE match; hidden duplicates exist) with the vault item (`python job/vault_item.py --domain businessyab.com`). Status is read with the order-safe read_text. Writes nothing. t_2d15878c (batch 19): LIVE-SEEN the modal opens on the SIGN UP tab (log-in inputs hidden), so batch 19 typed into the wrong form. The spec now clicks the Log in tab (#login-tabs li[data-tab=login]) and the login selectors are scoped to [data-tabblock=login]. A failed sign-in saves fail-sign_in.png + fail-sign_in.html (modal markup, .error-area) so wrong password / no account / selector can be told apart.",
+  "notes": "t_962161f4 (batch 18). READ-ONLY owner read for businessyab. LIVE-SEEN login path: the home page has NO 'Sign in' control. The header shows `li.quest` 'Log in' inside #user-links; it opens the #login-box modal (tabs Log in / Sign up). A bare 'Log in' text click is wrong: the first match can be the hidden tab inside the modal, so the spec targets #user-links li.quest. There is no /login URL (404). Then `login` (from_page) fills input[name=email] / input[type=password] (the fill helper takes the first VISIBLE match; hidden duplicates exist) with the vault item (`python job/vault_item.py --domain businessyab.com`). Status is read with the order-safe read_text. Writes nothing. t_2d15878c (batch 19): LIVE-SEEN the modal opens on the SIGN UP tab (log-in inputs hidden), so batch 19 typed into the wrong form. The spec now clicks the Log in tab (#login-tabs li[data-tab=login]) and the login selectors are scoped to [data-tabblock=login]. A failed sign-in saves fail-sign_in.png + fail-sign_in.html (modal markup, .error-area) so wrong password / no account / selector can be told apart. t_89f4aebf (batch 20): Enter does not submit the modal; the spec clicks button.submit-login (signed_in_not false: the modal markup stays in the DOM after sign-in). Every owner URL (/dashboard etc.) is 404, so the owner status read is DROPPED: businessyab's status path is the public listing or the approval mail only (job/lookup.py, mail_scan.py --folders all). This spec now only proves the sign-in.",
   "steps": [
     {
       "name": "open_home",
@@ -33,25 +33,9 @@
       "from_page": true,
       "user_selector": "#login-box [data-tabblock=login] input[name=email]",
       "password_selector": "#login-box [data-tabblock=login] input[type=password]",
-      "settle_ms": 6000
-    },
-    {
-      "name": "read_status",
-      "do": "read_text",
-      "url": "https://www.businessyab.com/dashboard",
-      "settle_ms": 4000,
-      "expect_any": [
-        "rejected",
-        "declined",
-        "suspended",
-        "pending",
-        "awaiting approval",
-        "under review",
-        "approved",
-        "published",
-        "live",
-        "active"
-      ]
+      "settle_ms": 6000,
+      "submit_selector": "#login-box [data-tabblock=login] button.submit-login",
+      "signed_in_not": false
     }
   ]
 }

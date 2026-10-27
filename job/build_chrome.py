@@ -7,6 +7,7 @@ This is an ordinary Chrome. No spoofing, no stealth flags, no CAPTCHA handling. 
 
   python job/build_chrome.py                 # start, print cdp_url, run until Ctrl+C
   python job/build_chrome.py --seconds 600   # start, run 10 minutes, close (logs a WARNING line 5 minutes before)
+  python job/build_chrome.py --stop          # LAST step of a batch: kill the Chrome listening on CDP 9333 and its whole process tree
   python job/build_chrome.py --seconds 0     # a BATCH: run until stopped (taskkill /PID <pid> /T /F); never closes on a timer
 Output lines: cdp_url=..., windows_before/during/after. Window count before must equal after.
 """
@@ -24,12 +25,41 @@ def build_chrome(profile=None, port=None):
     return OwnedChrome(profile=profile or PROFILE, port=port or PORT)
 
 
+def listener_pids(port, runner=None):
+    """PIDs LISTENING on 127.0.0.1/0.0.0.0/[::1]:port, from `netstat -ano -p tcp`. [] when none."""
+    import subprocess, re
+    r = (runner or subprocess.run)(["netstat", "-ano", "-p", "tcp"], capture_output=True, text=True, timeout=30)
+    pids = []
+    for line in (getattr(r, "stdout", "") or "").splitlines():
+        m = re.match(r"\s*TCP\s+(\S+):(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$", line)
+        if m and int(m.group(2)) == int(port) and m.group(1) in ("127.0.0.1", "0.0.0.0", "[::1]", "[::]") and int(m.group(3)) not in pids:
+            pids.append(int(m.group(3)))
+    return pids
+
+
+def stop(port=PORT, runner=None, out=print):
+    """--stop (t_89f4aebf): kill the process tree of whatever listens on the CDP port (`taskkill /PID n /T /F`). A Chrome started by an earlier card cannot be
+    killed by the process manager. Returns 0 when nothing is left listening, 1 when a listener survived, 2 when nothing was listening."""
+    import subprocess
+    run = runner or subprocess.run
+    pids = listener_pids(port, runner)
+    if not pids: out("no listener on port %d (nothing to stop)" % port); return 2
+    for pid in pids:
+        r = run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True, timeout=60)
+        out("taskkill /PID %d /T /F -> exit %s" % (pid, getattr(r, "returncode", "?")))
+    left = listener_pids(port, runner)
+    out("port %d listener after: %s" % (port, ",".join(map(str, left)) or "none"))
+    return 1 if left else 0
+
+
 def main(argv=None):
     a = argparse.ArgumentParser(description="Start the owned real Chrome for Lis (persistent profile, CDP port)")
     a.add_argument("--port", type=int, default=PORT)
     a.add_argument("--profile", default=PROFILE)
     a.add_argument("--seconds", type=int, default=0, help="close after N seconds (0 = until Ctrl+C)")
+    a.add_argument("--stop", action="store_true", help="kill the process tree listening on --port (taskkill /PID n /T /F) and exit; starts nothing")
     n = a.parse_args(argv)
+    if n.stop: return stop(n.port)
     before = window_count()
     print("windows_before=%d" % before, flush=True)
     try:

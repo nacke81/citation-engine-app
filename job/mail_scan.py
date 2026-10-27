@@ -124,9 +124,28 @@ def find_reset(directory, messages):
     return None
 
 
-def reset_main(directories, days, messages=None, out=print):
+def presence(directory, messages):
+    """-> (mail_count, hit, folders): mails from the Directory's domain, the newest reset hit (or None), and the folders it was found in. Pure."""
+    domain = SCAN_DIRECTORIES.get(directory)
+    mine = [x for x in messages if domain and mail_is_from(x, domain)]
+    return len(mine), find_reset(directory, mine), sorted({x.get("folder") or "INBOX" for x in mine})
+
+
+def presence_main(directories, days, messages=None, out=print, folders="all"):
+    """`--presence`: yes/no only (t_89f4aebf): per Directory, how many mails exist, which folders, and 'code present: yes/no'. Never prints a code, link or body."""
+    try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
+    except Exception as e:
+        print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
+    for d in directories:
+        n, hit, fl = presence(d, msgs)
+        out("%s | mails from the Directory: %d | folders: %s | reset mail: %s | code present: %s | link present: %s" % (
+            d, n, ", ".join(fl) or "-", "yes" if hit else "no", "yes" if hit and hit["code"] else "no", "yes" if hit and hit["url"] else "no"))
+    return 0
+
+
+def reset_main(directories, days, messages=None, out=print, folders="inbox"):
     """`--reset-link`: print the newest reset link / code per Directory to stdout. Read-only mail access. Exit 0 found, 1 none, 2 mailbox unreadable."""
-    try: msgs = messages if messages is not None else read_messages(days=days)
+    try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
     except Exception as e:
         print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
     found = 0
@@ -147,8 +166,31 @@ def _text_of(msg):
     return "\n".join(out)
 
 
-def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vault=None):
-    """Recent mail from listings@ as dicts. Read-only (EXAMINE + PEEK). Raises PlaybookError when LISTINGS_IMAP_* is not set."""
+JUNK_RE = re.compile(r"(?i)junk|spam|bulk")
+LIST_RE = re.compile(rb'^\((?P<flags>[^)]*)\)\s+(?:"(?P<sep>[^"]*)"|NIL)\s+(?P<name>.+?)\s*$')
+
+
+def list_folders(m):
+    """INBOX plus every folder the server lists as Junk / Spam / Bulk (name or \\Junk special-use flag). Names only; read-only LIST."""
+    out = ["INBOX"]
+    try: typ, data = m.list()
+    except Exception: return out
+    for line in data or []:
+        if not isinstance(line, (bytes, bytearray)): continue
+        mt = LIST_RE.match(bytes(line).strip())
+        if not mt: continue
+        name = mt.group("name").decode("utf-8", "replace").strip()
+        if name.startswith('"') and name.endswith('"'): name = name[1:-1]
+        flags = mt.group("flags").decode("ascii", "replace")
+        if b"\\noselect" in mt.group("flags").lower(): continue
+        if (JUNK_RE.search(name) or "\\junk" in flags.lower()) and name not in out: out.append(name)
+    return out
+
+
+def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vault=None, folders="inbox"):
+    """Recent mail from listings@ as dicts. Read-only (EXAMINE + PEEK; never move, copy, flag or delete). Raises PlaybookError when LISTINGS_IMAP_* is not set.
+    folders: 'inbox' (default) or 'all' (t_89f4aebf: INBOX + the server's Junk/Spam/Bulk folders; the bbb reset said 'sent' and nothing was in INBOX).
+    Each message carries its `folder`."""
     sys.path.insert(0, os.path.join(HERE, "playbooks"))
     import hotfrog as H
     cfg = H.mail_env(env, vault)   # t_d2f75685: env empty -> the vault item (password in memory only); unreadable -> MailboxNotRead "MAILBOX NOT READ"
@@ -156,17 +198,22 @@ def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vaul
     m = imap_cls(cfg["host"], int(cfg["port"]))
     out = []
     try:
-        m.login(cfg["user"], cfg["password"]); m.select("INBOX", readonly=True)
-        typ, data = m.uid("SEARCH", None, "SINCE", since)
-        for uid in sorted((int(u) for u in (data[0] or b"").split()), reverse=True)[:limit]:
-            typ, d = m.uid("FETCH", str(uid), "(BODY.PEEK[])")
-            raw = next((x[1] for x in d if isinstance(x, tuple)), None)
-            if raw is None: continue
-            msg = email.message_from_bytes(raw)
-            try: dt = email.utils.parsedate_to_datetime(msg.get("Date")).strftime("%Y-%m-%dT%H:%M")
-            except Exception: dt = ""
-            out.append({"uid": uid, "from": str(make_header(decode_header(msg.get("From", "")))), "subject": str(make_header(decode_header(msg.get("Subject", "")))),
-                        "date": dt, "body": _text_of(msg)})
+        m.login(cfg["user"], cfg["password"])
+        names = list_folders(m) if folders == "all" else ["INBOX"]
+        for folder in names:
+            try: typ, _ = m.select('"%s"' % folder if folder != "INBOX" else folder, readonly=True)
+            except Exception: continue
+            if typ != "OK": continue
+            typ, data = m.uid("SEARCH", None, "SINCE", since)
+            for uid in sorted((int(u) for u in (data[0] or b"").split()), reverse=True)[:limit]:
+                typ, d = m.uid("FETCH", str(uid), "(BODY.PEEK[])")
+                raw = next((x[1] for x in d if isinstance(x, tuple)), None)
+                if raw is None: continue
+                msg = email.message_from_bytes(raw)
+                try: dt = email.utils.parsedate_to_datetime(msg.get("Date")).strftime("%Y-%m-%dT%H:%M")
+                except Exception: dt = ""
+                out.append({"uid": uid, "folder": folder, "from": str(make_header(decode_header(msg.get("From", "")))), "subject": str(make_header(decode_header(msg.get("Subject", "")))),
+                            "date": dt, "body": _text_of(msg)})
     finally:
         try: m.logout()
         except Exception: pass
@@ -210,8 +257,11 @@ def main(argv=None):
     a.add_argument("--directory", action="append", default=None)
     a.add_argument("--queue", default=None)
     a.add_argument("--reset-link", action="store_true", help="print the newest password-reset link / code from bbb / businessyab mail (terminal only; never stored)")
+    a.add_argument("--folders", choices=("inbox", "all"), default="inbox", help="all = INBOX + the server's Junk/Spam/Bulk folders (read-only; never moves or deletes)")
+    a.add_argument("--presence", action="store_true", help="print yes/no per Directory (mail count, folders, 'code present'); never a code, link or body")
     n = a.parse_args(argv)
-    if n.reset_link: return reset_main(n.directory or ["bbb.org", "businessyab.com"], n.days)
+    if n.presence: return presence_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
+    if n.reset_link: return reset_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     import buildqueue as Q
     wanted = set(n.directory) if n.directory else set(SCAN_DIRECTORIES)
     import datetime
@@ -219,7 +269,7 @@ def main(argv=None):
     rows = [(r["id"], r["directory"]) for r in Q.load_all_rows(n.queue) if r.get("directory") in wanted and r.get("state") in ("submitted", "pending-verify", "found", "created-unlisted")
             and not Q.not_due(r, today)]   # t_d2f75685: recheck_due in the future = skip
     from cfg import IDENT
-    sc = MailScanner(reader=lambda: read_messages(days=n.days), name=IDENT["BIZ"]["SCC"]["name"])
+    sc = MailScanner(reader=lambda: read_messages(days=n.days, folders=n.folders), name=IDENT["BIZ"]["SCC"]["name"])
     print(report(rows, sc))
     if sc.error and rows: print("MAILBOX NOT READ: %s" % sc.error, file=sys.stderr)   # t_d2f75685: never read as "no approval mail"
     return 2 if sc.error and rows else 0
