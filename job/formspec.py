@@ -27,6 +27,8 @@ Verbs: open, clear_ads, fill, select, upload_logo, check, vault_fill, click, wai
   type_text {selector, key|value, delay_ms?}   click + type into a rich-text box (SunEditor)
   set_value {selector, key|value}   set .value by script + input/change events (Shoelace sl-input, hidden inputs)   remove {selector}   delete blocking overlay nodes
   click_text {..., optional:true}   skip quietly when the control is absent (cookie banners)
+  login {url, user_selector, password_selector, user_key?}  sign in with the vault item for this Directory's domain (vault_item.py), email from the identity; Enter submits
+  read_text {expect_any:[...], url?, optional?}  read-only: the page body must show one of the phrases; the matched phrase is reported, no page text
   wait {ms}   expect_url {contains}   list_fields {}  (prints every visible control, so an unseen wizard step is discovered in ONE call)
   solve_captcha {widget?}  AFTER stop_before_submit only: reads the page, solves the widget with CapSolver (3 tries per row, logged), injects the token
 vault_fill url may be "{current}" (the page's own URL, query string and all). Top-level "record": "submitted" (default) | "created-unlisted" (listing exists, not public yet / no full NAP) | "none" (--live records nothing).
@@ -42,7 +44,7 @@ from build_core import BuildError, Step, Site
 NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name", "phone_digits")
 VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit",
          "uncheck", "select_native", "type_pick", "click_text", "wait", "expect_url", "list_fields", "solve_captcha",
-         "type_text", "set_value", "remove")
+         "type_text", "set_value", "remove", "login", "read_text")
 _REF = re.compile(r"\{([a-z_]+)\}")
 _LITERAL_PHONE = re.compile(r"\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}")
 _LITERAL_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -78,6 +80,7 @@ def validate(spec):
         if do not in VERBS: _fail(site, i, "unknown verb %r (known: %s)" % (do, ", ".join(VERBS)))
         need = {"open": ("url",), "fill": ("selector",), "select": ("target", "value"), "upload_logo": ("selector",), "check": ("selector",),
                 "vault_fill": ("selector", "url"), "click": ("selector",), "uncheck": ("selector",), "select_native": ("selector",),
+                "login": ("url", "user_selector", "password_selector"), "read_text": ("expect_any",),
                 "type_pick": ("selector",), "type_text": ("selector",), "set_value": ("selector",), "remove": ("selector",), "click_text": ("text",), "expect_url": ("contains",), "wait": ("ms",)}.get(do, ())
         for k in need:
             if not s.get(k): _fail(site, i, "%s needs %r" % (do, k))
@@ -335,6 +338,38 @@ def _v_remove(s):
     return fn
 
 
+def _v_login(s):
+    """Reusable sign-in (t_bbc32230). Opens the login page, types the account email (NAP key, default `email`), takes the password from the Vaultwarden item
+    for this Directory's domain (vault_item.py resolves 'SCC - acompio' for acompio.com), presses Enter, and checks the page left the login form.
+    Kind `fill`: it sends only credentials the owner already holds; no listing is written. A dry run only LOOKS the vault item up."""
+    def fn(ctx):
+        import pagekit as PK
+        ctx.page.goto(render(s["url"], ctx.nap), wait_until="domcontentloaded")
+        PK.wait_out_wall(ctx.page, int(s.get("wall_seconds", 60)))
+        ctx.need(s["user_selector"], s["password_selector"], wait_ms=int(s.get("wait_ms", 15000)))
+        login_url = ctx.page.url
+        ctx.page.fill(s["user_selector"], str(ctx.nap[s.get("user_key", "email")]))
+        got = ctx.vault_fill(s["password_selector"], login_url)
+        if ctx.dry_run: return "login form found; vault item looked up only (%s)" % str(got)[:80]
+        ctx.page.click(s["password_selector"]); ctx.page.keyboard.press("Enter")
+        ctx.page.wait_for_timeout(int(s.get("settle_ms", 6000)))
+        if ctx.page.locator(s["password_selector"]).count() and s.get("signed_in_not", True):
+            raise BuildError("login failed: the password box is still on %s" % ctx.page.url.split("?")[0][-60:])
+        return "signed in; now at %s" % ctx.page.url.split("?")[0][-60:]
+    return fn
+
+
+def _v_read_text(s):
+    """Read-only status read (t_bbc32230): the page body must contain one of `expect_any` (case-insensitive). The matched phrase is the detail; page text is never logged."""
+    def fn(ctx):
+        if s.get("url"): ctx.page.goto(render(s["url"], ctx.nap), wait_until="domcontentloaded"); ctx.page.wait_for_timeout(int(s.get("settle_ms", 3000)))
+        body = ctx.page.inner_text("body").lower()
+        hit = next((p for p in s["expect_any"] if p.lower() in body), None)
+        if hit is None and not s.get("optional"): raise BuildError("none of %s found on %s" % (s["expect_any"], ctx.page.url.split("?")[0][-60:]))
+        return "status text: %s" % (hit or "none matched")
+    return fn
+
+
 def _v_wait(s):
     def fn(ctx):
         ctx.page.wait_for_timeout(int(s["ms"])); return "waited %s ms" % s["ms"]
@@ -381,7 +416,7 @@ def _v_stop(s):
 KIND = {"open": "read", "clear_ads": "fill", "fill": "fill", "select": "fill", "upload_logo": "fill", "check": "fill", "vault_fill": "fill",
         "wait_mail": "mail", "stop_before_submit": "submit", "uncheck": "fill", "select_native": "fill", "type_pick": "fill",
         "click_text": "fill", "wait": "read", "expect_url": "read", "list_fields": "read", "solve_captcha": "submit",
-        "type_text": "fill", "set_value": "fill", "remove": "fill"}
+        "type_text": "fill", "set_value": "fill", "remove": "fill", "login": "fill", "read_text": "read"}
 
 
 def build_site(spec):
@@ -393,7 +428,7 @@ def build_site(spec):
         fn = _v_wait_mail(s, spec) if do == "wait_mail" else {"open": _v_open, "clear_ads": _v_clear_ads, "fill": _v_fill, "select": _v_select, "upload_logo": _v_upload_logo,
               "check": _v_check, "vault_fill": _v_vault_fill, "click": _v_click, "stop_before_submit": _v_stop, "uncheck": _v_uncheck,
               "select_native": _v_select_native, "type_pick": _v_type_pick, "click_text": _v_click_text, "wait": _v_wait, "expect_url": _v_expect_url,
-              "list_fields": _v_list_fields, "solve_captcha": _v_solve_captcha, "type_text": _v_type_text, "set_value": _v_set_value, "remove": _v_remove}[do](s)
+              "list_fields": _v_list_fields, "solve_captcha": _v_solve_captcha, "type_text": _v_type_text, "set_value": _v_set_value, "remove": _v_remove, "login": _v_login, "read_text": _v_read_text}[do](s)
         kind = ("submit" if s.get("submit") else "fill") if do in ("click", "click_text") else KIND[do]
         if do == "click_text" and s.get("submit"): kind = "submit"
         name = s.get("name") or "%02d_%s" % (i + 1, do)

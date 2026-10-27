@@ -1,0 +1,30 @@
+{
+  "site": "acompio_owner",
+  "domain": "acompio.com",
+  "record": "none",
+  "vault_item": "SCC - acompio",
+  "notes": "t_bbc32230. READ ONLY owner view for the acompio listing (company 10000001, Free Listing, dashboard status 'pending'). The build Chrome is signed out of acompio, so batch 15 could not read it. Signs in with the vault item `SCC - acompio` (login page account.acompio.com/login.php: input[name=user], input[name=password], Enter submits), opens the dashboard and reports which status word shows. Writes nothing: no wizard step, no Finish Listing, no upsell click, record none. Remove the 'Get Premium' overlay only to read, never click it.",
+  "steps": [
+    {
+      "name": "sign_in",
+      "do": "login",
+      "url": "https://account.acompio.com/login.php",
+      "user_selector": "input[name=user]",
+      "password_selector": "input[name=password]",
+      "wall_seconds": 90,
+      "settle_ms": 6000
+    },
+    {
+      "name": "clear_overlay",
+      "do": "remove",
+      "selector": ".fullscreen-notification"
+    },
+    {
+      "name": "read_status",
+      "do": "read_text",
+      "url": "https://account.acompio.com/",
+      "expect_any": ["pending", "active", "published", "online", "inactive", "rejected", "suspended"],
+      "settle_ms": 4000
+    }
+  ]
+}

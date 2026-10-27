@@ -98,4 +98,23 @@ fin = json.load(open(qp))["fix_queue"][0]
 check("W6 CLI: try, same-day refused, try 2, try 3 -> exits 0,1,0,0", rcs == [0, 1, 0, 0], str(rcs))
 check("W6 CLI: 4th refused (exit 1); file shows stopped needs-human with the stop note", rc4 == 1 and fin["state"] == "needs-human" and fin["history"][-1]["note"] == W.STOP_NOTE and [h["try"] for h in W.tries(fin)] == [1, 2, 3])
 
+# W7 (t_bbc32230) the 10/26 try sits in history as a prose note with no `wall` field; it must count
+legacy = row("create-cylex", "needs-human", "cylex.us")
+legacy["history"] = [
+    {"at": "2026-10-25", "from": "queued", "to": "needs-human", "note": "Cloudflare 'Sorry, you have been blocked' on /s"},
+    {"at": "2026-10-26", "from": "needs-human", "to": "needs-human", "note": "WALL:hard-block try 1/3 2026-10-26: 403 on /s. Next try 2026-10-27."},
+]
+check("W7 a prose-note try (no wall field) counts: 1 try in history", len(W.tries(legacy)) == 1)
+e7 = W.record_try(legacy, "2026-10-27", "a50f7322cf193555")
+check("W7 the 10/27 try reads 2/3", e7["try"] == 2 and e7["note"] == "WALL:hard-block try 2/3" and len(W.tries(legacy)) == 2, str(e7))
+gq = {"fix_queue": [legacy]}
+g1 = W.gate(gq, "cylex.us", "2026-10-27")
+check("W7 gate blocks a second try the same day (10/27)", g1 is not None and "one try per day" in g1, str(g1))
+check("W7 gate allows the next day (10/28)", W.gate(gq, "cylex.us", "2026-10-28") is None)
+W.record_try(legacy, "2026-10-28")
+check("W7 try 3 stops the row", W.is_stopped(legacy) and legacy["state"] == "needs-human" and refused(W.record_try, legacy, "2026-10-29"))
+mixed = row("m", "queued", "m.example")
+mixed["history"] = [{"wall": "hard-block", "try": 1, "at": "2026-10-27"}, {"wall": "hard-block", "try": 2, "at": "2026-10-26"}]
+check("W7 same-day check looks at every try, not only the last", refused(W.check_try, mixed, "2026-10-27"))
+
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

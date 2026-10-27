@@ -57,6 +57,12 @@ def candidate_urls(text, domain):
     return seen
 
 
+def gate_ok(directory, url):
+    """The permalink gate (permalink.is_permalink + listing.is_permalink): True only for a record page of the Directory. A search, category or entry-form URL is refused."""
+    import permalink as PL, listing as L
+    return bool(PL.is_permalink(directory, url)[0] and L.is_permalink(directory, url))
+
+
 def is_approval(subject, body):
     """True for an approval / 'now live' mail. A mail that only says the listing WILL be visible once approved is the submit receipt."""
     s, b = subject or "", body or ""
@@ -78,7 +84,7 @@ def find_approval(directory, messages, name=None):
     if not domain: return None
     mine = [m for m in messages if mail_is_from(m, domain) and is_approval(m.get("subject"), m.get("body"))]
     for m in sorted(mine, key=lambda x: (x.get("date") or "", x.get("uid") or 0), reverse=True):
-        urls = candidate_urls(m.get("body"), domain)
+        urls = [u for u in candidate_urls(m.get("body"), domain) if gate_ok(directory, u)]   # t_bbc32230: a search / category / non-listing URL never leaves the scan
         if not urls: continue
         best = max(urls, key=lambda u: (_slug_hits(u, name), -urls.index(u)))
         return {"uid": m.get("uid"), "date": m.get("date"), "subject": (m.get("subject") or "")[:120], "url": best}
