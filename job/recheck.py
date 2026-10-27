@@ -10,7 +10,7 @@ For every queue row in submitted / pending-verify / found (and live, report only
   no permalink     -> nothing written (bbb.org is the exception: its profile URL is looked up by name + city and stored with a same-state note)
 A note identical to the row's last history note is not written again, so a weekly run does not pile up duplicates.
 
-  python job/recheck.py [--queue PATH] [--write] [--include-live] [--row ID ...] [--no-chrome]
+  python job/recheck.py [--queue PATH] [--write] [--include-live] [--row ID ...] [--any-state] [--no-chrome]
 Without --write nothing is written (dry run); the report still shows before -> after and any mismatch.
 """
 import html, json, os, re, sys, urllib.parse, urllib.request, urllib.error
@@ -86,11 +86,15 @@ REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); const bare = /^(show|reve
   } return n; }""" % REVEAL_RE
 
 
-def read_rendered(pg, url, wait_s=30, canonical=None):
+def read_rendered(pg, url, wait_s=30, canonical=None, referer=None):
     """Open `url` in page `pg`, wait for the JS page to render (past walls), click any 'Reveal Phone Number' control, then read text/links/html.
     Reads only; the one click is a public page's own reveal control (t_3ac43137). -> (status, text, links, html)"""
     import core
-    r = pg.goto(url, timeout=40000, wait_until="domcontentloaded"); status = r.status if r else None
+    if referer:   # visit the Directory's home first (its cookies + a real Referer), then the search
+        try: pg.goto(referer, timeout=40000, wait_until="domcontentloaded"); pg.wait_for_timeout(2500)
+        except Exception: pass
+    r = pg.goto(url, timeout=40000, wait_until="domcontentloaded", **({"referer": referer} if referer else {}))   # referer: businessyab search answers 403 without a home-page Referer (t_89f4aebf)
+    status = r.status if r else None
     text, prev, same = "", None, 0
     for _ in range(max(1, wait_s // 2)):
         pg.wait_for_timeout(2000)
@@ -116,7 +120,7 @@ def read_rendered(pg, url, wait_s=30, canonical=None):
     return status, text, links, raw
 
 
-def chrome_fetch(url, cdp=CDP_URL, wait_s=30, canonical=None):
+def chrome_fetch(url, cdp=CDP_URL, wait_s=30, canonical=None, referer=None):
     """Read the rendered page in a FRESH signed-out context of the Chrome on `cdp`. Opens and closes one context; reads only. Walls are waited on, never solved."""
     from playwright.sync_api import sync_playwright
     p = sync_playwright().start()
@@ -125,7 +129,7 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30, canonical=None):
         ctx = b.new_context()   # fresh, signed out (t_ac8b1bdd): contexts[0] is the signed-in build profile and shows owner-only pending edits
         pg = ctx.new_page()
         try:
-            status, text, links, raw = read_rendered(pg, url, wait_s, canonical)
+            status, text, links, raw = read_rendered(pg, url, wait_s, canonical, referer) if referer else read_rendered(pg, url, wait_s, canonical)
             return Page(status, pg.url, text, links, html=raw)
         finally:
             try: pg.close()
@@ -159,9 +163,10 @@ class SignedOutReader:
                 self.close(); raise RuntimeError("the signed-out reader must not use the build Chrome port 9333")
         return self.chrome
 
-    def __call__(self, url):
+    def __call__(self, url, referer=None):
         try: oc = self._start()
         except Exception as e: return Page(0, url, "", err="signed-out Chrome did not start: %s" % type(e).__name__)
+        if referer: return self._fetch(url, oc.cdp_url, self.wait_s, self.canonical, referer)
         return self._fetch(url, oc.cdp_url, self.wait_s, self.canonical) if self.canonical else self._fetch(url, oc.cdp_url, self.wait_s)
 
     def close(self):
@@ -538,13 +543,13 @@ def resolve_by_search(directory, page, ident, biz="SCC"):
     return url if (url and kind == "listing" and host(url) == host(directory if "/" in directory else "https://" + directory) and not _is_entry_page(url)) else None
 
 
-def candidates(q, include_live=False, only=None, today=None):
+def candidates(q, include_live=False, only=None, today=None, any_state=False):
     import transitions as T
     out = []
     states = WAITING + (("live",) if include_live else ())
     for _key, kind, rows in T._row_lists(q):
         for r in rows:
-            if r.get("state") in states and r.get("directory") and (not only or r["id"] in only):
+            if (any_state or r.get("state") in states) and r.get("directory") and (not only or r["id"] in only):
                 if W.is_stopped(r):  # hard-block cap (t_fccbb7ef): a STOPPED row is not touched until Mike resets it
                     print("SKIP %s (%s): hard-block STOPPED, waiting on Mike" % (r.get("directory"), r.get("id"))); continue
                 due = Q.not_due(r, today) if today else None   # t_6b1e01ff: foursquare's edit is reviewed by the Directory; t_d2f75685: citylocalpro 24h sender limit. A row NAMED with --row is read anyway.
@@ -559,9 +564,13 @@ def _last_note(row):
     return (h[-1].get("note") if h and isinstance(h[-1], dict) else None)
 
 
-def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False):
-    """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row."""
+def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False, any_state=False):
+    """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row.
+    any_state (t_89f4aebf): read the NAMED rows (`only`) in any state, e.g. a needs-human row after a ruling. Dry-run reads only: it refuses write / backoff / proof."""
     import datetime
+    if any_state:
+        if write or backoff_only or proof_live: raise Q.QueueError("--any-state is a dry-run read only: it never combines with --write, --backoff-only or --proof-live")
+        if not only: raise Q.QueueError("--any-state needs --row ID (it reads named rows only)")
     day = today or datetime.date.today().isoformat()
     canonical = q.get("canonical")
     if not canonical or not all(canonical.get(k) for k in ("name", "address", "phone")):
@@ -575,7 +584,7 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
     if use_chrome and chrome is None: chrome = own_reader = SignedOutReader(); own_reader.canonical = canonical   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
     elif not use_chrome: chrome = None
     try:
-        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail, backoff_only)
+        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail, backoff_only, any_state)
     finally:
         if own_reader: own_reader.close()
 
@@ -604,10 +613,10 @@ def _backoff(res, row, write, record, queue_path, day, note=None):
     record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due)
 
 
-def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False):
+def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False, any_state=False):
     results = []
     bw = write or backoff_only   # t_2d15878c: a dry-run batch still moves recheck_due (backoff only; no transition, never live)
-    for kind, row in candidates(q, include_live, only, day):
+    for kind, row in candidates(q, include_live, only, day, any_state):
         d, rid, before = row["directory"], row["id"], row["state"]
         res = {"row": rid, "directory": d, "url": None, "before": before, "after": before, "verdict": None, "fields": [], "note": None, "error": None}
         results.append(res)
@@ -726,12 +735,15 @@ def main(argv=None):
     a.add_argument("--row", action="append", default=None)
     a.add_argument("--proof-live", action="store_true", help="with --write --include-live --row ID: write Proof for named rows already live (state unchanged)")
     a.add_argument("--backoff-only", action="store_true", help="dry run that still writes ONLY recheck_due (+2 days) on not-public / unreadable-public waiting rows; no transition, never live")
+    a.add_argument("--any-state", action="store_true", help="with --row ID: read the row in ANY state (e.g. needs-human after a ruling). Dry run only; refused with --write")
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
     n = a.parse_args(argv)
+    if n.any_state and (n.write or n.backoff_only or n.proof_live or not n.row):
+        print("REFUSED: --any-state is a dry-run read of named rows (--row ID); never with --write / --backoff-only / --proof-live", file=sys.stderr); return 1
     from cfg import IDENT
     mail = MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal.
-    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write)
+    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write, any_state=n.any_state)
     if mail.error: print("MAILBOX NOT READ: %s (rows that need the approval mail were left alone)" % mail.error, file=sys.stderr)
     print(format_report(res))
     print("%d rows read; %d to live; mode=%s" % (len(res), sum(1 for r in res if r["after"] == "live" and r["before"] != "live"), "WRITE" if n.write else ("dry run + backoff-only" if n.backoff_only else "dry run")))

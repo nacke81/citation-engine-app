@@ -210,7 +210,7 @@ class FakeIMAP:
     log = []; raw = {}
     def __init__(s, h, p): s.log.append(("connect", h))
     def login(s, u, p): s.log.append(("login",))
-    def select(s, box, readonly=False): s.log.append(("select", box, readonly))
+    def select(s, box, readonly=False): s.log.append(("select", box, readonly)); return "OK", [b"1"]
     def uid(s, cmd, *a):
         s.log.append((cmd,) + tuple(str(x) for x in a))
         if cmd == "SEARCH": return "OK", [b" ".join(str(u).encode() for u in sorted(s.raw))]

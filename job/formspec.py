@@ -27,7 +27,7 @@ Verbs: open, clear_ads, fill, select, upload_logo, check, vault_fill, click, wai
   type_text {selector, key|value, delay_ms?}   click + type into a rich-text box (SunEditor)
   set_value {selector, key|value}   set .value by script + input/change events (Shoelace sl-input, hidden inputs)   remove {selector}   delete blocking overlay nodes
   click_text {..., optional:true}   skip quietly when the control is absent (cookie banners)
-  login {url, user_selector, password_selector, user_key?}  sign in with the vault item for this Directory's domain (vault_item.py), email from the identity; Enter submits
+  login {url, user_selector, password_selector, user_key?, submit_selector?, signed_in_not?}  sign in with the vault item for this Directory's domain (vault_item.py), email from the identity; Enter submits
   read_text {expect_any:[...], url?, optional?}  read-only: the page body must show one of the phrases; the matched phrase is reported, no page text
   wait {ms}   expect_url {contains}   list_fields {}  (prints every visible control, so an unseen wizard step is discovered in ONE call)
   solve_captcha {widget?}  AFTER stop_before_submit only: reads the page, solves the widget with CapSolver (3 tries per row, logged), injects the token
@@ -366,7 +366,10 @@ def _v_login(s):
         ctx.page.fill(s["user_selector"], str(ctx.nap[s.get("user_key", "email")]))
         got = ctx.vault_fill(s["password_selector"], login_url)
         if ctx.dry_run: return "login form found; vault item looked up only (%s)" % str(got)[:80]
-        ctx.page.click(s["password_selector"]); ctx.page.keyboard.press("Enter")
+        if s.get("submit_selector"):   # t_89f4aebf: businessyab's modal ignores Enter; click its own button instead
+            ctx.page.click(s["password_selector"]); ctx.page.click(s["submit_selector"])
+        else:
+            ctx.page.click(s["password_selector"]); ctx.page.keyboard.press("Enter")
         ctx.page.wait_for_timeout(int(s.get("settle_ms", 6000)))
         if ctx.page.locator(s["password_selector"]).count() and s.get("signed_in_not", True):
             raise BuildError("login failed: the password box is still on %s" % ctx.page.url.split("?")[0][-60:])
