@@ -31,7 +31,8 @@ FULL = TUPALO.replace("<p>No phone number has been added for this place.</p>", "
 def cmp_html(h): return R.compare(CL.html_to_text(h), CANON, h)
 for label, h in (("tupalo (no phone)", TUPALO), ("acompio (Address not listed)", ACOMPIO), ("showmelocal (paused, NAP matches)", SHOWMELOCAL)):
     c = cmp_html(h)
-    check("N1 %s -> nap-incomplete, never mismatch or match" % label, c["verdict"] == "nap-incomplete" and not c["wrong"], str(c))
+    want = "not-public" if "showmelocal" in label else "nap-incomplete"   # t_bbc32230: a hidden / paused banner is not-public; a missing field is nap-incomplete
+    check("N1 %s -> %s, never mismatch or match" % (label, want), c["verdict"] == want and not c["wrong"], str(c))
 check("N1 tupalo names phone as the missing field", cmp_html(TUPALO)["gaps"] == ["phone"], str(cmp_html(TUPALO)))
 check("N1 acompio names address as the missing field", "address" in cmp_html(ACOMPIO)["gaps"], str(cmp_html(ACOMPIO)))
 check("N1 showmelocal names the paused listing, not a NAP field", cmp_html(SHOWMELOCAL)["gaps"] == ["listing visibility"], str(cmp_html(SHOWMELOCAL)))
@@ -59,8 +60,8 @@ def run(state, html, url="https://a.example/listing/1"):
     return res, json.load(open(p))["fix_queue"][0]
 for label, h in (("tupalo", TUPALO), ("acompio", ACOMPIO), ("showmelocal", SHOWMELOCAL)):
     res, r = run("created-unlisted", h)
-    check("N2 created-unlisted + %s page: recheck reads it, verdict nap-incomplete, state stays created-unlisted, a note is written" % label,
-          res and res[0]["verdict"] == "nap-incomplete" and r["state"] == "created-unlisted" and r["history"] and r["history"][-1]["note"].startswith("weekly recheck:"), str(res))
+    check("N2 created-unlisted + %s page: recheck reads it, verdict %s, state stays created-unlisted, a note is written" % (label, "not-public" if label == "showmelocal" else "nap-incomplete"),
+          res and res[0]["verdict"] == ("not-public" if label == "showmelocal" else "nap-incomplete") and r["state"] == "created-unlisted" and r["history"] and r["history"][-1]["note"].startswith("weekly recheck:"), str(res))
 res, r = run("created-unlisted", FULL)
 check("N2 created-unlisted + complete public page -> live (Proof first)", res[0]["verdict"] == "match" and r["state"] == "live" and r["evidence_url"])
 res, r = run("created-unlisted", WRONG_PHONE)

@@ -102,22 +102,22 @@ pg2 = PG(hidden=False); R.read_rendered(pg2, "https://us.example/b", wait_s=2)
 check("B1 a page with no reveal control is not clicked again or reparsed", not pg2.revealed)
 check("B1 the reveal pattern matches the reveal/show/view phone labels only", all(__import__("re").search(R.REVEAL_RE, t, 2) for t in ("Reveal Phone Number", "Show phone", "Click to call")) and not __import__("re").search(R.REVEAL_RE, "Submit your listing", 2))
 
-# ---- B2 HIDDEN / paused banner is nap-incomplete even on a partial parse ---------------------------------------------------
+# ---- B2 HIDDEN / paused banner is not-public even on a partial parse ---------------------------------------------------
 HID = "HIDDEN until ACTIVATED"
 c = R.compare(body(extra=HID), CANON)
-check("B2 NAP all matches but a HIDDEN banner -> nap-incomplete, not match", c["verdict"] == "nap-incomplete" and "listing visibility" in c["gaps"], str(c))
+check("B2 NAP all matches but a HIDDEN banner -> not-public, not match", c["verdict"] == "not-public" and "listing visibility" in c["gaps"], str(c))
 c = R.compare(body(phone="(502) 555-0199", extra=HID), CANON)
-check("B2 HIDDEN banner beats a wrong phone: nap-incomplete", c["verdict"] == "nap-incomplete", str(c))
+check("B2 HIDDEN banner beats a wrong phone: not-public", c["verdict"] == "not-public", str(c))
 c = R.compare("Alder Care Consulting & Solutions\n%s\n%s" % (HID, PAD), CANON)
-check("B2 partial parse (name only) with the banner -> nap-incomplete", c["verdict"] == "nap-incomplete", str(c))
+check("B2 partial parse (name only) with the banner -> not-public", c["verdict"] == "not-public", str(c))
 c = R.compare("%s\nSomething else entirely\n%s" % (HID, PAD), CANON)
-check("B2 banner and no parseable block -> nap-incomplete, not unreadable", c["verdict"] == "nap-incomplete", str(c))
+check("B2 banner and no parseable block -> not-public, not unreadable", c["verdict"] == "not-public", str(c))
 c = R.compare("This listing is paused\n" + body(), CANON)
-check("B2 'paused' banner -> nap-incomplete", c["verdict"] == "nap-incomplete")
+check("B2 'paused' banner -> not-public", c["verdict"] == "not-public")
 check("B2 the same page without a banner still matches", R.compare(body(), CANON)["verdict"] == "match")
 _, q = queue([row("create-sml", "js.example", "created-unlisted", U)])
 res = R.recheck(q, IDENT, plain=lambda u: R.Page(200, u, body(extra=HID)), chrome=None, record=lambda *a, **k: {}, today="2026-11-02", write=False)
-check("B2 a created-unlisted row with the banner never goes live", res[0]["verdict"] == "nap-incomplete" and res[0]["after"] == "created-unlisted", str(res[0]))
+check("B2 a created-unlisted row with the banner never goes live", res[0]["verdict"] == "not-public" and res[0]["after"] == "created-unlisted", str(res[0]))
 
 # ---- C1 vault item by registrable domain -----------------------------------------------------------------------------------
 ITEMS = [{"id": "id-acompio", "name": "SCC - acompio", "uris": ["https://account.acompio.com/login"]},

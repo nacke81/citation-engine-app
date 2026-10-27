@@ -33,7 +33,15 @@ PLUS_PHONE_RE = re.compile(r"(?<![\w+])\+\d[\d\s().\-]{5,18}\d")
 MASKED_NUM_RE = re.compile(r"\+?(?:(\d[\d\s().\-]{0,6}?)\s*[*xX\u2022]{2,}\s*([\d\s().\-]{0,6}\d)|(\(?\d{3}\)?[\s.\-]{0,2}\d{3}[\s.\-]{0,2}\d{0,2})\s*[*\u2022]{2,})")   # +127****2550; or trailing stars only: (270) 841-2*** (group 3, t_6b1e01ff)
 HEXID_RE = re.compile(r"(?i)^[0-9a-f]{4,}(-[0-9a-f]{2,})+$")
 # t_f707b644: a page that EXISTS but is not a public, complete listing yet (showmelocal "HIDDEN until ACTIVATED", paused). Its NAP may match; it is still not live.
-UNLISTED_RE = re.compile(r"(?i)hidden until activated|listing (is |has been )?(currently )?(paused|hidden|unpublished|not (yet )?(public|visible|published))|this listing is paused|pending (review|approval|activation)")
+# Not-live markers (t_bbc32230): a page that carries the full NAP AND one of these is NOT a public listing (showmelocal: "This Listing is HIDDEN until ACTIVATED").
+# Only markers seen on a real page or named by the Directory are listed; tupalo, acompio and chamberofcommerce public pages have no captured marker text yet
+# (the 10/27 owner view said "Unverified" / "pending"), so they are covered by the generic hidden / paused / not activated / pending approval wording below.
+NOT_LIVE_MARKERS = (
+    r"hidden until activated", r"listing (is |has been )?(currently )?(paused|hidden|unpublished|inactive|not (yet )?(public|visible|published|activated|live))",
+    r"this listing is (paused|hidden|inactive|not (yet )?(activated|live|public))", r"not (yet )?activated", r"activate (your |this )?listing to (make|publish)",
+    r"pending (review|approval|activation|moderation)", r"awaiting (review|approval|activation|moderation)",
+)
+UNLISTED_RE = re.compile(r"(?i)" + "|".join(NOT_LIVE_MARKERS))
 ADDR_NOT_LISTED_RE = re.compile(r"(?i)address (is )?not (listed|provided|available|shown)")
 MASKED_PHONE_RE = re.compile(r"\*{2,}|reveal phone|show phone|click to (call|view)", re.I)   # a hidden phone is not a wrong phone
 
@@ -348,12 +356,12 @@ def prose_street(block, canonical):
 
 
 def compare(text, canonical, html_=None):
-    """-> {"verdict": match|mismatch|nap-incomplete|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
+    """-> {"verdict": match|mismatch|nap-incomplete|not-public|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
     nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
     block = read_block(text, canonical)
     if not block:
         if UNLISTED_RE.search(text or ""):   # t_3ac43137: "HIDDEN until ACTIVATED" with nothing parseable is a page that exists but is not public: nap-incomplete, not unreadable
-            return {"verdict": "nap-incomplete", "wrong": [], "gaps": ["listing visibility"], "nap": None}
+            return {"verdict": "not-public", "wrong": [], "gaps": ["listing visibility"], "nap": None}
         return {"verdict": "unreadable", "wrong": [], "gaps": [], "nap": None}
     wrong, gaps = [], []
     if exact_name(block[0]) != exact_name(canonical["name"]):
@@ -404,7 +412,7 @@ def compare(text, canonical, html_=None):
     nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else masked_txt) if x)
     if ADDR_NOT_LISTED_RE.search("\n".join(block)) and "address" not in gaps and not got: gaps.append("address")
     if UNLISTED_RE.search(text or "") and "listing visibility" not in gaps: gaps.append("listing visibility")   # paused / hidden: not public yet even if the NAP shown matches
-    verdict = "nap-incomplete" if "listing visibility" in gaps else "mismatch" if wrong else "nap-incomplete" if gaps else "match"   # a hidden/paused banner wins, even on a partial parse (t_3ac43137)
+    verdict = "not-public" if "listing visibility" in gaps else "mismatch" if wrong else "nap-incomplete" if gaps else "match"   # a hidden/paused banner wins, even on a partial parse (t_3ac43137)
     return {"verdict": verdict, "wrong": wrong, "gaps": gaps, "nap": nap, "masked": masked_ok}
 
 
@@ -478,6 +486,21 @@ def search_url_for(directory, ident, biz="SCC", cat_rows=None):
     return tpl.replace("{name}", qp(x["name"])).replace("{short}", qp(x.get("short") or x["name"])).replace("{city}", qp(x["city"])).replace("{st}", qp(x["st"]))
 
 
+# Directories whose listing page has NO public source (t_bbc32230). The row is reported, never fetched, never live, never retried by a run.
+# foursquare.com: every /v/ URL 302s to /login signed out, and every Places endpoint (api.foursquare.com v2/v3, places-api.foursquare.com) answers
+# 400/401 without an API key (an account). A signed-in read is not allowed: the Bing false live came from one.
+UNREADABLE_PUBLIC = {
+    "foursquare.com": "no public source: foursquare.com/v redirects to /login and the Places API needs a key; row is never counted live by recheck",
+}
+
+
+def search_log(search_url, page, how, found):
+    """One line for the report: the search URL (no query string value beyond the host/path), HTTP status, how it was read, link count, result. Never page text."""
+    p = urlparse(search_url)
+    return "searched %s%s via %s: status %s, %d links, %s" % (p.netloc, p.path, how, getattr(page, "status", None), len(getattr(page, "links", None) or []),
+                                                               "card found" if found else "no card for the business")
+
+
 def resolve_by_search(directory, page, ident, biz="SCC"):
     """A listing permalink from a Directory's own search-results page: a same-host link whose card names the business (listing.resolve). None when absent."""
     x = ident["BIZ"][biz]
@@ -543,6 +566,8 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     note = "weekly recheck: found the BBB profile URL"
                     if write: record("SCC", rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
                     res["note"] = note
+            if d in UNREADABLE_PUBLIC:   # t_bbc32230: no public source exists: never fetched, never counted live, never retried
+                res["url"] = url; res["verdict"] = "unreadable-public"; res["note"] = UNREADABLE_PUBLIC[d]; continue
             searched_ok = False
             if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
                 su = search_url_for(d, ident)
@@ -550,6 +575,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     sp, _how = get_page(su, plain, chrome)
                     url = resolve_by_search(d, sp, ident)
                     searched_ok = not url and not walled(sp) and not sp.err and (sp.status or 0) < 400   # a readable search page with no card for us: not public
+                    res["search"] = search_log(su, sp, _how, url)   # t_bbc32230: what search ran and what it got (no page text)
                     if url:
                         res["note"] = "recheck: found the listing URL by name + city search"
                         if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
@@ -559,10 +585,11 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     url = hit["url"]
                     res["note"] = "recheck: listing URL from the approval mail at listings@ (%s)" % hit["date"]
                     res["mail"] = hit
-                    if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
+                    # t_bbc32230: the mail URL passed the permalink gate in find_approval; transitions stores it as listing_url (not evidence), so the next recheck reads it
+                    if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, None, res["note"], queue_path=queue_path, today=day, listing_url=url)
             if url is None:
                 res["verdict"] = "not-public" if searched_ok else "no-permalink"
-                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business"
+                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", "")
                 continue
             res["url"] = url
             page, how = get_page(url, plain, chrome, canonical)

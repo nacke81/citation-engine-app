@@ -22,8 +22,18 @@ class WallRefused(Exception):
     pass
 
 
+LEGACY_RX = re.compile(r"(?i)WALL:hard-block try (\d+)/\d+")
+
+
+def _is_wall_entry(h):
+    if not isinstance(h, dict): return False
+    if h.get("wall") == WALL: return True
+    # t_bbc32230: a try logged by hand as a prose note (no `wall` field) before this code existed still counts
+    return bool(LEGACY_RX.search(h.get("note") or ""))
+
+
 def _hist(row):
-    return [h for h in (row.get("history") or []) if isinstance(h, dict) and h.get("wall") == WALL]
+    return [h for h in (row.get("history") or []) if _is_wall_entry(h)]
 
 
 def tries(row):
@@ -31,7 +41,7 @@ def tries(row):
     out = []
     for h in _hist(row):
         if h.get("reset"): out = []
-        elif h.get("try"): out.append(h)
+        elif h.get("try") or h.get("wall") != WALL: out.append(h)  # structured try, or legacy prose try
     return out
 
 
@@ -43,8 +53,8 @@ def check_try(row, today):
     t = tries(row)
     if len(t) >= MAX_TRIES:
         raise WallRefused("%s is STOPPED after %d hard-block tries; only Mike's --reset-wall clears it" % (row.get("id"), MAX_TRIES))
-    if t and t[-1].get("at") == today:
-        raise WallRefused("%s already had hard-block try %d today (%s); one try per day" % (row.get("id"), t[-1]["try"], today))
+    if any(h.get("at") == today for h in t):
+        raise WallRefused("%s already had hard-block try %d today (%s); one try per day" % (row.get("id"), len(t), today))
     return len(t) + 1
 
 

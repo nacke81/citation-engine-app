@@ -105,6 +105,8 @@ jobs:
         run: python tests/batch13_test.py
       - name: Batch 14 (CapSolver CLI path, chamberofcommerce spec, Show/prose reader, listings@ approval scan, foursquare edit + recheck_due, showmelocal guard, build Chrome shot)
         run: python tests/batch14_test.py
+      - name: Batch 15 (hidden banner = not-public, mail URL to listing_url, login step + acompio owner spec, foursquare unreadable-public, search log)
+        run: python tests/batch15_test.py
       - name: CapSolver count (per-row solve log, balance delta, cap)
         run: python tests/count_capsolver_test.py
       - name: Build runner (three site scripts dry-run, vault item id, ad clearing, logo upload, mail; all mocked)
