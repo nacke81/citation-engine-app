@@ -39,7 +39,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from build_core import BuildError, Step, Site
 
-NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name")
+NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name", "phone_digits")
 VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit",
          "uncheck", "select_native", "type_pick", "click_text", "wait", "expect_url", "list_fields", "solve_captcha",
          "type_text", "set_value", "remove")
@@ -97,9 +97,18 @@ def validate(spec):
             if field == "value" and (_LITERAL_PHONE.search(v) or _LITERAL_EMAIL.search(v)):
                 _fail(site, i, "literal phone/email in value: use a NAP key ({phone}, {email}), the identity file owns them")
         if do == "wait_mail" and not spec.get("mail"): _fail(site, i, "wait_mail needs a top-level mail {sender, link_re}")
+        if do == "wait_mail" and s.get("as") not in (None, "code", "link"): _fail(site, i, "wait_mail 'as' is 'link' (default) or 'code'")
+        if do == "wait_mail" and s.get("as") == "code" and not s.get("selector"): _fail(site, i, "wait_mail as code needs 'selector' (the input the key is typed into)")
+        if s.get("press") and not (do == "fill" and s.get("slow")): _fail(site, i, "'press' is only for fill with slow:true")
         if do == "stop_before_submit": stop_seen = True
         if do == "click" and s.get("submit") and not stop_seen and not any(x.get("do") == "stop_before_submit" for x in spec["steps"][:i]):
             _fail(site, i, "a submit click must come after a stop_before_submit marker (dry runs stop there)")
+    d = spec.get("recheck_due_days")
+    if d is not None and not (isinstance(d, int) and not isinstance(d, bool) and 1 <= d <= 30): raise BuildError("spec recheck_due_days must be a whole number of days, 1 to 30")
+    g = spec.get("guard")
+    if g is not None:
+        if not isinstance(g, dict) or not g.get("flag") or not g.get("reason") or not isinstance(g.get("refuse_rows", []), list):
+            raise BuildError("spec guard needs {flag, reason} and an optional refuse_rows list")
     if spec.get("record", "submitted") not in RECORDS: raise BuildError("spec record must be 'submitted', 'created-unlisted' or 'none'")
     if spec.get("record", "submitted") != "none":
         steps = spec["steps"]
@@ -152,7 +161,13 @@ def _v_fill(s):
         if s.get("optional") and not ctx.page.locator(sel).count(): return "skipped (%s absent)" % sel
         if s.get("slow"):   # forms that only enable their button on real key events (Thryv step 2)
             ctx.need(sel, wait_ms=int(s.get("wait_ms", 15000)))
-            ctx.page.click(sel); ctx.page.fill(sel, ""); ctx.page.type(sel, str(val), delay=int(s.get("delay_ms", 40)))
+            ctx.page.click(sel)
+            if s.get("select_all"): ctx.page.keyboard.press("Control+A")   # foursquare: replace the old value by keyboard, fill() leaves Submit disabled
+            else: ctx.page.fill(sel, "")
+            ctx.page.type(sel, str(val), delay=int(s.get("delay_ms", 40)))
+            if s.get("press"):   # t_6b1e01ff: a key after typing (chamberofcommerce ZIP + Tab fills City and State)
+                ctx.page.keyboard.press(s["press"])
+                if s.get("settle_ms"): ctx.page.wait_for_timeout(int(s["settle_ms"]))
             return "typed %s" % sel
         used = ctx.fill_first(str(val), *([sel] + list(s.get("fallbacks") or [])))
         return "filled %s" % used
@@ -212,6 +227,11 @@ def _v_wait_mail(s, spec):
     def fn(ctx):
         import pagekit as PK
         link = ctx.mail_link()
+        if s.get("as") == "code":   # t_6b1e01ff: the mail carries a key to TYPE (chamberofcommerce activation key), not a link to open
+            sel = _sel(ctx, s)
+            ctx.need(sel, wait_ms=int(s.get("wait_ms", 15000)))
+            ctx.page.click(sel); ctx.page.fill(sel, ""); ctx.page.type(sel, str(link), delay=int(s.get("delay_ms", 40)))
+            return "code of %d chars from the %s mail typed into %s" % (len(str(link)), spec["mail"]["sender"], sel)
         ctx.page.goto(link, wait_until="domcontentloaded"); PK.wait_out_wall(ctx.page, 60)
         return "verify link opened (host %s)" % link.split("/")[2]
     return fn
@@ -273,6 +293,8 @@ def _v_click_text(s):
         if not ok and s.get("optional"): return "skipped (no %s reading %r)" % (s.get("tag", "button/link"), s["text"])
         if not ok: raise BuildError("no %s reading %r on %s" % (s.get("tag", "button/link"), s["text"], ctx.page.url.split("?")[0][-50:]))
         if s.get("settle_ms"): ctx.page.wait_for_timeout(int(s["settle_ms"]))
+        if s.get("expect_text") and s["expect_text"].lower() not in ctx.page.inner_text("body").lower()[:6000]:
+            raise BuildError("after clicking %r the page does not show %r (url %s)" % (s["text"], s["expect_text"], ctx.page.url.split("?")[0][-60:]))
         return "clicked text %r" % s["text"]
     return fn
 
@@ -378,6 +400,8 @@ def build_site(spec):
         steps.append(Step(name, kind, fn))
     mail = spec.get("mail")
     site = Site(spec["site"], spec["domain"], steps, spec.get("vault_item"), mail)
+    site.recheck_due_days = spec.get("recheck_due_days")   # t_6b1e01ff: an edit spec sets recheck_due = run day + N instead of a state change
+    site.guard = spec.get("guard")                          # t_6b1e01ff: {"refuse_rows": [...], "flag": "new-listing", "reason": "..."}
     site.record = spec.get("record", "submitted")   # 'none': a live run does not record `submitted` (the flow stops at a verify step)
     return site
 

@@ -307,6 +307,22 @@ class CaptchaError(RuntimeError):
     pass
 
 
+CLI_REL = "wt-capsolver-image/dist/src/capsolver-cli.js"
+CLI_MISSING_MSG = ("CAPTCHA: capsolver-cli.js not found (set CAPSOLVER_CLI to its path, or build it at %%LOCALAPPDATA%%/citation-engine/%s). "
+                   "No CapSolver call was made and no try was logged." % CLI_REL)
+
+
+def resolve_capsolver_cli(env=None, known=None, exists=None):
+    """-> absolute path of capsolver-cli.js, or None. Order: CAPSOLVER_CLI (when that file exists), then the known install path under
+    %LOCALAPPDATA%/citation-engine. A set-but-wrong CAPSOLVER_CLI does not fall through silently to a different file: it is reported as missing."""
+    env = os.environ if env is None else env
+    exists = exists or os.path.isfile
+    explicit = env.get("CAPSOLVER_CLI")
+    if explicit: return explicit if exists(explicit) else None
+    cands = [known] if known else [os.path.join(env.get("LOCALAPPDATA") or os.path.expandvars("%LOCALAPPDATA%"), "citation-engine", *CLI_REL.split("/"))]
+    return next((c for c in cands if c and exists(c)), None)
+
+
 def solve_tries(row, log_path=None):
     """Calls already logged for this row (the cap is per row, across runs)."""
     n = 0
@@ -339,8 +355,14 @@ def solve_captcha(row, widget, url, *, runner=None, log_path=None, max_tries=3, 
     """-> the token (str). Raises CaptchaError when the cap is used up or CapSolver fails for a reason a retry will not fix.
     Each CLI call is logged BEFORE the next one starts, with its cost; the key is never read or printed here (the CLI reads it by name)."""
     import subprocess, captcha_route as CR
+    # t_6b1e01ff: the CLI must exist BEFORE a try is logged (batch 14 burned try 1 of 3 on "no output" with CAPSOLVER_CLI unset).
+    # An injected runner (tests) stands in for the CLI, so only the real subprocess path needs the file.
+    cli = None
+    if runner is None:
+        cli = resolve_capsolver_cli()
+        if not cli: raise CaptchaError(CLI_MISSING_MSG)
     runner = runner or subprocess.run
-    cmd = CR.argv(widget, url, extra=extra)
+    cmd = CR.argv(widget, url, cli=cli, extra=extra)
     last = ""
     while solve_tries(row, log_path) < max_tries:
         try:

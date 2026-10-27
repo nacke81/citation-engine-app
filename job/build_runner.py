@@ -44,7 +44,7 @@ def nap_from_identity(ident, contact="Lea Ann Klarner", email_addr="listings@sen
     first, last = (contact.rsplit(" ", 1) + [""])[:2] if " " in contact else (contact, "")
     return {"name": x["name"], "street": x["street"], "city": x["city"], "st": x["st"], "zip": x["zip"], "phone": "%s-%s-%s" % (p[:3], p[3:6], p[6:]),
             "site": x.get("site") or "https://seniorcaresolutions.co", "email": email_addr, "contact": contact, "first": first, "last": last,
-            "description": description or "Senior care consulting for families in %s, %s and the surrounding area." % (x["city"], STATE_NAMES.get(x["st"], x["st"])), "state_name": STATE_NAMES.get(x["st"], x["st"])}
+            "description": description or "Senior care consulting for families in %s, %s and the surrounding area." % (x["city"], STATE_NAMES.get(x["st"], x["st"])), "state_name": STATE_NAMES.get(x["st"], x["st"]), "phone_digits": p}
 
 
 # ---- mail ------------------------------------------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def extract_link(raw, link_re):
         body = part.get_payload(decode=True)
         if not body: continue
         m = rx.search(html.unescape(body.decode(part.get_content_charset() or "utf-8", "replace")))
-        if m: return m.group(0)
+        if m: return m.group("v") if "v" in rx.groupindex and m.group("v") else m.group(0)   # (?P<v>..) = just the key, not the text around it (t_6b1e01ff)
     return None
 
 
@@ -294,6 +294,13 @@ def record_live(row, site, record=None, captured=None):
     a refusal (no Mike approval, paid row, no vault item) is printed, and nothing is recorded."""
     import buildqueue as Q
     to = getattr(site, "record", "submitted")
+    days = getattr(site, "recheck_due_days", None)
+    if days:   # t_6b1e01ff: an edit spec (foursquare) leaves the row's state alone and sets the day recheck may read it again
+        import datetime, transitions
+        due = (datetime.date.today() + datetime.timedelta(days=int(days))).isoformat()
+        try: out = (record or transitions.record_transition)("SCC", row["id"], row["state"], None, "edit sent via %s spec; recheck due %s" % (site.name, due), recheck_due=due)
+        except Exception as e: return "NOT recorded (recheck_due failed: %s). Set it with transitions.py." % PK.redact(str(e))[:120]
+        return "recheck due %s set on %s (state stays %s)" % (due, row["id"], row["state"])
     if to == "none":
         return "not recorded: this spec stops at a verify step (record none). Set the state with transitions.py (needs-human + verify_type)."
     row = dict(row); row.setdefault("vaultwarden_item", site.vault_item)
@@ -305,6 +312,16 @@ def record_live(row, site, record=None, captured=None):
     except Exception as e:
         return "NOT recorded (recording failed: %s). Record it with transitions.py." % PK.redact(str(e))[:120]
     return "recorded: %s -> %s (%s)" % (res["id"], to, str(res.get("recorded"))[:120])
+
+
+def check_guard(site, row_id=None, flags=()):
+    """t_6b1e01ff: a spec may carry guard {refuse_rows, flag, reason}. A row in refuse_rows is refused outright; without the spec's --<flag> the spec is refused
+    (showmelocal_claim is for a NEW listing only: the SCC listing is claimed now, and create-showmelocal must never run it). Returns a refusal text or None."""
+    g = getattr(site, "guard", None)
+    if not g: return None
+    if row_id and row_id in (g.get("refuse_rows") or []): return "%s refused for row %s: %s" % (site.name, row_id, g["reason"])
+    if g["flag"] not in flags: return "%s refused: %s Pass --%s only for a new listing." % (site.name, g["reason"], g["flag"])
+    return None
 
 
 def main(argv=None):
@@ -319,9 +336,12 @@ def main(argv=None):
     a.add_argument("--cdp", default=CDP_URL)
     a.add_argument("--item-id", default=None, help="Vaultwarden item id (when two items share the name)")
     a.add_argument("--only", default=None, help="comma list of step names")
+    a.add_argument("--new-listing", action="store_true", help="the Directory has no listing for us yet (needed by specs guarded for new listings only, e.g. showmelocal_claim)")
     n = a.parse_args(argv)
     if n.live and not n.card: raise SystemExit("--live is refused without --card <id> (a Directory account is written)")
     site = load_site(n.site)
+    refused = check_guard(site, n.row, ("new-listing",) if n.new_listing else ())
+    if refused: raise SystemExit(refused)   # before any browser starts
     row = None
     if n.live:
         if not n.row: raise SystemExit("--live needs --row <queue row id> (the transition is recorded for that row)")

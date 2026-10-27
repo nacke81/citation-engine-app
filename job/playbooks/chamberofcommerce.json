@@ -1,0 +1,36 @@
+{
+  "site": "chamberofcommerce",
+  "domain": "chamberofcommerce.com",
+  "vault_item": "SCC - chamberofcommerce.com",
+  "record": "created-unlisted",
+  "mail": {
+    "sender": "chamberofcommerce",
+    "link_re": "(?i)activation\\s*key\\W{0,20}(?P<v>[A-Za-z0-9\\-]{4,40})"
+  },
+  "notes": "t_6b1e01ff, scripted from the batch 14 live run (t_b611e0af, playbook playbooks/build/chamberofcommerce.com.md). One-page wizard at /members/add-business: BusinessName, Address, PostalCode (#PostalCodeLookup: type key by key then Tab, City #cityselectdropdown and State #stateselectdropdown fill themselves), Phone #phone (digits only), Category is a select2 (value 784 'Business Management Consultant'), first/last name, email + confirmation = listings@, passwords #Password / #Password2 from the vault. reCAPTCHA v2 sitekey 6LdpAPgZAAAAACrg_DlLkvOwaV99pMM8zIce14Yo (CapSolver, 1 solve; callbacks 0 is fine). Submit is the 'Add My Business' anchor. /members/activate-my-account wants the Activation Key mailed to listings@ (subject 'ChamberofCommerce.com Activation Email'): typed into input[name=activationkey], then 'Verify My Account'. That lands on my.chamberofcommerce.com/business/<id>; the wizard never collects website or email, so #website and #email are filled there and 'Save My Business' clicked (page says up to 24 hours). Leave Suppress Phone unchecked. The map pin needs a premium plan: never pay for the Member upgrade. Public page is created-unlisted for up to 24h: recheck the day after. NOT live-verified as a script yet: the category control id and the key's exact wording in the mail are from the hand run; the mail regex takes the token after 'Activation Key', so check the first live run's mail line.",
+  "steps": [
+    {"name": "open_wizard", "do": "open", "url": "https://www.chamberofcommerce.com/members/add-business", "wall_seconds": 90, "expect": ["#PostalCodeLookup", "#phone"]},
+    {"name": "business_name", "do": "fill", "selector": "input[name=BusinessName]", "key": "name", "fallbacks": ["#BusinessName"]},
+    {"name": "address", "do": "fill", "selector": "input[name=Address]", "key": "street", "fallbacks": ["#Address"]},
+    {"name": "postal_code", "do": "fill", "selector": "#PostalCodeLookup", "key": "zip", "slow": true, "press": "Tab", "settle_ms": 2500},
+    {"name": "phone", "do": "fill", "selector": "#phone", "key": "phone_digits"},
+    {"name": "category_open", "do": "click", "selector": ".select2-selection", "settle_ms": 600},
+    {"name": "category", "do": "fill", "selector": ".select2-search__field", "value": "Business Management Consultant", "slow": true, "press": "Enter", "settle_ms": 800},
+    {"name": "first_name", "do": "fill", "selector": "input[name=first_name]", "key": "first"},
+    {"name": "last_name", "do": "fill", "selector": "input[name=last_name]", "key": "last"},
+    {"name": "email", "do": "fill", "selector": "input[name=email]", "key": "email"},
+    {"name": "email_confirmation", "do": "fill", "selector": "input[name=email_confirmation]", "key": "email"},
+    {"name": "password", "do": "vault_fill", "selector": "#Password", "url": "https://www.chamberofcommerce.com/members/add-business"},
+    {"name": "password_confirm", "do": "vault_fill", "selector": "#Password2", "url": "https://www.chamberofcommerce.com/members/add-business"},
+    {"do": "stop_before_submit"},
+    {"name": "recaptcha", "do": "solve_captcha", "widget": "recaptcha-v2"},
+    {"name": "add_business", "do": "click_text", "text": "Add My Business", "tag": "a,button,input[type=submit]", "submit": true, "settle_ms": 6000},
+    {"name": "activation_page", "do": "expect_url", "contains": "/members/activate-my-account", "wait_ms": 30000},
+    {"name": "activation_key", "do": "wait_mail", "as": "code", "selector": "input[name=activationkey]"},
+    {"name": "verify_account", "do": "click_text", "text": "Verify My Account", "tag": "a,button,input[type=submit]", "submit": true, "settle_ms": 6000},
+    {"name": "owner_page", "do": "expect_url", "contains": "my.chamberofcommerce.com/business", "wait_ms": 30000},
+    {"name": "website", "do": "fill", "selector": "#website", "key": "site"},
+    {"name": "owner_email", "do": "fill", "selector": "#email", "key": "email"},
+    {"name": "save_business", "do": "click_text", "text": "Save My Business", "tag": "a,button,input[type=submit]", "submit": true, "settle_ms": 4000, "expect_text": "updated"}
+  ]
+}
