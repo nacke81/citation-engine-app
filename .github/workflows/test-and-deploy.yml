@@ -37,6 +37,10 @@ jobs:
         run: python tests/golden.py
       - name: Portal writer (SCC + NM allow-list, counts, failure handling)
         run: python tests/portal_test.py
+      - name: Snapshot summary (nap-fix / blocked split, golden counts, summary == row recount)
+        run: python tests/snapshot_summary_test.py
+      - name: Live rows get a NAP read every run (stored, unread keeps a reason)
+        run: python tests/snapshot_live_nap_test.py
       - name: Queue tests (approval gate, fail-closed login)
         run: python tests/queue_test.py
       - name: Citation state transitions (matrix, approval survives, Activities default-on, verification queue)

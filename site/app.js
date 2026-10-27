@@ -5,7 +5,11 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const app = document.getElementById('app');
-let user = null, data = { runs: [], checks: [], dirs: [], dirStatus: [] };
+let user = null, data = { runs: [], checks: [], dirs: [], dirStatus: [], snapshots: [] };
+
+// client_id -> SCC / NM (the same ids job/portal.py writes); the first row per business is the newest.
+const CLIENT_BIZ = { 'e1fb5abd-8d7f-4d83-8cde-18934d149bb5': 'SCC', 'fe3062b5-c956-4358-9e77-840e18be9f85': 'NM' };
+const tagSnapshots = (rows) => { const seen = new Set(); return (rows || []).map((r) => ({ ...r, biz: CLIENT_BIZ[r.client_id] })).filter((r) => r.biz && !seen.has(r.biz) && seen.add(r.biz)); };
 
 async function load() {
   const must = ({ data: d, error }) => { if (error) throw error; return d; };
@@ -18,7 +22,9 @@ async function load() {
     sb.from('ce_directories').select('*').order('priority').then(must).catch(() => []),
     sb.from('ce_directory_biz').select('*').then(must).catch(() => []),
   ]);
-  data = { runs, checks, dirs, dirStatus };
+  // Stat cards read the newest footprint_snapshot per client (source citation_engine). Additive: no snapshot access -> the old scan cards show.
+  const snapshots = await sb.from('footprint_snapshot').select('client_id,captured_day,payload').eq('source', 'citation_engine').order('captured_day', { ascending: false }).limit(8).then(must).catch(() => []);
+  data = { runs, checks, dirs, dirStatus, snapshots: tagSnapshots(snapshots) };
 }
 
 function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks, data); }
@@ -55,7 +61,7 @@ function route() {
 }
 
 function loginView() {
-  user = null; data = { runs: [], checks: [], dirs: [], dirStatus: [] };
+  user = null; data = { runs: [], checks: [], dirs: [], dirStatus: [], snapshots: [] };
   document.getElementById('me').textContent = '';
   app.innerHTML = `<form class="card" id="lf" novalidate><p>Sign in with your email. We'll send a 6-digit code.</p>
     <input id="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com">

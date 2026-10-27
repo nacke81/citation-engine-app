@@ -59,7 +59,7 @@ def load_all_rows(path=None):
 
 
 def overlay_directories(payload, rows, day):
-    """Return a copy of an SCC payload with queue state shown on each queued Directory. Counts are not changed."""
+    """Return a copy of an SCC payload with queue state shown on each queued Directory, needs-human split into nap-fix / blocked, and `summary` recounted from the rows."""
     out = dict(payload)
     out["directories"] = [dict(d) for d in payload["directories"]]
     by = {d["domain"]: d for d in out["directories"]}
@@ -71,6 +71,9 @@ def overlay_directories(payload, rows, day):
                  "status": "undiscovered", "httpStatus": None, "method": None}
             out["directories"].append(d)
             by[r["directory"]] = d
+        if st == "needs-human":   # t_f6267312: the snapshot never shows the overloaded state: nap-fix (listing exists) or blocked (no listing yet)
+            import snapshot as SN
+            st = SN.classify_needs_human(r, d)
         d["state"], d["stateDate"] = st, day
         if st != "live" and d.get("urlKind") != "listing":
             d["url"] = None  # a resolved listing permalink is kept; anything else is cleared
@@ -79,7 +82,11 @@ def overlay_directories(payload, rows, day):
             ev = r.get("evidence_url")
             if ev and listing.is_permalink(r["directory"], ev):
                 d["url"], d["urlKind"] = ev, "listing"
-    return out
+        if st == "live" and r.get("nap_check"):
+            import snapshot as SN
+            SN.apply_nap_check(d, r["nap_check"])   # the stored read of the listing page, written by recheck
+    import snapshot as SN
+    return SN.finalize(out)   # summary recounted from the rows on every write
 
 
 # t_03a74bae: no account, no vault item. The Directory tells us only by mail to listings@, so mail_scan.py is the ONLY status path: no owner read is ever planned.

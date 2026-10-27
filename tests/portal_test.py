@@ -52,9 +52,10 @@ class FakePortal(P.Portal):
 
 # P1
 ps, pn = P.build_payload(SCC), P.build_payload(NM)
-check("P1 SCC counts: 11 = 6 + 5, not found 0, couldn't check 14", (ps["found"], ps["correct"], ps["withNapErrors"], ps["notFound"], ps["couldntCheck"]) == (11, 6, 5, 0, 14), str(ps["found"]))
-check("P1 NM counts: 11 = 2 + 9, not found 1, couldn't check 13", (pn["found"], pn["correct"], pn["withNapErrors"], pn["notFound"], pn["couldntCheck"]) == (11, 2, 9, 1, 13))
-check("P1 Found = Correct + NAP errors for both", all(p["found"] == p["correct"] + p["withNapErrors"] for p in (ps, pn)))
+def cnt(p, st): return sum(1 for d in p["directories"] if d["state"] == st)
+check("P1 SCC rows: 11 live (6 NAP correct, 5 wrong), 14 couldn't check; summary = row recount", (cnt(ps, "live"), ps["summary"]["live"], ps["summary"]["napCorrect"], ps["summary"]["napChecked"], cnt(ps, "couldnt_check")) == (11, 11, 6, 11, 14), str(ps["summary"]))
+check("P1 NM rows: 11 live (2 NAP correct, 9 wrong), 1 absent, 13 couldn't check", (pn["summary"]["live"], pn["summary"]["napCorrect"], pn["summary"]["napChecked"], cnt(pn, "absent"), cnt(pn, "couldnt_check")) == (11, 2, 11, 1, 13))
+check("P1 the frozen scan totals are gone from the payload", all(k not in p for p in (ps, pn) for k in ("found", "notFound", "correct", "withNapErrors", "couldntCheck", "checked", "directoriesChecked", "pctFound")))
 check("P1 all 25 directories, each with domain/url/napConsistent/issues/status", len(ps["directories"]) == 25 and all(set(d) >= {"domain", "url", "napConsistent", "issues", "status"} for d in ps["directories"]))
 check("P1 site diff is reported as issue 'website'", any(d["issues"] == ["website"] for d in ps["directories"]))
 psd = P.build_payload(NM, "2026-10-18")

@@ -678,7 +678,48 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     record("SCC", rid, before, None, note, queue_path=queue_path, today=day)
         except Exception as e:
             res["error"] = (str(e)[:200] or type(e).__name__)
+    # t_f6267312: every live row that was read gets its NAP result stored on the queue row, whatever the verdict (unread = consistent None + a reason).
+    for res in results:
+        if res["before"] != "live": continue
+        res["nap_check"] = nap_check_from_result(res, canonical, day)
+        if write and queue_path:
+            try:
+                import transitions as T
+                T.set_nap_check(res["row"], res["nap_check"], queue_path=queue_path)
+            except Exception as e:
+                res["nap_check_error"] = (str(e)[:200] or type(e).__name__)
     return results
+
+
+NAP_FIELD_KEY = {"name": "name", "address": "address", "phone": "phone"}
+
+
+def nap_check_from_result(res, canonical, day):
+    """Pure. One recheck result for a LIVE row -> {at, consistent True|False|None, fields, errors, reason}. Only a clean match is True and only a shown wrong value is False;
+    everything else (page not readable, not public, a field hidden, no URL, read error) is None with a reason, never False."""
+    v = res.get("verdict")
+    out = {"at": day, "consistent": None, "fields": [], "errors": [], "reason": None}
+    if v == "match":
+        out["consistent"] = True
+    elif v == "mismatch":
+        out["consistent"] = False
+        for f in res.get("fields") or []:
+            field, shown = (f if isinstance(f, (tuple, list)) and len(f) == 2 else (f, None))
+            out["fields"].append("website" if field == "site" else field)
+            out["errors"].append({"field": field, "live": shown, "right": (canonical or {}).get(NAP_FIELD_KEY.get(field, field))})
+    elif v == "nap-incomplete":
+        out["reason"] = "listing page does not show: %s" % ", ".join(str(x) for x in (res.get("fields") or ["the full NAP"]))
+    elif v == "not-public":
+        out["reason"] = (res.get("note") or "listing page is not public")[:200]
+    elif v == "unreadable-public":
+        out["reason"] = (res.get("note") or "no public source for this Directory")[:200]
+    elif v == "no-permalink":
+        out["reason"] = "no listing page URL on the queue row to read"
+    elif res.get("error"):
+        out["reason"] = (res["error"])[:200]
+    else:
+        out["reason"] = "listing page could not be read (%s)" % (v or "no verdict")
+    return out
 
 
 def _proof_then_live(row, kind, url, nap, day, db, record, queue_path, note):

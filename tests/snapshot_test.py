@@ -6,6 +6,7 @@ os.environ.pop("CE_ACTIVITIES_WRITE", None)
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import portal as P
 import transitions as T
+import snapshot as P_SN
 
 ok = []
 def check(n, c, d=""):
@@ -38,10 +39,10 @@ T.record_transition("SCC", "fix-b", "submitted", None, "n", queue_path=p, today=
 T.record_transition("SCC", "fix-b", "pending-verify", None, "n", queue_path=p, today=DAY, portal=fp, activities_flag=False)
 check("S1 first row survives the second transition", st(fp, "a.example") == "submitted", st(fp, "a.example"))
 check("S1 second row in the payload", st(fp, "b.example") == "pending-verify")
-check("S1 untouched row unchanged", st(fp, "c.example") == "needs-human")
+check("S1 untouched row unchanged (a needs-human row with no listing shows blocked)", st(fp, "c.example") == "blocked")
 a = next(d for d in fp.snaps[SCC]["directories"] if d["domain"] == "a.example")
 check("S1 first row keeps its own date, not today's", a.get("stateDate") == "2026-10-25", str(a.get("stateDate")))
-check("S1 counts unchanged", fp.snaps[SCC]["found"] == 2)
+check("S1 summary recounted from the rows", fp.snaps[SCC]["summary"] == P_SN.summary_from_rows(fp.snaps[SCC]["directories"]))
 
 # S2 a needs-human / queued row never overlays as a listing state beyond its portal mapping; rejected rows are not re-overlaid
 p, fp = queue(), FakePortal()

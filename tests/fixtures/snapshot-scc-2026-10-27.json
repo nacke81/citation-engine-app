@@ -1,0 +1,831 @@
+{
+ "client_id": "e1fb5abd-8d7f-4d83-8cde-18934d149bb5",
+ "source": "citation_engine",
+ "captured_day": "2026-10-27",
+ "payload": {
+  "keyScore": null,
+  "keyScoreMax": 100,
+  "found": 11,
+  "notFound": 0,
+  "correct": 4,
+  "withNapErrors": 7,
+  "couldntCheck": 14,
+  "checked": 11,
+  "catalogTotal": 86,
+  "directoriesChecked": 25,
+  "pctFound": 100,
+  "pctFoundBasis": "checked",
+  "directories": [
+   {
+    "name": "nh-fix-00.example",
+    "domain": "nh-fix-00.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": false,
+    "url": "https://nh-fix-00.example/biz/1",
+    "urlKind": "listing",
+    "issues": [
+     "phone"
+    ]
+   },
+   {
+    "name": "nh-fix-01.example",
+    "domain": "nh-fix-01.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": false,
+    "url": "https://nh-fix-01.example/biz/1",
+    "urlKind": "listing",
+    "issues": [
+     "phone"
+    ]
+   },
+   {
+    "name": "nh-fix-02.example",
+    "domain": "nh-fix-02.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": false,
+    "url": "https://nh-fix-02.example/biz/1",
+    "urlKind": "listing",
+    "issues": [
+     "phone"
+    ]
+   },
+   {
+    "name": "nh-fix-03.example",
+    "domain": "nh-fix-03.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": false,
+    "url": "https://nh-fix-03.example/biz/1",
+    "urlKind": "listing",
+    "issues": [
+     "phone"
+    ]
+   },
+   {
+    "name": "nh-fix-04.example",
+    "domain": "nh-fix-04.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": false,
+    "url": "https://nh-fix-04.example/biz/1",
+    "urlKind": "listing",
+    "issues": [
+     "phone"
+    ]
+   },
+   {
+    "name": "nh-blocked-00.example",
+    "domain": "nh-blocked-00.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-01.example",
+    "domain": "nh-blocked-01.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-02.example",
+    "domain": "nh-blocked-02.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-03.example",
+    "domain": "nh-blocked-03.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-04.example",
+    "domain": "nh-blocked-04.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-05.example",
+    "domain": "nh-blocked-05.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-06.example",
+    "domain": "nh-blocked-06.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-07.example",
+    "domain": "nh-blocked-07.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-08.example",
+    "domain": "nh-blocked-08.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-09.example",
+    "domain": "nh-blocked-09.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-10.example",
+    "domain": "nh-blocked-10.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-11.example",
+    "domain": "nh-blocked-11.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-12.example",
+    "domain": "nh-blocked-12.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-13.example",
+    "domain": "nh-blocked-13.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-14.example",
+    "domain": "nh-blocked-14.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-15.example",
+    "domain": "nh-blocked-15.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-16.example",
+    "domain": "nh-blocked-16.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-17.example",
+    "domain": "nh-blocked-17.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-18.example",
+    "domain": "nh-blocked-18.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-19.example",
+    "domain": "nh-blocked-19.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-20.example",
+    "domain": "nh-blocked-20.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-21.example",
+    "domain": "nh-blocked-21.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-22.example",
+    "domain": "nh-blocked-22.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-23.example",
+    "domain": "nh-blocked-23.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-24.example",
+    "domain": "nh-blocked-24.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "nh-blocked-25.example",
+    "domain": "nh-blocked-25.example",
+    "state": "needs-human",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-00.example",
+    "domain": "rej-00.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-01.example",
+    "domain": "rej-01.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-02.example",
+    "domain": "rej-02.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-03.example",
+    "domain": "rej-03.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-04.example",
+    "domain": "rej-04.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-05.example",
+    "domain": "rej-05.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-06.example",
+    "domain": "rej-06.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-07.example",
+    "domain": "rej-07.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-08.example",
+    "domain": "rej-08.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-09.example",
+    "domain": "rej-09.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-10.example",
+    "domain": "rej-10.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-11.example",
+    "domain": "rej-11.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-12.example",
+    "domain": "rej-12.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-13.example",
+    "domain": "rej-13.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-14.example",
+    "domain": "rej-14.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-15.example",
+    "domain": "rej-15.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-16.example",
+    "domain": "rej-16.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-17.example",
+    "domain": "rej-17.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-18.example",
+    "domain": "rej-18.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-19.example",
+    "domain": "rej-19.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-20.example",
+    "domain": "rej-20.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-21.example",
+    "domain": "rej-21.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-22.example",
+    "domain": "rej-22.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-23.example",
+    "domain": "rej-23.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-24.example",
+    "domain": "rej-24.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-25.example",
+    "domain": "rej-25.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "rej-26.example",
+    "domain": "rej-26.example",
+    "state": "rejected",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "live-00.example",
+    "domain": "live-00.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": true,
+    "url": "https://live-00.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-01.example",
+    "domain": "live-01.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": true,
+    "url": "https://live-01.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-02.example",
+    "domain": "live-02.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": true,
+    "url": "https://live-02.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-03.example",
+    "domain": "live-03.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": true,
+    "url": "https://live-03.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-04.example",
+    "domain": "live-04.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": false,
+    "url": "https://live-04.example/biz/1",
+    "urlKind": "listing",
+    "issues": [
+     "address"
+    ]
+   },
+   {
+    "name": "live-05.example",
+    "domain": "live-05.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-05.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-06.example",
+    "domain": "live-06.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-06.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-07.example",
+    "domain": "live-07.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-07.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-08.example",
+    "domain": "live-08.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-08.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-09.example",
+    "domain": "live-09.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-09.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-10.example",
+    "domain": "live-10.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-10.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-11.example",
+    "domain": "live-11.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-11.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-12.example",
+    "domain": "live-12.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-12.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-13.example",
+    "domain": "live-13.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-13.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-14.example",
+    "domain": "live-14.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-14.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-15.example",
+    "domain": "live-15.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-15.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-16.example",
+    "domain": "live-16.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-16.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-17.example",
+    "domain": "live-17.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-17.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "live-18.example",
+    "domain": "live-18.example",
+    "state": "live",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": "https://live-18.example/biz/1",
+    "urlKind": "listing",
+    "issues": []
+   },
+   {
+    "name": "sub-00.example",
+    "domain": "sub-00.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-01.example",
+    "domain": "sub-01.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-02.example",
+    "domain": "sub-02.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-03.example",
+    "domain": "sub-03.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-04.example",
+    "domain": "sub-04.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-05.example",
+    "domain": "sub-05.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-06.example",
+    "domain": "sub-06.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "sub-07.example",
+    "domain": "sub-07.example",
+    "state": "submitted",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   },
+   {
+    "name": "pv-00.example",
+    "domain": "pv-00.example",
+    "state": "pending-verify",
+    "stateDate": "2026-10-27",
+    "napConsistent": null,
+    "url": null,
+    "issues": []
+   }
+  ]
+ }
+}

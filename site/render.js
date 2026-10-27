@@ -1,6 +1,6 @@
 // Pure HTML for the overview and business pages. No DOM, no network: tests import this and check the real markup.
 import { builderRows, builderStats, checkedStat } from './builder.js';
-import { BIZ, bizLabel, LABEL, statusOf, latestFor, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel } from './logic.js';
+import { BIZ, bizLabel, LABEL, statusOf, latestFor, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel, snapshotSummary, snapshotCardsHtml } from './logic.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
@@ -12,16 +12,17 @@ export function overviewHtml(runs, checks, dbs = {}) {
   const cards = Object.keys(BIZ).map((b) => {
     const l = latestFor(runs, checks, b), s = stats(l.checks);
     const t = builderStats(builderRows(l.checks, (dbs.dirStatus || []).filter((r) => r.biz === b), dbs.dirs));
+    const sum = snapshotSummary(dbs.snapshots, b);
     const L = (g, id, inner, cls = 'stat') => `<a class="${cls}" href="#${b}/${g}" data-testid="${id}">${inner}</a>`;
     return `<div class="card biz" data-testid="biz-${b}"><a class="bizlink" href="#${b}"><h2>${esc(bizLabel(l.run, b))}</h2></a>
-      <div class="stats">
+      ${sum ? snapshotCardsHtml(sum, b) : `<div class="stats">
         ${L('found', 'stat-found', `<b>${s.found}</b><span>Found</span>`, 'stat')}
         ${L('notfound', 'stat-notfound', `<b>${s.notFound}</b><span>Not found</span>`, 'stat')}
         ${L('found', 'stat-correct', `<b class="ok">${s.correct}</b><span class="ok">Correct</span>`, 'stat good')}
         ${L('found', 'stat-errors', `<b class="no">${s.withErrors}</b><span class="no">With NAP errors</span>`, 'stat bad')}
         ${L('cant', 'stat-cant', `<b>${s.couldntCheck}</b><span>Couldn't check</span>`, 'stat')}
         <div class="stat" data-testid="stat-checked"><b>${esc(checkedStat(l.checks, dbs.dirs))}</b><span>Checked</span></div>
-      </div>
+      </div>`}
       <div class="bhead">In flight</div>
       <div class="stats">
         ${L('tobuild', 'stat-tobuild', `<b>${t.toBuild}</b><span>To build</span><small>${t.toBuildNew} new · ${t.toBuildClaim} claim · ${t.toBuildFix} fix</small>`, 'stat')}

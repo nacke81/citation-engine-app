@@ -106,7 +106,7 @@ r = rec(p, rid, "submitted", fp=fp)
 snap = fp.snaps[SCC]
 check("T5 portal snapshot upserted same day with the new state on that directory",
       r["portal_written"] and fp.calls[0] == ("snap", DAY) and snap["directories"][0]["state"] == "submitted" and snap["directories"][0]["stateDate"] == DAY)
-check("T5 portal counts unchanged", snap["found"] == before["found"])
+check("T5 portal summary is the recount of the rows, no frozen scan total", snap["summary"] == __import__("snapshot").summary_from_rows(snap["directories"]) and "found" not in snap)
 check("T5 portal failure is reported, queue still written",
       (lambda x: x["portal_written"] is False and x["errors"] and json.load(open(p))["fix_queue"][0]["state"] == "pending-verify")(
           rec(p, rid, "pending-verify", fp=type("B", (), {"latest_snapshot": lambda s, c: None, "upsert_snapshot": lambda *a: None})())))
@@ -257,7 +257,7 @@ p, rid, d = fresh("found"); fp = portal_with(d)
 r = rec(p, rid, "claimed-unverified", None, fp, note="claimed; edits need ID check")
 check("T15 no client activity row", r["activity_record"] is None and not any(c[0] == "POST" and "deliverables" in str(c[1]) for c in fp.calls))
 check("T15 portal maps it to needs-human and it is not an activity state", Q.QUEUE_TO_PORTAL["claimed-unverified"] == "needs-human" and "claimed-unverified" not in T.ACTIVITY_STATES)
-check("T15 portal snapshot row shows needs-human", fp.snaps[SCC]["directories"][0]["state"] == "needs-human")
+check("T15 portal snapshot row shows nap-fix (listed + claimed, edits ID-gated), not needs-human", fp.snaps[SCC]["directories"][0]["state"] == "nap-fix")
 check("T15 parse_rows accepts it", Q.parse_rows(json.load(open(p))) is not None)
 import directories as DIR
 check("T15 Directory sync knows the state", "claimed-unverified" in DIR.QUEUE_STATES)

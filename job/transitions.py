@@ -182,6 +182,18 @@ def _write_atomic(path, data):
         raise
 
 
+def set_nap_check(row_id, nap_check, queue_path=None):
+    """t_f6267312: store the latest NAP read of a LIVE row's listing page on the queue row (`nap_check`). No state change, no history entry, no portal write:
+    the snapshot overlay reads it. Refuses a row that is not live."""
+    path = queue_path or Q.QUEUE_PATH
+    q = _read(path)
+    row = _find(q, row_id)
+    if row.get("state") != "live": raise TransitionRefused("nap_check is only stored on a live row, %s is %s" % (row_id, row.get("state")))
+    row["nap_check"] = nap_check
+    _write_atomic(path, q)
+    return row
+
+
 def _row_lists(q):
     """(key, kind, list) for every list that holds queue rows. The weekly create discovery writes create rows under
     create_queue.rows (a dict); create_rows is the older flat list. Lists are returned live so callers can replace rows in place."""

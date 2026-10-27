@@ -22,14 +22,14 @@ checks = [dict(biz="SCC", directory=d, result="found", url="https://%s/x" % d, m
 base = P.build_payload(checks, "2026-10-19")
 ov = Q.overlay_directories(base, rows, "2026-10-19")
 st = {d["domain"]: d["state"] for d in ov["directories"]}
-check("Q1 the 5 queued rows show needs-human on the portal payload", all(st[d] == "needs-human" for d in domains))
-check("Q1 other rows untouched and counts unchanged", all(st["ok%d.example" % i] == "live" for i in range(6)) and all(ov[k] == base[k] for k in ("found", "correct", "withNapErrors", "notFound", "couldntCheck")))
+check("Q1 the 5 queued rows show nap-fix on the portal payload (a listing exists), never needs-human", all(st[d] == "nap-fix" for d in domains) and "needs-human" not in st.values())
+check("Q1 other rows untouched and counts unchanged", all(st["ok%d.example" % i] == "live" for i in range(6)) and ov["summary"] == __import__("snapshot").summary_from_rows(ov["directories"]) and ov["summary"]["napFix"] == 5)
 check("Q1 input payload not mutated", all(d["state"] == "live" for d in base["directories"]))
 for s in Q.PORTAL_STATES:
     o = Q.overlay_directories(base, [dict(rows[0], state=s)], "2026-10-19")
-    check("Q1 state %s maps through" % s, [d for d in o["directories"] if d["domain"] == rows[0]["directory"]][0]["state"] == s)
+    check("Q1 state %s maps through" % s, [d for d in o["directories"] if d["domain"] == rows[0]["directory"]][0]["state"] == (s if s != "needs-human" else "nap-fix"))
 o = Q.overlay_directories(base, [dict(id="create-x", directory="new.example", state="queued")], "2026-10-19")
-check("Q1 create row is appended with state and no url", [d for d in o["directories"] if d["domain"] == "new.example"][0]["state"] == "needs-human" and len(o["directories"]) == len(base["directories"]) + 1)
+check("Q1 create row is appended with state and no url", [d for d in o["directories"] if d["domain"] == "new.example"][0]["state"] == "blocked" and len(o["directories"]) == len(base["directories"]) + 1)
 
 ov_urls = {d["domain"]: d for d in ov["directories"]}
 check("Q1 queued rows with a resolved listing keep url and urlKind listing", all(ov_urls[d]["url"] == "https://%s/x" % d and ov_urls[d]["urlKind"] == "listing" for d in domains), str([(d, ov_urls[d]["url"], ov_urls[d]["urlKind"]) for d in domains]))
@@ -63,12 +63,12 @@ nm_checks = [dict(c, biz="NM") for c in checks]
 capture = CapturePortal()
 P.write_run(checks + nm_checks, "2026-10-19", capture)
 scc_payload = capture.writes[P.ALLOWED["SCC"]]
-check("Q1 write_run loads queue and publishes all 5 needs-human states",
-      all(d["state"] == "needs-human" for d in scc_payload["directories"] if d["domain"] in domains)
+check("Q1 write_run loads queue and publishes all 5 as nap-fix (listing exists)",
+      all(d["state"] == "nap-fix" for d in scc_payload["directories"] if d["domain"] in domains)
       and sum(d["domain"] in domains for d in scc_payload["directories"]) == 5)
 check("Q1 write_run leaves NM payload unchanged", capture.writes[P.ALLOWED["NM"]] == P.build_payload(nm_checks, "2026-10-19"))
 check("Q1 write_run preserves SCC metrics and has no BrightLocal score",
-      all(scc_payload[k] == base[k] for k in base if k != "directories") and scc_payload["keyScore"] is None)
+      scc_payload["summary"] == __import__("snapshot").summary_from_rows(scc_payload["directories"]) and scc_payload["keyScore"] is None)
 
 login = lambda item: {"user": "u", "pw": "p"}
 r0 = copy.deepcopy(rows[0]); r0["vaultwarden_item"] = "SCC Bing"
