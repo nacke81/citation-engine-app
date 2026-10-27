@@ -580,6 +580,30 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
         if own_reader: own_reader.close()
 
 
+BACKOFF_DAYS = 2
+
+
+def final_url(url, page):
+    """The URL the read ended on after redirects (t_962161f4: us-info moved the slug). Same host only, http(s) only, no fragment; else the stored url stays."""
+    f = (getattr(page, "url", None) or "").split("#")[0]
+    try: a, b = urlparse(url), urlparse(f)
+    except Exception: return url
+    if b.scheme not in ("http", "https") or not b.netloc or "@" in b.netloc: return url
+    if b.netloc.lower().removeprefix("www.") != a.netloc.lower().removeprefix("www."): return url
+    return url if (a.path.rstrip("/"), a.query) == (b.path.rstrip("/"), b.query) else f
+
+
+def _backoff(res, row, write, record, queue_path, day, note=None):
+    """t_962161f4: a `not-public` / `unreadable-public` verdict sets recheck_due = today + BACKOFF_DAYS on the row, so a batch does not burn time on it each turn.
+    Same-state note refresh on a waiting row only (transitions refuses it elsewhere); a row already live is never touched. Dry run reports the date, writes nothing."""
+    import datetime, transitions as T
+    due = (datetime.date.fromisoformat(day) + datetime.timedelta(days=BACKOFF_DAYS)).isoformat()
+    res["recheck_due"] = due
+    if not write or row.get("state") not in T.NOTE_ONLY_STATES: return
+    n = ((note or res.get("note") or "public read: not public")[:160]) + " (recheck due %s)" % due
+    record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due)
+
+
 def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None):
     results = []
     for kind, row in candidates(q, include_live, only, day):
@@ -596,7 +620,8 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     if write: record("SCC", rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
                     res["note"] = note
             if d in UNREADABLE_PUBLIC:   # t_bbc32230: no public source exists: never fetched, never counted live, never retried
-                res["url"] = url; res["verdict"] = "unreadable-public"; res["note"] = UNREADABLE_PUBLIC[d]; continue
+                res["url"] = url; res["verdict"] = "unreadable-public"; res["note"] = UNREADABLE_PUBLIC[d]
+                _backoff(res, row, write, record, queue_path, day); continue
             searched_ok = False
             if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
                 su = search_url_for(d, ident)
@@ -618,7 +643,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, None, res["note"], queue_path=queue_path, today=day, listing_url=url)
             if url is None:
                 res["verdict"] = "not-public" if searched_ok else "no-permalink"
-                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", "")
+                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", ""); _backoff(res, row, write, record, queue_path, day)
                 continue
             res["url"] = url
             page, how, cmp_ = read_listing(url, plain, chrome, canonical)   # t_03a74bae: the one read + verdict path for dry run and --write
@@ -626,21 +651,29 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
             if cmp_["verdict"] == "unreadable":
                 why = not_public(page, how)
                 if why:   # t_3ac43137: the Directory answered and nothing is published for us at this URL: a real verdict, nothing written
-                    res["verdict"] = "not-public"; res["fields"] = []; res["note"] = "signed-out page shows no listing: " + why; continue
+                    res["verdict"] = "not-public"; res["fields"] = []; res["note"] = "signed-out page shows no listing: " + why; _backoff(res, row, write, record, queue_path, day); continue
                 res["error"] = "page not readable (%s)" % (page.err or page.status); continue
             if cmp_["verdict"] == "match":
+                final = final_url(url, page)   # t_962161f4: the Directory redirected to a new slug (us-info): the FINAL url is the listing url from here on
+                if final != url: res["final_url"] = final
                 if before == "live":   # already live: report only, unless --proof-live names the row (t_1c503c7f): Proof only, state stays live
+                    if final != url:
+                        res["note"] = "listing URL moved: %s -> %s" % (url, final)
+                        if write: record("SCC", rid, "live", final, "weekly recheck: the Directory redirected the listing to a new URL", queue_path=queue_path, today=day, refresh_url=True)
                     if proof_live and write and only:
-                        _proof_only(row, kind, url, cmp_["nap"], day, db)
+                        _proof_only(row, kind, final, cmp_["nap"], day, db)
                         res["note"] = "proof written (row stays live)"
                     continue
                 res["note"] = "weekly recheck: listing live, NAP matches canonical"
+                url = final
                 if write:
                     _proof_then_live(row, kind, url, cmp_["nap"], day, db, record, queue_path, res["note"])
                 res["after"] = "live"
             elif before != "live":
                 note = note_for(cmp_) + (" (repeat reads disagreed: %s; not counted live)" % ", ".join(cmp_["unstable"]) if cmp_.get("unstable") else ""); res["note"] = note
-                if write and note != _last_note(row):
+                if cmp_["verdict"] == "not-public":   # t_962161f4: a hidden / paused banner: back off 2 days (the same one note write carries the date)
+                    _backoff(res, row, write and note != _last_note(row), record, queue_path, day, note=note)
+                elif write and note != _last_note(row):
                     record("SCC", rid, before, None, note, queue_path=queue_path, today=day)
         except Exception as e:
             res["error"] = (str(e)[:200] or type(e).__name__)
@@ -654,7 +687,7 @@ def _proof_then_live(row, kind, url, nap, day, db, record, queue_path, note):
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     action = PR.build_action(kind, row, row.get("claim_status"))
     D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)])
-    out = record("SCC", row["id"], "live", url, note, queue_path=queue_path, today=day)
+    out = record("SCC", row["id"], "live", url, note, queue_path=queue_path, today=day, listing_url=url)   # t_962161f4: the final URL is both
     if out.get("errors"): raise RuntimeError("; ".join(out["errors"])[:200])
 
 

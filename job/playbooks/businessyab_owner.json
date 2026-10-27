@@ -3,7 +3,7 @@
   "domain": "businessyab.com",
   "record": "none",
   "vault_item": "SCC - businessyab.com",
-  "notes": "t_03a74bae. READ-ONLY owner read for businessyab. The login is behind the 'Sign in' button / the add-listing modal, not on the home page: open the home page, click Sign in, then `login` (from_page) with the vault item (`python job/vault_item.py --domain businessyab.com`). Duplicate hidden ids on this site: the fill helper takes the first VISIBLE match (PR #26). Status is read with the order-safe read_text (list order = precedence, terminal words first). Writes nothing. Selectors NOT seen live by this spec's author (fixture only): UNPROVEN; first real run: --dry-run and list_fields.",
+  "notes": "t_962161f4 (batch 18). READ-ONLY owner read for businessyab. LIVE-SEEN login path: the home page has NO 'Sign in' control. The header shows `li.quest` 'Log in' inside #user-links; it opens the #login-box modal (tabs Log in / Sign up). A bare 'Log in' text click is wrong: the first match can be the hidden tab inside the modal, so the spec targets #user-links li.quest. There is no /login URL (404). Then `login` (from_page) fills input[name=email] / input[type=password] (the fill helper takes the first VISIBLE match; hidden duplicates exist) with the vault item (`python job/vault_item.py --domain businessyab.com`). Status is read with the order-safe read_text. Writes nothing.",
   "steps": [
     {
       "name": "open_home",
@@ -12,18 +12,18 @@
       "wall_seconds": 60
     },
     {
-      "name": "open_sign_in",
+      "name": "open_log_in",
       "do": "click_text",
-      "text": "Sign in",
-      "tag": "a,button",
-      "exact": false,
+      "text": "Log in",
+      "tag": "#user-links li.quest",
+      "exact": true,
       "settle_ms": 3000
     },
     {
       "name": "sign_in",
       "do": "login",
       "from_page": true,
-      "user_selector": "input[type=email], input[name=email], input[name=username]",
+      "user_selector": "input[type=email], input[name=email]",
       "password_selector": "input[type=password]",
       "settle_ms": 6000
     },

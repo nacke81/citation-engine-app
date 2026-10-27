@@ -3,28 +3,20 @@
   "domain": "bbb.org",
   "record": "none",
   "vault_item": "SCC - bbb.org",
-  "notes": "t_03a74bae. READ-ONLY owner read for the BBB business-profile request. The sign-in is NOT on the home page: it sits behind the header 'Sign In' control / the add-business modal, so this spec opens bbb.org, clicks Sign In, then `login` (from_page) with the vault item (resolve the exact name with `python job/vault_item.py --domain bbb.org`, pass --item-name). The status word is read with the order-safe read_text: the list order is the precedence (terminal words first, 'accredited' last). Writes nothing: no add-business submit, no edit. Selectors were NOT seen live by this spec's author (fixture only): UNPROVEN; on the first real run use --dry-run and list_fields. Public page + NAP match = live with Proof via recheck, not here.",
+  "notes": "t_962161f4 (batch 18). READ-ONLY owner read for the BBB business-profile request. LIVE-SEEN login path: the header 'Sign in' is a menu button (button.my-account) whose modal only links to https://www.bbb.org/account/login, so the spec opens that URL directly; the form there is input#email / input#password on the page itself (no iframe, no separate host). Resolve the vault item with `python job/vault_item.py --domain bbb.org` and pass --item-name. The status word is read with the order-safe read_text: the list order is the precedence (terminal words first, 'accredited' last). Writes nothing: no add-business submit, no edit. Public page + NAP match = live with Proof via recheck, not here.",
   "steps": [
     {
-      "name": "open_home",
+      "name": "open_login",
       "do": "open",
-      "url": "https://www.bbb.org/",
+      "url": "https://www.bbb.org/account/login",
       "wall_seconds": 90
-    },
-    {
-      "name": "open_sign_in",
-      "do": "click_text",
-      "text": "Sign In",
-      "tag": "a,button",
-      "exact": false,
-      "settle_ms": 3000
     },
     {
       "name": "sign_in",
       "do": "login",
       "from_page": true,
-      "user_selector": "input[type=email], input[name=email]",
-      "password_selector": "input[type=password]",
+      "user_selector": "input#email, input[type=email], input[name=email]",
+      "password_selector": "input#password, input[type=password]",
       "settle_ms": 6000
     },
     {

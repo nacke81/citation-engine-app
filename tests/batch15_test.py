@@ -158,7 +158,7 @@ hits = []
 def spy(u): hits.append(u); return R.Page(200, u, PAGE)   # even a page that would MATCH must not make it live
 w5 = []
 r5 = R.recheck(Q5, IDENT, plain=spy, chrome=spy, record=lambda *a, **k: w5.append(a), today="2026-10-28", write=True, use_chrome=False)
-check("5 foursquare row: verdict unreadable-public, state unchanged, nothing written", r5[0]["verdict"] == "unreadable-public" and r5[0]["after"] == "submitted" and not w5, str(r5[0]))
+check("5 foursquare row: verdict unreadable-public, state unchanged, never fetched; only a recheck_due backoff note is written (t_962161f4)", r5[0]["verdict"] == "unreadable-public" and r5[0]["after"] == "submitted" and not hits and all(a[2] == "submitted" and a[1] == "create-foursquare" for a in w5) and len(w5) <= 1, str(r5[0]))
 check("5 foursquare is never fetched (no signed-in or login-wall read)", not hits, str(hits))
 check("5 the report says why, with no error flag (the exit code stays 0)", "no public source" in (r5[0]["note"] or "") and r5[0]["error"] is None)
 check("5 other Directories are not in the unreadable-public list", set(R.UNREADABLE_PUBLIC) == {"foursquare.com"})

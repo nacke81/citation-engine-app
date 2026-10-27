@@ -293,12 +293,12 @@ check("5 the spec holds no literal phone/email/password and says UNPROVEN select
 
 
 # ---- 6 owner-read login specs -------------------------------------------------------------------------------------------------------------------------
-for nm, dom, home, signin in (("bbb_owner", "bbb.org", "https://www.bbb.org/", "Sign In"), ("businessyab_owner", "businessyab.com", "https://www.businessyab.com/", "Sign in")):
+for nm, dom, home, signin in (("bbb_owner", "bbb.org", "https://www.bbb.org/account/login", None), ("businessyab_owner", "businessyab.com", "https://www.businessyab.com/", "Log in")):   # t_962161f4: the live paths
     sp = F.load_spec(nm); st = F.build_site(sp)
     dos = [s["do"] for s in sp["steps"]]
-    check("6 %s: open home, click Sign in, login from the page, read_text (in that order)" % nm, dos == ["open", "click_text", "login", "read_text"] and sp["steps"][0]["url"] == home and sp["steps"][1]["text"] == signin and sp["steps"][2].get("from_page") is True, str(dos))
+    check("6 %s: open home, click Sign in, login from the page, read_text (in that order)" % nm, dos == (["open", "click_text", "login", "read_text"] if signin else ["open", "login", "read_text"]) and sp["steps"][0]["url"] == home and (not signin or sp["steps"][1]["text"] == signin) and sp["steps"][-2].get("from_page") is True, str(dos))
     check("6 %s: read only (record none, no submit step, no stop marker needed)" % nm, sp["record"] == "none" and not any(s.get("submit") for s in sp["steps"]) and all(x.kind != "submit" for x in st.steps), str([x.kind for x in st.steps]))
-    check("6 %s: the order-safe read_text lists terminal words before good ones" % nm, sp["steps"][3]["expect_any"].index("rejected") < sp["steps"][3]["expect_any"].index([w for w in sp["steps"][3]["expect_any"] if w in ("active", "live", "accredited")][0]))
+    check("6 %s: the order-safe read_text lists terminal words before good ones" % nm, sp["steps"][-1]["expect_any"].index("rejected") < sp["steps"][-1]["expect_any"].index([w for w in sp["steps"][-1]["expect_any"] if w in ("active", "live", "accredited")][0]))
     raw = open(os.path.join(pb, nm + ".json"), encoding="utf-8").read()
     check("6 %s: no password / email / phone in the file; vault item named" % nm, not F._LITERAL_EMAIL.search(raw) and not F._LITERAL_PHONE.search(raw) and '"password":' not in raw and st.vault_item.startswith("SCC - ") and "vault_item.py --domain" in sp["notes"])
     # fixture run (dry): the form is only on screen after the Sign in click
@@ -306,12 +306,12 @@ for nm, dom, home, signin in (("bbb_owner", "bbb.org", "https://www.bbb.org/", "
         def __init__(s, *a, **k): FakePage.__init__(s, *a, **k); s.form = False; s.missing = {"input[type=password]", "input[type=email], input[name=email]", "input[type=email], input[name=email], input[name=username]"}
         def evaluate(s, js, arg=None):
             r = FakePage.evaluate(s, js, arg)
-            if isinstance(arg, dict) and arg.get("text") == signin: s.missing = set()
+            if (isinstance(arg, dict) and arg.get("text") == signin) or signin is None: s.missing = set()
             return r
     pg = Gated(url=home, body="Home\nStatus: pending")
     c = ctx_for(st, pg, dry_run=True)
     res = B.run_site(st, c)
-    check("6 %s dry run: reaches the login behind the Sign in click and looks the vault item up" % nm, res["ok"] and "sign_in" in names(res, "ok") and any("--lookup-only" in x for x in c._runner.calls) and signin in pg.clicked_text, str(res["steps"]))
+    check("6 %s dry run: reaches the login behind the Sign in click and looks the vault item up" % nm, res["ok"] and "sign_in" in names(res, "ok") and any("--lookup-only" in x for x in c._runner.calls) and (signin is None or signin in pg.clicked_text), str(res["steps"]))
     pg = Gated(url=home, body="Home")
     c = ctx_for(st, pg, dry_run=False)
     # live fixture: after Enter the password box is gone and the dashboard shows two status words
