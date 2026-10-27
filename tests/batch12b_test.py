@@ -192,7 +192,7 @@ for n in ("tupalo", "showmelocal_claim"):
 
 # new verbs are validated
 check("N4 set_value / type_text need key or value", "needs key or value" in validates({"site": "z", "domain": "z.example", "record": "none", "steps": [{"do": "set_value", "selector": "#a"}]}) and "needs key or value" in validates({"site": "z", "domain": "z.example", "record": "none", "steps": [{"do": "type_text", "selector": "#a"}]}))
-check("N4 a literal phone in a set_value value is refused", "literal phone" in validates({"site": "z", "domain": "z.example", "record": "none", "steps": [{"do": "set_value", "selector": "#a", "value": "270-841-2550"}]}))
+check("N4 a literal phone in a set_value value is refused", "literal phone" in validates({"site": "z", "domain": "z.example", "record": "none", "steps": [{"do": "set_value", "selector": "#a", "value": "555-010-1234"}]}))
 
 # ---- P1 playbook_write -----------------------------------------------------------------------------------------------------------
 pb = os.path.join(tempfile.mkdtemp(), "playbooks", "build"); os.makedirs(pb)
