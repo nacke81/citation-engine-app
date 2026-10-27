@@ -10,8 +10,11 @@ Sinks (all injectable so tests and the dry run make no network call):
   queue     the SCC queue JSON (atomic replace; state, evidence_url, dated history entry)
   portal    footprint_snapshot via portal.Portal (same-day snapshot, one directory row overlaid; counts unchanged)
   activities  one client-voiced deliverables row for submitted, pending-verify, live and rejected (never needs-human: an internal blocker
-            is not client news). ON by default (Mike, 2026-10-21). Rows land with approved_at null and the portal hides them until Mike
-            approves (migration 20261020000002); the engine never sets approved_at. Opt out with CE_ACTIVITIES_WRITE=0 (tests, dry runs).
+            is not client news). ON by default (Mike, 2026-10-21). These four templated, factual receipts are written with approved_at = now:
+            Mike ruled 2026-10-14 (vault Intelligence/decisions/2026-10-14-nate-approves-routine-client-activity-lines.md) that routine
+            factual lines need no Mike approval; pricing, a promise or a new claim stays held. Hold path: CE_ACTIVITIES_HOLD=1 (or
+            activities_hold_flag=True) writes approved_at null so the portal hides the row until staff approve it (migration 20261020000002).
+            Opt out of writing entirely with CE_ACTIVITIES_WRITE=0 (tests, dry runs).
   verification  needs-human with verify_type phone-call|sms|postcard upserts one citation_verification row (idempotent per client+directory)
             for the client's Your Turn page and the batch trigger. A later live transition marks that row live with verified_at.
             Email verifications never use this path.
@@ -37,6 +40,7 @@ ALLOWED_FROM = {
 ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
 FLAG = "CE_ACTIVITIES_WRITE"
+HOLD_FLAG = "CE_ACTIVITIES_HOLD"
 ACTIVITY_STATES = ("submitted", "pending-verify", "live", "rejected")  # needs-human is internal, never client news
 VERIFY_TYPES = ("phone-call", "sms", "postcard", "id-check", "client-email")
 # client-email (t_d2f75685, Nate 2026-10-27): the Directory wants the owner to attest the email "belongs directly to the business and is not a proxy or
@@ -100,14 +104,21 @@ def activity_title(new, directory):
         "submitted": "Submitted your business listing to %s",
         "pending-verify": "Your %s listing is awaiting verification",
         "live": "Your %s listing is live",
-        "rejected": "%s did not accept your listing, we are following up",
+        "rejected": "%s declined the listing",
     }[new]
+    if new == "rejected":   # t_ac6e82a6: factual receipt, no promise; "Fixr.com declined the listing"
+        directory = directory[:1].upper() + directory[1:]
     return t % directory
 
 
 def activities_enabled(explicit=None):
     """Default ON. CE_ACTIVITIES_WRITE=0 (or activities_flag=False) turns it off."""
     return bool(explicit) if explicit is not None else os.environ.get(FLAG) != "0"
+
+
+def activities_hold(explicit=None):
+    """Default OFF. CE_ACTIVITIES_HOLD=1 (or activities_hold_flag=True) writes approved_at null: the row waits in the portal's staff hold."""
+    return bool(explicit) if explicit is not None else os.environ.get(HOLD_FLAG) == "1"
 
 
 def verification_note(verify_type):
@@ -221,15 +232,16 @@ def full_portal_payload(base, q, new_row, day):
     return Q.overlay_directories(payload, [new_row], day)
 
 
-def build_activity_record(client_id, row, new, evidence_url, day):
-    return {"client_id": client_id, "deliverable_type": "citation", "title": activity_title(new, row["directory"]),
+def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now=None):
+    approved = None if activities_hold(hold) else (now or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    return {"approved_at": approved, "client_id": client_id, "deliverable_type": "citation", "title": activity_title(new, row["directory"]),
             "date_completed": day, "in_scope": True, "units": 1, "evidence_url": evidence_url,
             "source": ACTIVITY_SOURCE, "source_ref": "citation-transition:%s:%s" % (row["id"], new)}
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -279,7 +291,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
 
     out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "errors": []}
     same_state = old == new_state  # note refresh: no client news, no Activities row
-    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day) if new_state in ACTIVITY_STATES and not same_state else None
+    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day, hold=activities_hold_flag) if new_state in ACTIVITY_STATES and not same_state else None
     out["activity_record"] = rec
     out["activities_written"] = False
     use_act = activities_enabled(activities_flag) and new_state in ACTIVITY_STATES and not same_state

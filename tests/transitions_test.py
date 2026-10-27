@@ -114,8 +114,8 @@ check("T5 portal failure is reported, queue still written",
 # activities gate
 p, rid, d = fresh("queued"); fp = portal_with(d)
 r = rec(p, rid, "submitted", fp=fp)
-check("T6 activities ON by default: deliverables row written, approved_at never set", r["activities_written"] is True and any(str(c[1]).startswith("deliverables") for c in fp.calls if c[0] == "POST")
-      and all("approved_at" not in b for c in fp.calls if c[0] == "POST" and str(c[1]).startswith("deliverables") for b in c[2]))
+check("T6 activities ON by default: deliverables row written, approved_at set (2026-10-14 ruling)", r["activities_written"] is True and any(str(c[1]).startswith("deliverables") for c in fp.calls if c[0] == "POST")
+      and all(b.get("approved_at") for c in fp.calls if c[0] == "POST" and str(c[1]).startswith("deliverables") for b in c[2]))
 os.environ["CE_ACTIVITIES_WRITE"] = "0"
 p, rid, d = fresh("queued"); fp = portal_with(d); r = rec(p, rid, "submitted", fp=fp)
 os.environ.pop("CE_ACTIVITIES_WRITE")
@@ -130,7 +130,7 @@ r = rec(p, rid, "submitted", fp=fp, activities=acts, activities_flag=True)
 b = acts.calls[0][2][0]
 check("T6 flag on writes one client-voiced row", r["activities_written"] and len(acts.calls) == 1 and acts.calls[0][1].startswith("deliverables") and b["title"] == "Submitted your business listing to a.example"
       and b["client_id"] == SCC and b["source"] == "citation_engine" and b["source_ref"] == "citation-transition:%s:submitted" % rid)
-check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.ACTIVITY_STATES) and set(b) <= {"client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref"})
+check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.ACTIVITY_STATES) and set(b) <= {"approved_at", "client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref"})
 os.environ["CE_ACTIVITIES_WRITE"] = "1"
 p, rid, d = fresh("queued"); acts = FakePortal(); r = rec(p, rid, "submitted", fp=portal_with(d), activities=acts)
 os.environ.pop("CE_ACTIVITIES_WRITE")
@@ -181,11 +181,26 @@ p, rid, d = fresh("submitted"); fp = portal_with(d); b0 = open(p, "rb").read()
 r = rec(p, rid, "needs-human", fp=fp, verify_type="postcard", dry_run=True)
 check("T11 dry run shows verification request, writes nothing", open(p, "rb").read() == b0 and not fp.calls and r["verification_request"]["body"][0]["deadline"] == "2026-11-19")
 
+# t_ac6e82a6: golden copy + approval
+for st in T.ACTIVITY_STATES:
+    low = T.activity_title(st, "fixr.com").lower()
+    check("T6g golden %s title has no promise words: %r" % (st, low), not any(w in low for w in ("follow", "will", "we'll", "guarantee", "$", "price")))
+check("T6g rejected title exact, domain capitalized", T.activity_title("rejected", "fixr.com") == "Fixr.com declined the listing")
+os.environ.pop("CE_ACTIVITIES_HOLD", None)
+p, rid, d = fresh("queued"); acts = FakePortal(); rec(p, rid, "submitted", fp=portal_with(d), activities=acts, activities_flag=True)
+check("T6h templated write carries non-null approved_at", bool(acts.calls[0][2][0]["approved_at"]))
+os.environ["CE_ACTIVITIES_HOLD"] = "1"
+p, rid, d = fresh("queued"); acts = FakePortal(); rec(p, rid, "submitted", fp=portal_with(d), activities=acts, activities_flag=True)
+os.environ.pop("CE_ACTIVITIES_HOLD")
+check("T6h CE_ACTIVITIES_HOLD=1 carries null approved_at", "approved_at" in acts.calls[0][2][0] and acts.calls[0][2][0]["approved_at"] is None)
+p, rid, d = fresh("queued"); acts = FakePortal(); rec(p, rid, "submitted", fp=portal_with(d), activities=acts, activities_flag=True, activities_hold_flag=True)
+check("T6h activities_hold_flag=True carries null approved_at", acts.calls[0][2][0]["approved_at"] is None)
+
 # dry run: no writes
 p, rid, d = fresh("queued"); fp = portal_with(d); b0 = open(p, "rb").read()
 r = rec(p, rid, "submitted", fp=fp, dry_run=True)
 check("T7 dry run writes nothing and shows payloads", open(p, "rb").read() == b0 and not fp.calls and r["portal_request"]["row"]["directory_patch"][0]["state"] == "submitted"
-      and r["activities_request"]["method"] == "POST" and "approved_at" not in r["activities_request"]["body"][0])
+      and r["activities_request"]["method"] == "POST" and r["activities_request"]["body"][0]["approved_at"])
 
 # submit_row wiring
 rows = Q.load_rows(SRC) if False else None
