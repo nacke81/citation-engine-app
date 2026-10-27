@@ -1,0 +1,15 @@
+{
+  "site": "foursquare_edit",
+  "domain": "foursquare.com",
+  "vault_item": "SCC - foursquare.com (rotated 10-25)",
+  "record": "none",
+  "recheck_due_days": 2,
+  "notes": "t_6b1e01ff, scripted from batch 14 (t_b611e0af, playbooks/build/foursquare.com.md). The venue is unclaimed, but the Edit link works for a signed-in user. The build Chrome already holds the Foursquare session as Lea Ann (listings@), so no password fill is needed (the vault item is only named for the lookup). Venue page https://app.foursquare.com/v/senior-care-consulting--solutions/6ade7f406aa75b497399f027 -> span.venueEditLink -> input[name=phone]. The phone is set by KEYBOARD: select all, type key by key, Tab; fill() alone leaves Submit disabled. Foursquare wants the phone with a +1 prefix, built here as '+1 {phone}'. Submit is a.saveButton; the answer is 'suggested edits are in the queue and we will review them shortly'. The public page keeps the old phone until a Foursquare editor approves, so the live run sets recheck_due = run day + 2 on the row (state unchanged); recheck skips the row until then unless named with --row. Do NOT walk /venue/claim (Step 3 asks for a card).",
+  "steps": [
+    {"name": "open_venue", "do": "open", "url": "https://app.foursquare.com/v/senior-care-consulting--solutions/6ade7f406aa75b497399f027", "wall_seconds": 90, "expect": ["span.venueEditLink"]},
+    {"name": "open_edit", "do": "click", "selector": "span.venueEditLink", "settle_ms": 1500},
+    {"name": "phone", "do": "fill", "selector": "input[name=phone]", "value": "+1 {phone}", "slow": true, "select_all": true, "press": "Tab", "settle_ms": 800, "delay_ms": 60},
+    {"do": "stop_before_submit"},
+    {"name": "submit_edit", "do": "click", "selector": "a.saveButton", "submit": true, "settle_ms": 3000, "expect_text": "suggested edits are in the queue"}
+  ]
+}

@@ -3,6 +3,11 @@
   "domain": "showmelocal.com",
   "vault_item": "SCC - showmelocal.com",
   "record": "none",
+  "guard": {
+    "refuse_rows": ["create-showmelocal"],
+    "flag": "new-listing",
+    "reason": "The SCC showmelocal listing (bid 37893637) is already claimed (t_6b1e01ff); this claim spec is only for a NEW listing and must never run on create-showmelocal."
+  },
   "mail": {
     "sender": "showmelocal",
     "link_re": "https://www\\.showmelocal\\.com/activate-registration\\.aspx[^\\s\"'<>)]+"

@@ -90,7 +90,7 @@ def approval_ok(row):
 LIVE_FROM = ("queued", "found", "needs-human")   # states the transition matrix lets move to submitted
 
 
-def submit_row(row, get_login, free_only=True, record=None, live=False, to="submitted", captured_url=None, captured_id=None):
+def submit_row(row, get_login, free_only=True, record=None, live=False, to="submitted", captured_url=None, captured_id=None, recheck_due=None):
     """One submit. live=False (default) is a DRY RUN: returns the intended transition, never records unless CE_RECORD_TRANSITIONS=1 or record= is given.
     live=True is build_runner --live after the Directory build succeeded (t_df278575): the same refusals apply, a queued/found/needs-human row may move,
     and the `submitted` transition is recorded by default (no env flag). Refusals raise before anything is recorded. This function itself never contacts a Directory."""
@@ -121,5 +121,6 @@ def submit_row(row, get_login, free_only=True, record=None, live=False, to="subm
         extra = {}
         if captured_url: extra["listing_url"] = captured_url   # t_3ac43137: the confirmation / owner-view / permalink URL the Directory showed at submit
         if captured_id: extra["listing_id"] = captured_id
+        if recheck_due: extra["recheck_due"] = recheck_due
         res["recorded"] = record("SCC", row["id"], to, row.get("listing_url"), note, **extra)
     return res

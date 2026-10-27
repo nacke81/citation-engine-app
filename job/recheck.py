@@ -21,6 +21,7 @@ import buildqueue as Q
 import fixlist as F
 import listing as L
 import walls as W
+import mail_scan as MS
 
 STABLE_READS = 3   # a Chrome-route match must hold on this many fresh signed-out reads (t_ac8b1bdd)
 WAITING = ("submitted", "pending-verify", "found", "created-unlisted")
@@ -29,7 +30,7 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 WALL_RE = re.compile(r"(?i)just a moment|quick security check|performing a quick|verify you are (a )?human|attention required|access denied|"
                      r"checking your browser|are you a robot|press (&|and) hold|error 1020|request blocked|security verification")
 PLUS_PHONE_RE = re.compile(r"(?<![\w+])\+\d[\d\s().\-]{5,18}\d")
-MASKED_NUM_RE = re.compile(r"\+?(\d[\d\s().\-]{0,6}?)\s*[*xX\u2022]{2,}\s*([\d\s().\-]{0,6}\d)")   # +127****2550
+MASKED_NUM_RE = re.compile(r"\+?(?:(\d[\d\s().\-]{0,6}?)\s*[*xX\u2022]{2,}\s*([\d\s().\-]{0,6}\d)|(\(?\d{3}\)?[\s.\-]{0,2}\d{3}[\s.\-]{0,2}\d{0,2})\s*[*\u2022]{2,})")   # +127****2550; or trailing stars only: (270) 841-2*** (group 3, t_6b1e01ff)
 HEXID_RE = re.compile(r"(?i)^[0-9a-f]{4,}(-[0-9a-f]{2,})+$")
 # t_f707b644: a page that EXISTS but is not a public, complete listing yet (showmelocal "HIDDEN until ACTIVATED", paused). Its NAP may match; it is still not live.
 UNLISTED_RE = re.compile(r"(?i)hidden until activated|listing (is |has been )?(currently )?(paused|hidden|unpublished|not (yet )?(public|visible|published))|this listing is paused|pending (review|approval|activation)")
@@ -67,10 +68,13 @@ def plain_fetch(url):
 
 
 REVEAL_RE = r"reveal (phone|number)|show (phone|number)|view (phone|number)|click (here )?to (call|view|reveal|show)"
-REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); let n = 0;
+REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); const bare = /^(show|reveal|view)$/i; let n = 0;
   for (const e of document.querySelectorAll('a,button,input[type=button],input[type=submit],span,div,[role=button]')) {
     const t = ((e.innerText || e.value || '') + '').trim();
-    if (t && t.length <= 40 && re.test(t) && e.getClientRects().length && !e.querySelector('a,button')) { try { e.click(); n++; } catch (x) {} }
+    if (!t || t.length > 40 || !e.getClientRects().length || e.querySelector('a,button')) continue;
+    // t_6b1e01ff: getlistedusa shows "(270) 841-2*** show": the control is a bare "Show" next to masked digits. A bare Show only counts when its container shows a masked number.
+    const next = bare.test(t) && e.parentElement && /\\*{2,}|\\u2022{2,}/.test(e.parentElement.innerText || '');
+    if (re.test(t) || next) { try { e.click(); n++; } catch (x) {} }
   } return n; }""" % REVEAL_RE
 
 
@@ -237,7 +241,8 @@ def masked_match(shown, want10):
     """True/False: do the visible leading and trailing digits of a masked phone agree with the canonical phone. None when not masked."""
     m = MASKED_NUM_RE.search(shown or "")
     if not m: return None
-    pre, suf = _digits(m.group(1)), _digits(m.group(2))
+    pre, suf = _digits(m.group(1) or m.group(3)), _digits(m.group(2) or "")
+    if not suf and len(pre) < 6: return False   # trailing stars only: need most of the number visible before it counts as the same phone
     return any(full.startswith(pre) and full.endswith(suf) and len(pre) + len(suf) < len(full) for full in (want10, "1" + want10))
 
 
@@ -322,6 +327,26 @@ def not_public(page, how):
     return "rendered page has no listing for this business"
 
 
+PROSE_ADDR_RE = re.compile(r"(?<![\w#])(\d{1,6}\s+[A-Za-z0-9][A-Za-z0-9 .'\-]{1,40}?),?\s+([A-Za-z][A-Za-z .'\-]{1,30}?),?\s+([A-Z]{2})\.?,?\s+(\d{5})(?:-\d{4})?(?!\d)")
+
+
+def prose_street(block, canonical):
+    """A street that sits inside a sentence or a contact list, not on its own line (listyourbusiness shows it only in the About text and the contact list).
+    Looks for '<number> <street words>, <city>, <ST> <zip>' in the block's lines and returns what street_in returns: (shown, parsed, zip) or None.
+    Only a hit whose city, state and zip are the canonical ones counts; a street in a sentence about another place is not ours (t_6b1e01ff)."""
+    cparts = [p.strip() for p in (canonical.get("address") or "").split(",")]
+    cst_zip = re.search(r"\b([A-Z]{2})\s+(\d{5})\b", canonical.get("address") or "")
+    ccity = F._tok(cparts[1])[:1] if len(cparts) > 1 else []
+    for l in block:
+        for m in PROSE_ADDR_RE.finditer(l):
+            street, city, st, zp = m.group(1).strip(" ,"), m.group(2).strip(), m.group(3), m.group(4)
+            if cst_zip and (st != cst_zip.group(1) or zp != cst_zip.group(2)): continue
+            if ccity and F._tok(city)[:1] != ccity: continue
+            p = F.parse_street(street)
+            if p and p["num"].lstrip("0") and p["type"]: return street + ", " + city + ", " + st + " " + zp, p, zp
+    return None
+
+
 def compare(text, canonical, html_=None):
     """-> {"verdict": match|mismatch|nap-incomplete|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
     nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
@@ -361,7 +386,7 @@ def compare(text, canonical, html_=None):
             if plus: wrong.append(("phone", plus))
             else: gaps.append("phone")
     cstreet = F.parse_street(canonical["address"].split(",")[0])
-    got = F.street_in(block)
+    got = F.street_in(block) or prose_street(block, canonical)
     if got and cstreet:
         czip = re.search(r"\b(\d{5})\b", canonical["address"])
         street_txt_norm = " ".join(F._tok(got[0]))
@@ -461,7 +486,7 @@ def resolve_by_search(directory, page, ident, biz="SCC"):
     return url if (url and kind == "listing" and host(url) == host(directory if "/" in directory else "https://" + directory) and not _is_entry_page(url)) else None
 
 
-def candidates(q, include_live=False, only=None):
+def candidates(q, include_live=False, only=None, today=None):
     import transitions as T
     out = []
     states = WAITING + (("live",) if include_live else ())
@@ -470,6 +495,9 @@ def candidates(q, include_live=False, only=None):
             if r.get("state") in states and r.get("directory") and (not only or r["id"] in only):
                 if W.is_stopped(r):  # hard-block cap (t_fccbb7ef): a STOPPED row is not touched until Mike resets it
                     print("SKIP %s (%s): hard-block STOPPED, waiting on Mike" % (r.get("directory"), r.get("id"))); continue
+                due = r.get("recheck_due")   # t_6b1e01ff: foursquare's edit is reviewed by the Directory; reading it earlier only repeats the old value. A row NAMED with --row is read anyway.
+                if due and today and not only and str(due) > str(today):
+                    print("SKIP %s (%s): recheck due %s" % (r.get("directory"), r.get("id"), due)); continue
                 out.append((kind, r))
     return out
 
@@ -479,7 +507,7 @@ def _last_note(row):
     return (h[-1].get("note") if h and isinstance(h[-1], dict) else None)
 
 
-def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False):
+def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None):
     """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row."""
     import datetime
     day = today or datetime.date.today().isoformat()
@@ -495,14 +523,14 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
     if use_chrome and chrome is None: chrome = own_reader = SignedOutReader()   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
     elif not use_chrome: chrome = None
     try:
-        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live)
+        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail)
     finally:
         if own_reader: own_reader.close()
 
 
-def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live):
+def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None):
     results = []
-    for kind, row in candidates(q, include_live, only):
+    for kind, row in candidates(q, include_live, only, day):
         d, rid, before = row["directory"], row["id"], row["state"]
         res = {"row": rid, "directory": d, "url": None, "before": before, "after": before, "verdict": None, "fields": [], "note": None, "error": None}
         results.append(res)
@@ -525,6 +553,13 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     if url:
                         res["note"] = "recheck: found the listing URL by name + city search"
                         if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
+            if url is None and mail is not None and d in MS.SCAN_DIRECTORIES:   # t_6b1e01ff: moderated, no account, no permalink: the approval mail carries the listing URL
+                hit = mail.find(d)
+                if hit:
+                    url = hit["url"]
+                    res["note"] = "recheck: listing URL from the approval mail at listings@ (%s)" % hit["date"]
+                    res["mail"] = hit
+                    if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
             if url is None:
                 res["verdict"] = "not-public" if searched_ok else "no-permalink"
                 if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business"
