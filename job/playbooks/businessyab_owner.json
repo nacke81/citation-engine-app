@@ -3,7 +3,7 @@
   "domain": "businessyab.com",
   "record": "none",
   "vault_item": "SCC - businessyab.com",
-  "notes": "t_962161f4 (batch 18). READ-ONLY owner read for businessyab. LIVE-SEEN login path: the home page has NO 'Sign in' control. The header shows `li.quest` 'Log in' inside #user-links; it opens the #login-box modal (tabs Log in / Sign up). A bare 'Log in' text click is wrong: the first match can be the hidden tab inside the modal, so the spec targets #user-links li.quest. There is no /login URL (404). Then `login` (from_page) fills input[name=email] / input[type=password] (the fill helper takes the first VISIBLE match; hidden duplicates exist) with the vault item (`python job/vault_item.py --domain businessyab.com`). Status is read with the order-safe read_text. Writes nothing.",
+  "notes": "t_962161f4 (batch 18). READ-ONLY owner read for businessyab. LIVE-SEEN login path: the home page has NO 'Sign in' control. The header shows `li.quest` 'Log in' inside #user-links; it opens the #login-box modal (tabs Log in / Sign up). A bare 'Log in' text click is wrong: the first match can be the hidden tab inside the modal, so the spec targets #user-links li.quest. There is no /login URL (404). Then `login` (from_page) fills input[name=email] / input[type=password] (the fill helper takes the first VISIBLE match; hidden duplicates exist) with the vault item (`python job/vault_item.py --domain businessyab.com`). Status is read with the order-safe read_text. Writes nothing. t_2d15878c (batch 19): LIVE-SEEN the modal opens on the SIGN UP tab (log-in inputs hidden), so batch 19 typed into the wrong form. The spec now clicks the Log in tab (#login-tabs li[data-tab=login]) and the login selectors are scoped to [data-tabblock=login]. A failed sign-in saves fail-sign_in.png + fail-sign_in.html (modal markup, .error-area) so wrong password / no account / selector can be told apart.",
   "steps": [
     {
       "name": "open_home",
@@ -20,11 +20,19 @@
       "settle_ms": 3000
     },
     {
+      "name": "pick_login_tab",
+      "do": "click_text",
+      "text": "Log in",
+      "tag": "#login-tabs li[data-tab=login]",
+      "exact": true,
+      "settle_ms": 1000
+    },
+    {
       "name": "sign_in",
       "do": "login",
       "from_page": true,
-      "user_selector": "input[type=email], input[name=email]",
-      "password_selector": "input[type=password]",
+      "user_selector": "#login-box [data-tabblock=login] input[name=email]",
+      "password_selector": "#login-box [data-tabblock=login] input[type=password]",
       "settle_ms": 6000
     },
     {

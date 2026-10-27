@@ -296,7 +296,7 @@ check("5 the spec holds no literal phone/email/password and says UNPROVEN select
 for nm, dom, home, signin in (("bbb_owner", "bbb.org", "https://www.bbb.org/account/login", None), ("businessyab_owner", "businessyab.com", "https://www.businessyab.com/", "Log in")):   # t_962161f4: the live paths
     sp = F.load_spec(nm); st = F.build_site(sp)
     dos = [s["do"] for s in sp["steps"]]
-    check("6 %s: open home, click Sign in, login from the page, read_text (in that order)" % nm, dos == (["open", "click_text", "login", "read_text"] if signin else ["open", "login", "read_text"]) and sp["steps"][0]["url"] == home and (not signin or sp["steps"][1]["text"] == signin) and sp["steps"][-2].get("from_page") is True, str(dos))
+    check("6 %s: open home, click Sign in, login from the page, read_text (in that order)" % nm, dos == ((["open", "click_text", "click_text", "login", "read_text"] if nm == "businessyab_owner" else ["open", "click_text", "login", "read_text"]) if signin else ["open", "login", "read_text"]) and sp["steps"][0]["url"] == home and (not signin or sp["steps"][1]["text"] == signin) and sp["steps"][-2].get("from_page") is True, str(dos))
     check("6 %s: read only (record none, no submit step, no stop marker needed)" % nm, sp["record"] == "none" and not any(s.get("submit") for s in sp["steps"]) and all(x.kind != "submit" for x in st.steps), str([x.kind for x in st.steps]))
     check("6 %s: the order-safe read_text lists terminal words before good ones" % nm, sp["steps"][-1]["expect_any"].index("rejected") < sp["steps"][-1]["expect_any"].index([w for w in sp["steps"][-1]["expect_any"] if w in ("active", "live", "accredited")][0]))
     raw = open(os.path.join(pb, nm + ".json"), encoding="utf-8").read()

@@ -92,6 +92,52 @@ def find_approval(directory, messages, name=None):
     return None
 
 
+# ---- t_2d15878c: password-reset mails (bbb, businessyab). The link is printed to the terminal ONLY: never written to the repo, the queue or a note.
+RESET_SUBJECT_RE = re.compile(r"(?i)(reset|forgot|recover|change)[^a-z]{0,3}(your )?(password|login|account)|password (reset|recovery|change)")
+RESET_PATH_RE = re.compile(r"(?i)(reset|recover|forgot|new[-_]?password|change[-_]?password|set[-_]?password|password)[-_/a-z]*([/?=#&]|$)|[?&](token|code|key|hash)=")
+RESET_CODE_RE = re.compile(r"(?i)(?:code|pin|otp)[^0-9a-z]{0,20}\b(\d{4,8})\b|\b(\d{6})\b")   # a labelled code, else a lone 6-digit number in a reset mail
+
+
+def reset_urls(text, domain):
+    out = []
+    for m in URL_RE.finditer(html.unescape(text or "")):
+        u = m.group(0).rstrip(".,;:!?)")
+        p = urlparse(u)
+        if u in out or not host_ok(u, domain): continue
+        if re.search(r"(?i)unsubscribe|/privacy|/terms", p.path): continue
+        if RESET_PATH_RE.search(p.path + ("?" + p.query if p.query else "")): out.append(u)
+    return out
+
+
+def find_reset(directory, messages):
+    """-> {"uid","date","subject","url","code"} for the NEWEST password-reset mail from `directory` (a link on its own domain, and/or a numeric code), else None. Pure.
+    bbb says it sends a CODE; businessyab says instructions: either is returned. The caller prints it; nothing here stores it."""
+    domain = SCAN_DIRECTORIES.get(directory)
+    if not domain: return None
+    for m in sorted([x for x in messages if mail_is_from(x, domain)], key=lambda x: (x.get("date") or "", x.get("uid") or 0), reverse=True):
+        subj, body = m.get("subject") or "", m.get("body") or ""
+        if not (RESET_SUBJECT_RE.search(subj) or re.search(r"(?i)reset your password|password reset", body)): continue
+        urls = reset_urls(body, domain)
+        cm = RESET_CODE_RE.search(re.sub(r"https?://\S+", " ", html.unescape(body)))
+        code = (cm.group(1) or cm.group(2)) if cm else None
+        if urls or code: return {"uid": m.get("uid"), "date": m.get("date"), "subject": subj[:120], "url": urls[0] if urls else None, "code": code}
+    return None
+
+
+def reset_main(directories, days, messages=None, out=print):
+    """`--reset-link`: print the newest reset link / code per Directory to stdout. Read-only mail access. Exit 0 found, 1 none, 2 mailbox unreadable."""
+    try: msgs = messages if messages is not None else read_messages(days=days)
+    except Exception as e:
+        print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
+    found = 0
+    for d in directories:
+        hit = find_reset(d, msgs)
+        if not hit: out("%s | no password-reset mail" % d); continue
+        found += 1
+        out("%s | %s %s | link: %s | code: %s" % (d, hit["date"], hit["subject"], hit["url"] or "-", hit["code"] or "-"))
+    return 0 if found else 1
+
+
 def _text_of(msg):
     out = []
     for part in msg.walk():
@@ -163,7 +209,9 @@ def main(argv=None):
     a.add_argument("--days", type=int, default=30)
     a.add_argument("--directory", action="append", default=None)
     a.add_argument("--queue", default=None)
+    a.add_argument("--reset-link", action="store_true", help="print the newest password-reset link / code from bbb / businessyab mail (terminal only; never stored)")
     n = a.parse_args(argv)
+    if n.reset_link: return reset_main(n.directory or ["bbb.org", "businessyab.com"], n.days)
     import buildqueue as Q
     wanted = set(n.directory) if n.directory else set(SCAN_DIRECTORIES)
     import datetime
