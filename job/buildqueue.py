@@ -45,6 +45,19 @@ def load_rows(path=None):
         return parse_rows(json.load(f))
 
 
+def all_rows(q):
+    """Every queue row in every list: fix_queue, create_rows AND create_queue.rows (t_3ac43137: `--row create-acompio` lives in create_queue.rows,
+    which parse_rows does not read). Validates the same way parse_rows does."""
+    cq = q.get("create_queue")
+    cq_rows = cq.get("rows") if isinstance(cq, dict) else (cq if isinstance(cq, list) else [])
+    return parse_rows(dict(q, create_rows=list(q.get("create_rows") or []) + list(cq_rows or [])))
+
+
+def load_all_rows(path=None):
+    with open(path or QUEUE_PATH, encoding="utf-8") as f:
+        return all_rows(json.load(f))
+
+
 def overlay_directories(payload, rows, day):
     """Return a copy of an SCC payload with queue state shown on each queued Directory. Counts are not changed."""
     out = dict(payload)
@@ -77,7 +90,7 @@ def approval_ok(row):
 LIVE_FROM = ("queued", "found", "needs-human")   # states the transition matrix lets move to submitted
 
 
-def submit_row(row, get_login, free_only=True, record=None, live=False, to="submitted"):
+def submit_row(row, get_login, free_only=True, record=None, live=False, to="submitted", captured_url=None, captured_id=None):
     """One submit. live=False (default) is a DRY RUN: returns the intended transition, never records unless CE_RECORD_TRANSITIONS=1 or record= is given.
     live=True is build_runner --live after the Directory build succeeded (t_df278575): the same refusals apply, a queued/found/needs-human row may move,
     and the `submitted` transition is recorded by default (no env flag). Refusals raise before anything is recorded. This function itself never contacts a Directory."""
@@ -104,5 +117,9 @@ def submit_row(row, get_login, free_only=True, record=None, live=False, to="subm
         import transitions
         record = transitions.record_transition
     if record:
-        res["recorded"] = record("SCC", row["id"], to, row.get("listing_url"), "submitted via build queue" if to == "submitted" else "created via build queue; not public yet or NAP incomplete")
+        note = "submitted via build queue" if to == "submitted" else "created via build queue; not public yet or NAP incomplete"
+        extra = {}
+        if captured_url: extra["listing_url"] = captured_url   # t_3ac43137: the confirmation / owner-view / permalink URL the Directory showed at submit
+        if captured_id: extra["listing_id"] = captured_id
+        res["recorded"] = record("SCC", row["id"], to, row.get("listing_url"), note, **extra)
     return res

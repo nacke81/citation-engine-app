@@ -210,7 +210,7 @@ def build_activity_record(client_id, row, new, evidence_url, day):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -238,6 +238,9 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     new_row = copy.deepcopy(row)
     new_row["state"] = new_state
     if evidence_url: new_row["evidence_url"] = evidence_url
+    listing_url = check_evidence(listing_url, "submitted") if listing_url else None   # t_3ac43137: the URL the Directory showed at submit (permalink, owner view or confirmation); plain http(s) only
+    if listing_url: new_row["listing_url"] = listing_url
+    if listing_id and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-]{2,40}", str(listing_id)): new_row["listing_id"] = str(listing_id)
     entry = {"at": day, "from": old, "to": new_state, "evidence_url": evidence_url, "note": note or None}
     if verify_type: entry["verify_type"] = verify_type  # history carries the type, not only the note text (t_568f1ee6)
     new_row.setdefault("history", [])

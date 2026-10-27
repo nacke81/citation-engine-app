@@ -25,6 +25,8 @@ PERMALINK = {
     "chamberofcommerce.com": r"^/united-states/[^?]*/\d+-",
     "yellowbot.com": r"^/[^/?]+\.html$",
     "facebook.com": r"^/(people/[^/]+/\d+|[A-Za-z0-9.\-]{3,})/?$",
+    "localsolution.com": r"^/b/[^/?]+/[^/?]+",                                  # t_3ac43137: /b/<city-st>/<slug>; the homepage / add form are not listings
+    "listyourbusiness.us": r"^/category/[^/?]+/[a-z\-]+/[^/?]+/?$",            # /category/<cat>/<state>/<slug>
 }
 SEARCHY = re.compile(r"(?i)/search|/s/|[?&](q|query|search_terms|find_desc|what|find_text)=|/explore|/category|/categories")
 
@@ -67,7 +69,7 @@ def is_permalink(directory, url):
     if not url: return False
     pat = PERMALINK.get(directory)
     path = _path(url)
-    if SEARCHY.search(path) and not (directory == "bing.com" and re.search(PERMALINK["bing.com"], url)):
+    if SEARCHY.search(path) and not (directory == "bing.com" and re.search(PERMALINK["bing.com"], url)) and directory != "listyourbusiness.us":   # LYB listings live under /category/ (t_3ac43137); its pattern is explicit
         return False
     if pat is None: return True
     target = url if directory == "bing.com" else path
