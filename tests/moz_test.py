@@ -147,6 +147,36 @@ with contextlib.redirect_stdout(io.StringIO()) as o:
     rr = M.run(db=Boom(), today=TODAY, env=ENV, quota=quota_fn(), fetch=FakeMoz())
 check("M4 run() never raises and never prints the token", rr["skipped"] and TOKEN not in o.getvalue())
 
+# M4b token resolved from an env file (weekly.cmd loads no env file; os.environ has no token)
+_td = tempfile.mkdtemp()
+_f1, _f2, _missing = os.path.join(_td, "a.env"), os.path.join(_td, "b.env"), os.path.join(_td, "none.env")
+open(_f1, "w", encoding="utf-8").write("# c\nOTHER=1\nMOZ_API_TOKEN=\"" + TOKEN + "\"\n")
+open(_f2, "w", encoding="utf-8").write("MOZ_API_TOKEN=second-file-value\n")
+seen = {}
+def spy_transport(token):
+    seen["token"] = token
+    return quota_fn(), FakeMoz({"p1-old.example": 91})
+_real_lt = M.live_transport
+M.live_transport = spy_transport
+mz = None
+try:
+    db = FakeDB(dirs4[:4])
+    with contextlib.redirect_stdout(io.StringIO()) as o:
+        rr = M.run(db=db, today=TODAY, env={}, files=[_missing, _f1, _f2])
+finally:
+    M.live_transport = _real_lt
+check("M4b token only in an env file: run() fetches and writes", not rr["skipped"] and sum(1 for c in db.calls if c[0] == "PATCH") == 4 and db.dirs["p1-old.example"]["da_source"] == "moz")
+check("M4b the first file with a value wins, quotes stripped", seen.get("token") == TOKEN)
+check("M4b nothing printed contains the token or a file path", TOKEN not in o.getvalue() and "second-file-value" not in o.getvalue() and _td not in o.getvalue(), o.getvalue())
+check("M4b os.environ wins over files", M.resolve_token({M.TOKEN_ENV: "envwins"}, [_f1]) == "envwins")
+check("M4b explicit env with no files reads no real file", M.resolve_token({}) is None)
+check("M4b default file order: hermes/.env then profile .env", [x.replace("\\", "/").split("hermes/", 1)[1] for x in M.env_files()] == [".env", "profiles/citation-engineer/.env"], str(M.env_files()))
+# control: no token anywhere
+mz = FakeMoz(); db = FakeDB(dirs4[:4])
+with contextlib.redirect_stdout(io.StringIO()) as o:
+    rc = M.run(db=db, today=TODAY, env={}, quota=quota_fn(), fetch=mz, files=[_missing, _missing + "2"])
+check("M4b control: no token anywhere = one skip line, no calls", rc["skipped"] and not mz.calls and not [c for c in db.calls if c[0] != "GET"] and o.getvalue().strip().count("\n") == 0 and "MOZ_API_TOKEN" in o.getvalue())
+
 # M5 snapshot authority
 SCC = json.load(open(os.path.join(HERE, "fixtures", "snapshot-scc-2026-10-27.json"), encoding="utf-8"))["payload"]
 doms = [d["domain"] for d in SCC["directories"]]

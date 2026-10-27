@@ -169,12 +169,49 @@ def authority_map(db):
     return {r["domain"]: r["da"] for r in load_dirs(db) if r.get("da_source") == "moz" and isinstance(r.get("da"), (int, float))}
 
 
-def run(db=None, today=None, env=None, quota=None, fetch=None):
+def env_files():
+    """Token files, first wins. Resolved lazily so importing this module has no side effects."""
+    base = os.path.expandvars("%LOCALAPPDATA%/hermes")
+    return [base + "/.env", base + "/profiles/citation-engineer/.env"]
+
+
+def read_env_file(path, key=TOKEN_ENV):
+    """Value of key from a KEY=VALUE file (same parse as run.py load_env), or None. Never logs."""
+    try:
+        for l in open(path, encoding="utf-8"):
+            if "=" in l and not l.lstrip().startswith("#"):
+                k, v = l.rstrip("\n").split("=", 1)
+                if k.strip() == key and v.strip().strip('"'):
+                    return v.strip().strip('"')
+    except OSError:
+        pass
+    return None
+
+
+def resolve_token(env=None, files=None):
+    """Order: env mapping (os.environ by default), then each file. An explicitly passed env reads no
+    real files unless files is also given (keeps tests off the real .env). Value is never logged."""
+    explicit = env is not None
+    env = os.environ if env is None else env
+    if env.get(TOKEN_ENV):
+        return env[TOKEN_ENV]
+    if files is None:
+        files = [] if explicit else env_files()
+    for f in files:
+        v = read_env_file(f)
+        if v:
+            return v
+    return None
+
+
+def run(db=None, today=None, env=None, quota=None, fetch=None, files=None):
     """Monthly job. Non-fatal by design: returns the report, never raises."""
     try:
-        env = os.environ if env is None else env
+        token = resolve_token(env, files)
+        env = dict(os.environ if env is None else env)
+        if token: env[TOKEN_ENV] = token
         today = today or datetime.date.today()
-        if not env.get(TOKEN_ENV):
+        if not token:
             log("skipped: no MOZ_API_TOKEN set"); return {"skipped": True, "reason": "no MOZ_API_TOKEN"}
         if db is None:
             import directories as D
