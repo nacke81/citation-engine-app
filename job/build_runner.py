@@ -84,6 +84,8 @@ class Ctx:
         self.site, self.page, self.nap, self.mailbox, self.item_id, self.cdp, self.dry_run = site, page, nap, mailbox, item_id, cdp, dry_run
         self._runner, self.sleep, self.now, self.poll_seconds, self.poll_every, self.log = runner or subprocess.run, sleep, now, poll_seconds, poll_every, log
         self.state, self._base_uid = {}, None
+        self.has_account = False   # t_03a74bae: --has-account; steps tagged when has_account / new_account follow it
+        self.run_dir = None        # t_03a74bae: where failure evidence goes (default: <runs>/build-<site>-<stamp>, made on the first failure)
         self.item_name = None   # vault item NAME resolved by `python job/vault_item.py --domain D` (build_runner --item-name); beats the spec's vault_item
         self.row_id = None      # queue row id of a live run (--row): the CAPTCHA 3-try cap is counted per row
         self.solve_log = None   # CapSolver solve log path (None = pagekit.SOLVE_LOG)
@@ -178,6 +180,23 @@ def capture_listing(ctx, site):
     return cur or None
 
 
+def save_failure_evidence(ctx, site, step, error):
+    import fail_evidence
+    return fail_evidence.save(ctx, site, step, error)
+
+
+def active(st, ctx):
+    """False when a step is tagged for the other branch of the spec (has_account / new_account)."""
+    w = getattr(st, "when", None)
+    return w is None or (w == "has_account") == bool(ctx.has_account)
+
+
+def open_step_for(site, ctx):
+    """The step --only always runs first: the first active step that opens a page or signs in; a Python site falls back to the first step named open_*. None = the spec has none."""
+    act = [st for st in site.steps if active(st, ctx)]
+    return next((st for st in act if getattr(st, "opener", False)), None) or next((st for st in act if st.name.startswith("open")), None)
+
+
 def run_site(site, ctx, only=None):
     """-> {site, mode, steps:[{name, kind, status, detail}], stopped_before}. Raises nothing for a failed step: it is recorded and the run stops there."""
     res = {"site": site.name, "mode": "dry-run" if ctx.dry_run else "live", "steps": [], "stopped_before": None, "ok": True}
@@ -185,8 +204,16 @@ def run_site(site, ctx, only=None):
         try: ctx.state["mail_base"] = ctx.mailbox.max_uid()
         except Exception as e: res["steps"].append({"name": "mail_baseline", "kind": "read", "status": "failed", "detail": str(e)[:200]}); res["ok"] = False; return res
     last_open = None
-    for st in site.steps:
-        if only and st.name not in only: continue
+    steps = list(site.steps)
+    if only:
+        # t_03a74bae: --only never runs on a blank page. The spec's open / sign-in step runs first; a spec without one fails loudly, before any step.
+        op = open_step_for(site, ctx)
+        if op is None:
+            res["steps"].append({"name": "only_needs_open", "kind": "read", "status": "failed", "detail": "--only needs an open step: spec %s has none (add a 'do: open' step)" % site.name}); res["ok"] = False; return res
+        steps = [op] + [st for st in steps if st is not op and st.name in only]   # the opener first, even when the spec lists it later
+    for st in steps:
+        if not active(st, ctx):
+            res["steps"].append({"name": st.name, "kind": st.kind, "status": "skipped", "detail": "other branch (%s)" % st.when}); continue
         if ctx.dry_run and st.kind in STOP_IN_DRY_RUN:
             res["stopped_before"] = st.name; break
         try:
@@ -207,13 +234,16 @@ def run_site(site, ctx, only=None):
             if not ctx.dry_run: capture_listing(ctx, site)
             res["steps"].append({"name": st.name, "kind": st.kind, "status": "ok", "detail": PK.redact(str(detail)) if detail is not None else ""})
         except Exception as e:
-            res["steps"].append({"name": st.name, "kind": st.kind, "status": "failed", "detail": PK.redact(str(e))[:300]}); res["ok"] = False; break
+            ev = save_failure_evidence(ctx, site, st, e)   # t_03a74bae: BEFORE the caller closes the context
+            res["steps"].append({"name": st.name, "kind": st.kind, "status": "failed", "detail": PK.redact(str(e))[:300], **({"evidence": ev} if ev else {})}); res["ok"] = False; break
     return res
 
 
 def format_result(res):
     lines = ["%s [%s]" % (res["site"], res["mode"])]
-    for s in res["steps"]: lines.append("  %-7s %-22s %-6s %s" % (s["kind"], s["name"], s["status"], s["detail"][:110]))
+    for s in res["steps"]:
+        lines.append("  %-7s %-22s %-7s %s" % (s["kind"], s["name"], s["status"], s["detail"][:110]))
+        if s.get("evidence"): lines.append("          failure evidence: %s | %s | url %s" % (s["evidence"].get("screenshot", "no screenshot"), s["evidence"].get("json", "no json"), s["evidence"].get("url")))
     if res["stopped_before"]: lines.append("  -- dry run stopped BEFORE step '%s' (nothing was submitted)" % res["stopped_before"])
     if any(W.is_block_text(s["detail"]) for s in res["steps"] if s["status"] == "failed"):
         ray = next((W.parse_ray_id(s["detail"]) for s in res["steps"] if s["status"] == "failed" and W.parse_ray_id(s["detail"])), None)
@@ -297,7 +327,7 @@ def is_full_run(site, res, only=None):
     """True only when NO --only filter was used and every spec step ran with status ok. A subset or discovery run sent no listing and never records."""
     if only: return False
     done = [x for x in res["steps"] if x["name"] != "chrome_restart"]
-    return bool(res["ok"]) and len(done) == len(site.steps) and all(x["status"] == "ok" for x in done)
+    return bool(res["ok"]) and len(done) == len(site.steps) and all(x["status"] in ("ok", "skipped") for x in done) and any(x["status"] == "ok" for x in done)
 
 
 def record_live(row, site, record=None, captured=None):
@@ -325,6 +355,14 @@ def record_live(row, site, record=None, captured=None):
     return "recorded: %s -> %s (%s)" % (res["id"], to, str(res.get("recorded"))[:120])
 
 
+def check_mail_only(site):
+    """t_03a74bae: discoverourtown and loc8nearme have no account and no vault item; their status arrives by mail only (mail_scan.py). A spec that signs in
+    or reads a vault item for one of them is refused before any browser starts. Returns a refusal text or None."""
+    import buildqueue as Q
+    if getattr(site, "uses_account", False) and Q.is_mail_only(site.domain): return "%s refused: %s is a mail-only Directory (no account, no vault item). Its status path is `python job/mail_scan.py`." % (site.name, site.domain)
+    return None
+
+
 def check_guard(site, row_id=None, flags=()):
     """t_6b1e01ff: a spec may carry guard {refuse_rows, flag, reason}. A row in refuse_rows is refused outright; without the spec's --<flag> the spec is refused
     (showmelocal_claim is for a NEW listing only: the SCC listing is claimed now, and create-showmelocal must never run it). Returns a refusal text or None."""
@@ -348,7 +386,8 @@ def main(argv=None):
     a.add_argument("--item-id", default=None, help="Vaultwarden item id (when two items share the name)")
     a.add_argument("--item-name", default=None, help="Vaultwarden item NAME as printed by `python job/vault_item.py --domain <domain>` (overrides the spec's vault_item)")
     a.add_argument("--ignore-due", action="store_true", help="work a row whose recheck_due is still in the future")
-    a.add_argument("--only", default=None, help="comma list of step names")
+    a.add_argument("--only", default=None, help="comma list of step names (the spec's open / sign-in step always runs first)")
+    a.add_argument("--has-account", action="store_true", help="the Directory account already exists: steps tagged when has_account run (login), when new_account do not (signup + mail)")
     a.add_argument("--new-listing", action="store_true", help="the Directory has no listing for us yet (needed by specs guarded for new listings only, e.g. showmelocal_claim)")
     n = a.parse_args(argv)
     if n.live and not n.card: raise SystemExit("--live is refused without --card <id> (a Directory account is written)")
@@ -362,6 +401,8 @@ def main(argv=None):
         import buildqueue as Q
         due = Q.not_due(row)
         if due and not n.ignore_due: print("SKIP %s: recheck_due %s (retry later; --ignore-due to work it anyway)" % (n.row, due)); return 0   # t_d2f75685: before any browser
+    mo = check_mail_only(site)
+    if mo: raise SystemExit(mo)
     skip = wall_gate(site)
     if skip:
         print(skip); return 0   # hard-block cap: no Chrome, no Directory touched
@@ -377,6 +418,7 @@ def main(argv=None):
     try:
         ctx = Ctx(site, page, nap, mailbox=mailbox, item_id=n.item_id, cdp=n.cdp, dry_run=not n.live)
         ctx.row_id = n.row
+        ctx.has_account = n.has_account
         ctx.item_name = n.item_name
         ctx.lease = lease
         if int(n.cdp.rsplit(":", 1)[-1].strip("/") or 0) == KA.PORT:

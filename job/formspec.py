@@ -44,7 +44,8 @@ from build_core import BuildError, Step, Site
 NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name", "phone_digits", "description_long")
 VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit",
          "uncheck", "select_native", "type_pick", "click_text", "wait", "expect_url", "list_fields", "solve_captcha",
-         "type_text", "set_value", "remove", "login", "read_text")
+         "type_text", "set_value", "remove", "login", "read_text", "read_result")
+WHEN = ("has_account", "new_account")   # t_03a74bae: a step may run on one branch only (acompio: login when the account exists, else sign up)
 _REF = re.compile(r"\{([a-z_]+)\}")
 _LITERAL_PHONE = re.compile(r"\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}")
 _LITERAL_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
@@ -80,10 +81,17 @@ def validate(spec):
         if do not in VERBS: _fail(site, i, "unknown verb %r (known: %s)" % (do, ", ".join(VERBS)))
         need = {"open": ("url",), "fill": ("selector",), "select": ("target", "value"), "upload_logo": ("selector",), "check": ("selector",),
                 "vault_fill": ("selector", "url"), "click": ("selector",), "uncheck": ("selector",), "select_native": ("selector",),
-                "login": ("url", "user_selector", "password_selector"), "read_text": ("expect_any",),
+                "login": ("user_selector", "password_selector"), "read_text": ("expect_any",), "read_result": ("classes",),
                 "type_pick": ("selector",), "type_text": ("selector",), "set_value": ("selector",), "remove": ("selector",), "click_text": ("text",), "expect_url": ("contains",), "wait": ("ms",)}.get(do, ())
         for k in need:
             if not s.get(k): _fail(site, i, "%s needs %r" % (do, k))
+        if do == "login" and not (s.get("url") or s.get("from_page")): _fail(site, i, "login needs 'url' (or from_page:true when an earlier step opened the form)")
+        if s.get("when") not in (None,) + WHEN: _fail(site, i, "when must be one of %s" % ", ".join(WHEN))
+        if do == "read_result":
+            cl = s["classes"]
+            if not isinstance(cl, dict) or not cl or not all(isinstance(v, list) and v for v in cl.values()): _fail(site, i, "read_result classes is {label: [regex, ...]} (first label that matches wins)")
+            for v in cl.values():
+                for rx in v: re.compile(rx)
         if do == "fill" and not (s.get("key") or s.get("value") is not None): _fail(site, i, "fill needs key or value")
         if do == "type_pick" and not (s.get("key") or s.get("value") is not None): _fail(site, i, "type_pick needs key or value")
         if do in ("type_text", "set_value") and not (s.get("key") or s.get("value") is not None): _fail(site, i, "%s needs key or value" % do)
@@ -293,6 +301,9 @@ def _v_click_text(s):
     def fn(ctx):
         import pagekit as PK
         PK.clear_ads(ctx.page)
+        if s.get("snapshot_before"):   # t_03a74bae: remember what the page said before the click, so read_result judges only NEW text (citylocalpro re-send)
+            try: ctx.state["snapshot"] = set(l.strip().lower() for l in ctx.page.inner_text("body").splitlines() if l.strip())
+            except Exception: ctx.state["snapshot"] = set()
         ok = ctx.page.evaluate(CLICK_TEXT_JS, {"text": render(s["text"], ctx.nap), "tag": s.get("tag", "button,a,input[type=submit]"), "exact": bool(s.get("exact", True)), "force": bool(s.get("force"))})
         if not ok and s.get("optional"): return "skipped (no %s reading %r)" % (s.get("tag", "button/link"), s["text"])
         if not ok: raise BuildError("no %s reading %r on %s" % (s.get("tag", "button/link"), s["text"], ctx.page.url.split("?")[0][-50:]))
@@ -345,8 +356,11 @@ def _v_login(s):
     Kind `fill`: it sends only credentials the owner already holds; no listing is written. A dry run only LOOKS the vault item up."""
     def fn(ctx):
         import pagekit as PK
-        ctx.page.goto(render(s["url"], ctx.nap), wait_until="domcontentloaded")
-        PK.wait_out_wall(ctx.page, int(s.get("wall_seconds", 60)))
+        if not s.get("from_page"):   # from_page: an earlier step (Sign in button / add-listing modal) already put the form on screen (bbb, businessyab; t_03a74bae)
+            ctx.page.goto(render(s["url"], ctx.nap), wait_until="domcontentloaded")
+            PK.wait_out_wall(ctx.page, int(s.get("wall_seconds", 60)))
+            if s.get("url") and not ctx.page.locator(s["password_selector"]).count() and ctx.page.url.split("?")[0].rstrip("/") != render(s["url"], ctx.nap).split("?")[0].rstrip("/"):
+                return "already signed in (the login page redirected to %s)" % ctx.page.url.split("?")[0][-60:]   # t_03a74bae: a --only re-run on a signed-in build profile
         ctx.need(s["user_selector"], s["password_selector"], wait_ms=int(s.get("wait_ms", 15000)))
         login_url = ctx.page.url
         ctx.page.fill(s["user_selector"], str(ctx.nap[s.get("user_key", "email")]))
@@ -413,6 +427,24 @@ def _v_solve_captcha(s):
     return fn
 
 
+def _v_read_result(s):
+    """t_03a74bae: classify the text a click produced (citylocalpro 'Re-send verification': mail sent, or the site's 24h limit?). Read only. `classes` is an ordered
+    {label: [regex]}; the FIRST label with a hit wins (put `limit` before `sent`). With new_only:true only lines that were not on the page at the click_text
+    snapshot_before are judged, so a standing banner never reads as a result. No hit = `unknown` (never a guess). The page text is not logged, only the label."""
+    def fn(ctx):
+        if s.get("settle_ms"): ctx.page.wait_for_timeout(int(s["settle_ms"]))
+        lines = [l.strip() for l in ctx.page.inner_text("body").splitlines() if l.strip()]
+        if s.get("new_only"):
+            snap = ctx.state.get("snapshot")
+            if snap is None: raise BuildError("read_result new_only needs an earlier click_text with snapshot_before:true")
+            lines = [l for l in lines if l.lower() not in snap]
+        text = "\n".join(lines)
+        label = next((k for k, rxs in s["classes"].items() if any(re.search(rx, text, re.I) for rx in rxs)), "unknown")
+        ctx.state["result"] = label
+        return "RESULT=%s" % label
+    return fn
+
+
 def _v_stop(s):
     return lambda ctx: "live run passes the dry-run stop"
 
@@ -420,7 +452,7 @@ def _v_stop(s):
 KIND = {"open": "read", "clear_ads": "fill", "fill": "fill", "select": "fill", "upload_logo": "fill", "check": "fill", "vault_fill": "fill",
         "wait_mail": "mail", "stop_before_submit": "submit", "uncheck": "fill", "select_native": "fill", "type_pick": "fill",
         "click_text": "fill", "wait": "read", "expect_url": "read", "list_fields": "read", "solve_captcha": "submit",
-        "type_text": "fill", "set_value": "fill", "remove": "fill", "login": "fill", "read_text": "read"}
+        "type_text": "fill", "set_value": "fill", "remove": "fill", "login": "fill", "read_text": "read", "read_result": "read"}
 
 
 def build_site(spec):
@@ -432,13 +464,14 @@ def build_site(spec):
         fn = _v_wait_mail(s, spec) if do == "wait_mail" else {"open": _v_open, "clear_ads": _v_clear_ads, "fill": _v_fill, "select": _v_select, "upload_logo": _v_upload_logo,
               "check": _v_check, "vault_fill": _v_vault_fill, "click": _v_click, "stop_before_submit": _v_stop, "uncheck": _v_uncheck,
               "select_native": _v_select_native, "type_pick": _v_type_pick, "click_text": _v_click_text, "wait": _v_wait, "expect_url": _v_expect_url,
-              "list_fields": _v_list_fields, "solve_captcha": _v_solve_captcha, "type_text": _v_type_text, "set_value": _v_set_value, "remove": _v_remove, "login": _v_login, "read_text": _v_read_text}[do](s)
+              "list_fields": _v_list_fields, "solve_captcha": _v_solve_captcha, "type_text": _v_type_text, "set_value": _v_set_value, "remove": _v_remove, "login": _v_login, "read_text": _v_read_text, "read_result": _v_read_result}[do](s)
         kind = ("submit" if s.get("submit") else "fill") if do in ("click", "click_text") else KIND[do]
         if do == "click_text" and s.get("submit"): kind = "submit"
         name = s.get("name") or "%02d_%s" % (i + 1, do)
-        steps.append(Step(name, kind, fn))
+        steps.append(Step(name, kind, fn, when=s.get("when"), opener=do in ("open", "login") and not s.get("from_page")))
     mail = spec.get("mail")
     site = Site(spec["site"], spec["domain"], steps, spec.get("vault_item"), mail)
+    site.uses_account = any(x.get("do") in ("login", "vault_fill") for x in spec["steps"])
     site.recheck_due_days = spec.get("recheck_due_days")   # t_6b1e01ff: an edit spec sets recheck_due = run day + N instead of a state change
     site.guard = spec.get("guard")                          # t_6b1e01ff: {"refuse_rows": [...], "flag": "new-listing", "reason": "..."}
     site.record = spec.get("record", "submitted")   # 'none': a live run does not record `submitted` (the flow stops at a verify step)

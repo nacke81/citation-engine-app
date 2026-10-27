@@ -1,0 +1,113 @@
+{
+  "site": "acompio_resume",
+  "domain": "acompio.com",
+  "record": "created-unlisted",
+  "vault_item": "SCC - acompio.com",
+  "notes": "t_03a74bae. Finishes a DRAFT company left by a failed acompio run: 'Add new company' on the dashboard resumes it at the step it stopped on. Social step, Contact, Description, Finish Listing. Assumes the build Chrome is signed in to account.acompio.com (run `acompio --has-account --only sign_in` first, or sign in by hand). Same live fixes as acompio.json (overlay removed, force on Proceed).",
+  "steps": [
+    {
+      "name": "open_dash",
+      "do": "open",
+      "url": "https://account.acompio.com/",
+      "wall_seconds": 60
+    },
+    {
+      "name": "clear_overlay_pre",
+      "do": "remove",
+      "selector": ".fullscreen-notification"
+    },
+    {
+      "name": "wait_pre",
+      "do": "wait",
+      "ms": 1500
+    },
+    {
+      "name": "add_company",
+      "do": "click_text",
+      "text": "Add new company",
+      "tag": "button,a",
+      "settle_ms": 2500
+    },
+    {
+      "name": "wait_resume",
+      "do": "wait",
+      "ms": 2500
+    },
+    {
+      "name": "next_social",
+      "do": "click_text",
+      "text": "Proceed to Next",
+      "tag": "button,a",
+      "force": true,
+      "settle_ms": 4000
+    },
+    {
+      "name": "clear_overlay",
+      "do": "remove",
+      "selector": ".fullscreen-notification"
+    },
+    {
+      "name": "contact_phone",
+      "do": "fill",
+      "selector": "#company-phone",
+      "key": "phone"
+    },
+    {
+      "name": "contact_name",
+      "do": "fill",
+      "selector": "#company-contact",
+      "key": "contact"
+    },
+    {
+      "name": "contact_web",
+      "do": "fill",
+      "selector": "#company-webpage",
+      "key": "site"
+    },
+    {
+      "name": "contact_email",
+      "do": "fill",
+      "selector": "#company-email",
+      "key": "email"
+    },
+    {
+      "name": "next_contact",
+      "do": "click_text",
+      "text": "Proceed to Next",
+      "tag": "button,a",
+      "force": true,
+      "settle_ms": 4000
+    },
+    {
+      "name": "clear_overlay_2",
+      "do": "remove",
+      "selector": ".fullscreen-notification"
+    },
+    {
+      "name": "description",
+      "do": "type_text",
+      "selector": ".se-wrapper-wysiwyg",
+      "value": "{description_long}",
+      "delay_ms": 10
+    },
+    {
+      "name": "next_description",
+      "do": "click_text",
+      "text": "Proceed to Next",
+      "tag": "button,a",
+      "force": true,
+      "settle_ms": 4000
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "finish_listing",
+      "do": "click_text",
+      "text": "Finish Listing",
+      "tag": "button,a,input[type=submit]",
+      "submit": true,
+      "settle_ms": 5000
+    }
+  ]
+}

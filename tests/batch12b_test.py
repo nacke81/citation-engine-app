@@ -153,7 +153,8 @@ fills = [s.name for s in site.steps if s.kind == "fill" and s.name in ("clear_ov
 NAP2 = dict(NAP, description_long="We help families compare senior living and care options in plain language. Our consultants explain costs and guide each family through every step of the decision.")
 page2 = FakePage("https://account.acompio.com/dashboard"); ctx2 = B.Ctx(site, page2, NAP2, runner=Runner(), log=lambda *a: None, dry_run=True)
 res2 = B.run_site(site, ctx2, only=set(fills))
-check("N4 acompio Contact/Description steps run on a fake page and use the identity NAP", res2["ok"] and len(res2["steps"]) == len(fills)
+check("N4 acompio Contact/Description steps run on a fake page and use the identity NAP", res2["ok"] and len(res2["steps"]) == len(fills) + 1 and res2["steps"][0]["name"] == "open_signup"   # t_03a74bae: --only runs the open step first
+     
       and ("fill", "#company-phone", NAP["phone"]) in page2.acts and ("fill", "#company-contact", NAP["contact"]) in page2.acts
       and ("fill", "#company-webpage", NAP["site"]) in page2.acts and ("fill", "#company-email", NAP["email"]) in page2.acts
       and ("type", ".se-wrapper-wysiwyg", NAP2["description_long"]) in page2.acts, str(res2["steps"]))

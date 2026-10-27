@@ -9,6 +9,7 @@ row | mail found (date + subject) | URL.
 find_approval() is pure: hand it message dicts and it needs no network.
 """
 import email, email.utils, html, imaplib, os, re, sys, datetime
+import buildqueue as Q
 from email.header import decode_header, make_header
 from urllib.parse import urlparse
 
@@ -151,7 +152,8 @@ def report(rows, scanner):
         hit = scanner.find(d)
         if not hit and scanner.error:   # an unreadable mailbox is NOT "no approval mail": say so
             lines.append("%-26s | %-60s | %s" % (rid, "MAILBOX NOT READ (%s)" % scanner.error[:30], "-")); continue
-        lines.append("%-26s | %-60s | %s" % (rid, ("%s  %s" % (hit["date"], hit["subject"]))[:60] if hit else "none", hit["url"] if hit else "-"))
+        tag = " [mail-only: this scan is its only status path]" if Q.is_mail_only(d) else ""   # t_03a74bae
+        lines.append("%-26s | %-60s | %s%s" % (rid, ("%s  %s" % (hit["date"], hit["subject"]))[:60] if hit else "none", hit["url"] if hit else "-", tag))
     return "\n".join(lines)
 
 

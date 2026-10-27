@@ -1,0 +1,49 @@
+{
+  "site": "businessyab_owner",
+  "domain": "businessyab.com",
+  "record": "none",
+  "vault_item": "SCC - businessyab.com",
+  "notes": "t_03a74bae. READ-ONLY owner read for businessyab. The login is behind the 'Sign in' button / the add-listing modal, not on the home page: open the home page, click Sign in, then `login` (from_page) with the vault item (`python job/vault_item.py --domain businessyab.com`). Duplicate hidden ids on this site: the fill helper takes the first VISIBLE match (PR #26). Status is read with the order-safe read_text (list order = precedence, terminal words first). Writes nothing. Selectors NOT seen live by this spec's author (fixture only): UNPROVEN; first real run: --dry-run and list_fields.",
+  "steps": [
+    {
+      "name": "open_home",
+      "do": "open",
+      "url": "https://www.businessyab.com/",
+      "wall_seconds": 60
+    },
+    {
+      "name": "open_sign_in",
+      "do": "click_text",
+      "text": "Sign in",
+      "tag": "a,button",
+      "exact": false,
+      "settle_ms": 3000
+    },
+    {
+      "name": "sign_in",
+      "do": "login",
+      "from_page": true,
+      "user_selector": "input[type=email], input[name=email], input[name=username]",
+      "password_selector": "input[type=password]",
+      "settle_ms": 6000
+    },
+    {
+      "name": "read_status",
+      "do": "read_text",
+      "url": "https://www.businessyab.com/dashboard",
+      "settle_ms": 4000,
+      "expect_any": [
+        "rejected",
+        "declined",
+        "suspended",
+        "pending",
+        "awaiting approval",
+        "under review",
+        "approved",
+        "published",
+        "live",
+        "active"
+      ]
+    }
+  ]
+}
