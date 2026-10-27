@@ -93,7 +93,7 @@ check("F3 storeboard checks #regReceiveSubscribe (Terms) and never #chkagree", c
 check("F3 storeboard leaves the marketing mailing list (#mailList) unchecked", "#mailList" in unchecked and "#mailList" not in checked)
 check("F3 storeboard solves reCAPTCHA v2 only AFTER the stop marker", [s.get("do") for s in sb].index("stop_before_submit") < [s.get("do") for s in sb].index("solve_captcha"))
 ac = json.load(open(os.path.join(JOB, "playbooks", "acompio.json"), encoding="utf-8"))["steps"]
-check("F3 acompio sets Branches 1 and Employees 1-10 and forces Proceed", any(s.get("selector") == "[name=branches]" and s.get("label") == "1" for s in ac) and any(s.get("selector") == "[name=employees]" and s.get("label") == "1-10" for s in ac) and any(s.get("force") for s in ac))
+check("F3 acompio sets Branches 1 and Employees 1-10 and forces Proceed", any(s.get("selector") == "#branches" and s.get("label") == "1" for s in ac) and any(s.get("selector") == "#employees" and s.get("label") == "1-10" for s in ac) and any(s.get("force") for s in ac))
 yp = json.load(open(os.path.join(JOB, "playbooks", "yellowpages_claim.json"), encoding="utf-8"))
 check("F3 Thryv claim ends at /claim/claim-verify and records nothing (record none)", yp["steps"][-1].get("contains") == "/claim/claim-verify" and yp["record"] == "none" and B.load_site("yellowpages_claim").record == "none")
 check("F3 Thryv spec never clicks Verify by Call / Text", "call" not in " ".join(str(s.get("text", "")) + str(s.get("selector", "")) for s in yp["steps"]).lower().replace("claim", ""))

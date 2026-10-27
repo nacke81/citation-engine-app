@@ -86,17 +86,23 @@ REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); const bare = /^(show|reve
   } return n; }""" % REVEAL_RE
 
 
-def read_rendered(pg, url, wait_s=30):
+def read_rendered(pg, url, wait_s=30, canonical=None):
     """Open `url` in page `pg`, wait for the JS page to render (past walls), click any 'Reveal Phone Number' control, then read text/links/html.
     Reads only; the one click is a public page's own reveal control (t_3ac43137). -> (status, text, links, html)"""
     import core
     r = pg.goto(url, timeout=40000, wait_until="domcontentloaded"); status = r.status if r else None
-    text = ""
+    text, prev, same = "", None, 0
     for _ in range(max(1, wait_s // 2)):
         pg.wait_for_timeout(2000)
         try: text = pg.inner_text("body", timeout=8000)
         except Exception: text = ""
-        if not WALL_RE.search(text[:4000]) and len(text.strip()) > 200: break
+        if WALL_RE.search(text[:4000]) or len(text.strip()) <= 200: prev, same = None, 0; continue
+        # t_03a74bae (us-info flip-flop): a lazy-loaded block (the street) appears AFTER the first readable render. Without the canonical NAP: stop only once the
+        # text held still for 3 polls. With it: stop as soon as the full NAP reads as a match, else after 3 still polls (a page that really lacks the street).
+        same = same + 1 if text == prev else 0; prev = text
+        if canonical is None:
+            if same >= 2: break
+        elif compare(text, canonical)["verdict"] == "match" or same >= 2: break
     try: clicked = pg.evaluate(REVEAL_JS)
     except Exception: clicked = 0
     if isinstance(clicked, int) and not isinstance(clicked, bool) and clicked > 0:   # the phone sits behind a click (us-info): let it appear, then re-read
@@ -110,7 +116,7 @@ def read_rendered(pg, url, wait_s=30):
     return status, text, links, raw
 
 
-def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
+def chrome_fetch(url, cdp=CDP_URL, wait_s=30, canonical=None):
     """Read the rendered page in a FRESH signed-out context of the Chrome on `cdp`. Opens and closes one context; reads only. Walls are waited on, never solved."""
     from playwright.sync_api import sync_playwright
     p = sync_playwright().start()
@@ -119,7 +125,7 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
         ctx = b.new_context()   # fresh, signed out (t_ac8b1bdd): contexts[0] is the signed-in build profile and shows owner-only pending edits
         pg = ctx.new_page()
         try:
-            status, text, links, raw = read_rendered(pg, url, wait_s)
+            status, text, links, raw = read_rendered(pg, url, wait_s, canonical)
             return Page(status, pg.url, text, links, html=raw)
         finally:
             try: pg.close()
@@ -140,6 +146,7 @@ class SignedOutReader:
     def __init__(self, chrome_factory=None, fetcher=None, wait_s=30):
         self._factory, self._fetch, self.wait_s = chrome_factory, fetcher or chrome_fetch, wait_s
         self.chrome, self.starts = None, 0
+        self.canonical = None   # set by recheck(): lets the rendered read wait for the late-loading NAP lines (t_03a74bae)
 
     def _start(self):
         if self.chrome is None:
@@ -155,7 +162,7 @@ class SignedOutReader:
     def __call__(self, url):
         try: oc = self._start()
         except Exception as e: return Page(0, url, "", err="signed-out Chrome did not start: %s" % type(e).__name__)
-        return self._fetch(url, oc.cdp_url, self.wait_s)
+        return self._fetch(url, oc.cdp_url, self.wait_s, self.canonical) if self.canonical else self._fetch(url, oc.cdp_url, self.wait_s)
 
     def close(self):
         oc, self.chrome = self.chrome, None
@@ -201,16 +208,38 @@ def osm_fetch(url, getter=None):
 
 
 def get_page(url, plain=None, chrome=None, canonical=None):
-    """Plain GET first. The build Chrome only when the plain page is walled or shows no readable listing block for the canonical name."""
+    """Plain GET first. The rendered (Chrome) read when the plain page is walled, shows no block for the canonical name, or (t_03a74bae) does not read as a full
+    `match`: a plain page with the name block but no street is the server-side shell of a JS listing; keeping it made a dry run and a --write run disagree
+    depending on whether the plain GET happened to be good that minute. -> (page, "plain" | "chrome" | "osm")"""
     if osm_node_id(url):   # the API tags ARE the public listing; the map page has no text, so no plain/Chrome fallback
         return osm_fetch(url), "osm"
     page = (plain or plain_fetch)(url)
-    if not walled(page) and (canonical is None or read_block(page.text, canonical)):
-        return page, "plain"
+    if not walled(page) and (canonical is None or chrome is None or compare(page.text, canonical, getattr(page, "html", None))["verdict"] == "match"):
+        if canonical is None or read_block(page.text, canonical): return page, "plain"
     if chrome is None:
         return page, "plain"
     cp = chrome(url)
     return (cp if not walled(cp) or walled(page) else page), "chrome"
+
+
+SEVERITY = ("mismatch", "not-public", "nap-incomplete", "unreadable")   # which non-match verdict wins when the repeat reads disagree
+
+
+def read_listing(url, plain, chrome, canonical):
+    """THE read and verdict for one listing URL (t_03a74bae). Dry run and --write both come through here, so they cannot disagree: one route choice (get_page),
+    then STABLE_READS reads on that route. Every read must give the same verdict; a `match` needs all of them to match. Reads that disagree (a street that
+    loaded late, an old and a new copy of the data) are never live: the most severe non-match wins and `unstable` lists the verdicts. -> (page, how, cmp_)"""
+    page, how = get_page(url, plain, chrome, canonical)
+    cmp_ = compare(page.text, canonical, getattr(page, "html", None))
+    again = {"osm": lambda: osm_fetch(url), "chrome": (lambda: chrome(url)) if chrome else None}.get(how)
+    if again is None or cmp_["verdict"] not in ("match", "nap-incomplete"): return page, how, cmp_
+    reads = [(page, cmp_)]
+    for _ in range(STABLE_READS - 1):
+        p2 = again(); reads.append((p2, compare(p2.text, canonical, getattr(p2, "html", None))))
+    if len({c["verdict"] for _p, c in reads}) == 1: return page, how, cmp_
+    bad = min((r for r in reads if r[1]["verdict"] != "match"), key=lambda r: SEVERITY.index(r[1]["verdict"]) if r[1]["verdict"] in SEVERITY else 99)
+    c = dict(bad[1]); c["unstable"] = [x["verdict"] for _p, x in reads]
+    return bad[0], how, c
 
 
 # ---- NAP reading ----------------------------------------------------------------------------------------------------
@@ -543,7 +572,7 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
     if record is None:
         import transitions; record = transitions.record_transition
     own_reader = None
-    if use_chrome and chrome is None: chrome = own_reader = SignedOutReader()   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
+    if use_chrome and chrome is None: chrome = own_reader = SignedOutReader(); own_reader.canonical = canonical   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
     elif not use_chrome: chrome = None
     try:
         return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail)
@@ -592,12 +621,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", "")
                 continue
             res["url"] = url
-            page, how = get_page(url, plain, chrome, canonical)
-            cmp_ = compare(page.text, canonical, getattr(page, "html", None))
-            if cmp_["verdict"] == "match" and how in ("chrome", "osm"):   # t_ac8b1bdd: a rendered page (Bing Maps) can serve old and new data to different signed-out reads; a match must repeat
-                for _ in range(STABLE_READS - 1):
-                    again = osm_fetch(url) if how == "osm" else chrome(url); c2 = compare(again.text, canonical, getattr(again, "html", None))
-                    if c2["verdict"] != "match": page, cmp_ = again, c2; break
+            page, how, cmp_ = read_listing(url, plain, chrome, canonical)   # t_03a74bae: the one read + verdict path for dry run and --write
             res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["nap"] = cmp_.get("nap"); res["masked"] = bool(cmp_.get("masked"))
             if cmp_["verdict"] == "unreadable":
                 why = not_public(page, how)
@@ -615,7 +639,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     _proof_then_live(row, kind, url, cmp_["nap"], day, db, record, queue_path, res["note"])
                 res["after"] = "live"
             elif before != "live":
-                note = note_for(cmp_); res["note"] = note
+                note = note_for(cmp_) + (" (repeat reads disagreed: %s; not counted live)" % ", ".join(cmp_["unstable"]) if cmp_.get("unstable") else ""); res["note"] = note
                 if write and note != _last_note(row):
                     record("SCC", rid, before, None, note, queue_path=queue_path, today=day)
         except Exception as e:

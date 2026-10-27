@@ -1,0 +1,61 @@
+{
+  "site": "citylocalpro_resend",
+  "domain": "citylocalpro.com",
+  "record": "none",
+  "vault_item": "SCC - citylocalpro.com",
+  "notes": "t_03a74bae. Click 'Re-send verification' ONCE and read what the site said. Batch 17 clicked it with no capture, so nobody knew if mail was sent or the site's 24h sender limit (SMTP 503) hit. Result label in the step detail: RESULT=sent | limit | unknown ('limit' is tested first). Record it with transitions.py --recheck-due (limit: tomorrow). The selectors for the sign-in form and the Re-send control were NOT seen live by this spec's author (fixture only): UNPROVEN, discover with --dry-run list_fields on the first real run. Never run it twice in a day: the click is a submit-kind step, so a dry run stops before it. Reads listings@ afterwards with mail_scan / hotfrog, not here.",
+  "steps": [
+    {
+      "name": "sign_in",
+      "do": "login",
+      "url": "https://citylocalpro.com/login",
+      "user_selector": "input[name=email]",
+      "password_selector": "input[name=password]",
+      "wall_seconds": 60,
+      "settle_ms": 6000
+    },
+    {
+      "name": "open_account",
+      "do": "open",
+      "url": "https://citylocalpro.com/dashboard"
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "resend_once",
+      "do": "click_text",
+      "text": "Re-send verification",
+      "tag": "a,button",
+      "exact": false,
+      "submit": true,
+      "snapshot_before": true,
+      "settle_ms": 4000
+    },
+    {
+      "name": "read_result",
+      "do": "read_result",
+      "new_only": true,
+      "settle_ms": 1500,
+      "classes": {
+        "limit": [
+          "24 ?h",
+          "24 hours",
+          "too many",
+          "limit",
+          "try again (later|tomorrow)",
+          "already (been )?sent (today|recently)",
+          "wait .{0,20}before"
+        ],
+        "sent": [
+          "(has|have) been sent",
+          "(email|mail|link) (was |is )?sent",
+          "we('| ha)ve sent",
+          "check your (email|inbox)",
+          "verification (email|mail|link) (sent|re-?sent)",
+          "re-?sent"
+        ]
+      }
+    }
+  ]
+}

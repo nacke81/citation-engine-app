@@ -82,6 +82,28 @@ def overlay_directories(payload, rows, day):
     return out
 
 
+# t_03a74bae: no account, no vault item. The Directory tells us only by mail to listings@, so mail_scan.py is the ONLY status path: no owner read is ever planned.
+MAIL_ONLY = ("discoverourtown.com", "loc8nearme.com")
+
+
+def is_mail_only(directory_or_row):
+    """True for a mail-only Directory (domain, or a queue row naming one, or a row carrying `status_path: mail-only`)."""
+    if isinstance(directory_or_row, dict):
+        return directory_or_row.get("status_path") == "mail-only" or is_mail_only(directory_or_row.get("directory"))
+    h = (directory_or_row or "").lower()
+    return any(h == d or h.endswith("." + d) for d in MAIL_ONLY)
+
+
+def status_path(row):
+    """'mail-only' | 'public+owner'. Batch tools plan an owner read only for rows that are not mail-only."""
+    return "mail-only" if is_mail_only(row) else "public+owner"
+
+
+def owner_read_rows(rows):
+    """The rows a batch may plan an owner read (login + dashboard) for. Mail-only rows are never in it."""
+    return [r for r in rows if not is_mail_only(r)]
+
+
 def not_due(row, today=None):
     """recheck_due (YYYY-MM-DD) on a row = retry later (t_6b1e01ff foursquare edit review; t_d2f75685 citylocalpro 24h sender limit).
     Returns the due date while it is still in the future, else None. Batch tools skip such a row; a row NAMED by id on the command line is still worked."""

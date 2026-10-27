@@ -7,7 +7,7 @@
     "sender": "acompio",
     "link_re": "https://account\\.acompio\\.com/confirm\\.php\\?code=[0-9a-f]+"
   },
-  "notes": "b12 + b12 resume. Account at account.acompio.com, then a company wizard (Category, Branches/Employees, Contact, Description, Summary, Finish Listing). Turnstile on signup passed by itself in the build Chrome (0 solves). Branches=1 / Employees=1-10 are Nate's ruling. 'Proceed to Next' is an <a>; force:true enables it. Contact (#company-phone/#company-contact/#company-webpage/#company-email), Description (SunEditor .se-wrapper-wysiwyg; the step now types the canonical {description_long}, t_d2f75685: acompio REJECTED listing 47872152 as 'Insufficient description', so the text must be original full sentences, 100 to 300 chars, no address, no phone, no hours; job/description_long.py refuses anything else before the form is touched, and a run without the text fails instead of inventing one) and the Summary page's 'Finish Listing' were all seen live in batch 12 (t_03181a0a). Result of a full run: dashboard status 'pending', free tier shows 'Address not listed', so the row is `created-unlisted` (record), never `submitted`. Logo: not attempted. Premium upsell: not taken.",
+  "notes": "t_03a74bae (batch 17 live fixes folded in). ONE spec, two branches. `--has-account` (the Directory account exists: SCC - acompio in the vault): the `login` step signs in at account.acompio.com/login.php and the signup + confirm-mail steps are skipped. Without it: signup (Turnstile passed by itself in the build Chrome, 0 solves), the confirm mail, then the login form. Wizard, as seen live in batch 17: remove `.fullscreen-notification` before 'Add new company' (it covers the button); Address 'Proceed to Next' is an <a> that needs force:true; the selects are #branches / #employees (1 and 1-10, Nate's ruling); a Social step sits between Branches and Contact (Proceed with nothing typed); Contact (#company-phone/#company-contact/#company-webpage/#company-email); Description (SunEditor .se-wrapper-wysiwyg) types the canonical {description_long} (job/description_long.py: 100 to 300 chars, no address, no phone, no hours; acompio rejected listing 47872152 as 'Insufficient description'); Finish Listing. A FAILED run leaves a draft company: 'Add new company' resumes it at the step it stopped on, so use acompio_resume.json to finish a draft instead of retyping. Result of a full run: dashboard 'pending', the free tier shows 'Address not listed', so the row is created-unlisted, never submitted. Logo: not attempted. Premium upsell: not taken. Merged from acompio_discover / _existing / _final (deleted: diagnostic and subset copies of this flow).",
   "steps": [
     {
       "name": "open_signup",
@@ -22,75 +22,98 @@
         "input[name=mailadress]",
         "input[name=password]",
         "#terms_accepted"
-      ]
+      ],
+      "when": "new_account"
     },
     {
       "name": "gender_first_option",
       "do": "select_native",
       "selector": "select[name=user-gender]",
-      "index": 0
+      "index": 0,
+      "when": "new_account"
     },
     {
       "name": "language",
       "do": "select_native",
       "selector": "select[name=user-language]",
-      "label": "English"
+      "label": "English",
+      "when": "new_account"
     },
     {
       "name": "first",
       "do": "fill",
       "selector": "input[name=first_name]",
-      "key": "first"
+      "key": "first",
+      "when": "new_account"
     },
     {
       "name": "last",
       "do": "fill",
       "selector": "input[name=last_name]",
-      "key": "last"
+      "key": "last",
+      "when": "new_account"
     },
     {
       "name": "email",
       "do": "fill",
       "selector": "input[name=mailadress]",
-      "key": "email"
+      "key": "email",
+      "when": "new_account"
     },
     {
       "name": "password",
       "do": "vault_fill",
       "selector": "input[name=password]",
-      "url": "{current}"
+      "url": "{current}",
+      "when": "new_account"
     },
     {
       "name": "terms",
       "do": "check",
       "selector": "#terms_accepted",
-      "js": true
+      "js": true,
+      "when": "new_account"
     },
     {
-      "do": "stop_before_submit"
+      "do": "stop_before_submit",
+      "when": "new_account"
     },
     {
       "name": "submit_signup",
       "do": "click",
       "selector": "button[type=submit]",
       "submit": true,
-      "settle_ms": 5000
+      "settle_ms": 5000,
+      "when": "new_account"
     },
     {
       "name": "confirm_mail",
-      "do": "wait_mail"
+      "do": "wait_mail",
+      "when": "new_account"
+    },
+    {
+      "name": "sign_in",
+      "do": "login",
+      "url": "https://account.acompio.com/login.php",
+      "user_selector": "input[name=user]",
+      "password_selector": "input[name=password]",
+      "wall_seconds": 90,
+      "settle_ms": 6000,
+      "when": "has_account"
     },
     {
       "name": "login_user",
       "do": "fill",
       "selector": "input[name=user]",
-      "key": "email"
+      "key": "email",
+      "when": "new_account"
     },
     {
       "name": "login_password",
       "do": "vault_fill",
       "selector": "input[name=password]",
-      "url": "{current}"
+      "url": "{current}",
+      "when": "new_account"
     },
     {
       "name": "login",
@@ -98,14 +121,26 @@
       "text": "Login",
       "tag": "button,input[type=submit]",
       "submit": true,
-      "settle_ms": 6000
+      "settle_ms": 6000,
+      "when": "new_account"
+    },
+    {
+      "name": "clear_overlay_pre",
+      "do": "remove",
+      "selector": ".fullscreen-notification"
+    },
+    {
+      "name": "wait_pre",
+      "do": "wait",
+      "ms": 1500
     },
     {
       "name": "add_company",
       "do": "click_text",
       "text": "Add new company",
       "tag": "button,a",
-      "settle_ms": 2500
+      "settle_ms": 2500,
+      "optional": false
     },
     {
       "name": "company_name",
@@ -118,6 +153,11 @@
       "do": "select_native",
       "selector": "#select-country",
       "label": "United States"
+    },
+    {
+      "name": "clear_overlay_0",
+      "do": "remove",
+      "selector": ".fullscreen-notification"
     },
     {
       "name": "city_zip",
@@ -139,6 +179,7 @@
       "do": "click_text",
       "text": "Proceed to Next",
       "tag": "button,a",
+      "force": true,
       "settle_ms": 5000
     },
     {
@@ -160,17 +201,25 @@
     {
       "name": "branches",
       "do": "select_native",
-      "selector": "[name=branches]",
+      "selector": "#branches",
       "label": "1"
     },
     {
       "name": "employees",
       "do": "select_native",
-      "selector": "[name=employees]",
+      "selector": "#employees",
       "label": "1-10"
     },
     {
       "name": "next_branches",
+      "do": "click_text",
+      "text": "Proceed to Next",
+      "tag": "button,a",
+      "force": true,
+      "settle_ms": 4000
+    },
+    {
+      "name": "next_social",
       "do": "click_text",
       "text": "Proceed to Next",
       "tag": "button,a",

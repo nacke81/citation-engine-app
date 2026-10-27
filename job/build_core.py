@@ -9,9 +9,11 @@ class BuildError(Exception):
 
 class Step:
     """kind: read (loads/reads only) | fill (types into forms, sends nothing) | mail (reads listings@, opens the link) | submit (writes to the Directory)."""
-    def __init__(self, name, kind, fn):
+    def __init__(self, name, kind, fn, when=None, opener=False):
         if kind not in KINDS: raise ValueError("step kind %r" % kind)
         self.name, self.kind, self.fn = name, kind, fn
+        self.when = when        # t_03a74bae: None | "has_account" | "new_account": the step runs only on that branch of the spec
+        self.opener = opener    # t_03a74bae: the page-open / sign-in step `--only` always runs first
 
 
 class Site:
@@ -20,4 +22,5 @@ class Site:
         self.record = "submitted"
         self.recheck_due_days = None   # t_6b1e01ff
         self.guard = None              # t_6b1e01ff
+        self.uses_account = False   # t_03a74bae: a login / vault_fill step exists (a mail-only Directory must never run such a spec)
         self.mail = mail   # {"sender": "freelistingusa", "link_re": r"https://..."} or None
