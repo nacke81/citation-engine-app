@@ -66,9 +66,40 @@ def plain_fetch(url):
     return Page(status, final, text, links, html=html)
 
 
-def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
-    """Read the rendered page in the build Chrome. Opens and closes one tab; reads only. Walls are waited on (a Turnstile that clears itself), never solved."""
+REVEAL_RE = r"reveal (phone|number)|show (phone|number)|view (phone|number)|click (here )?to (call|view|reveal|show)"
+REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); let n = 0;
+  for (const e of document.querySelectorAll('a,button,input[type=button],input[type=submit],span,div,[role=button]')) {
+    const t = ((e.innerText || e.value || '') + '').trim();
+    if (t && t.length <= 40 && re.test(t) && e.getClientRects().length && !e.querySelector('a,button')) { try { e.click(); n++; } catch (x) {} }
+  } return n; }""" % REVEAL_RE
+
+
+def read_rendered(pg, url, wait_s=30):
+    """Open `url` in page `pg`, wait for the JS page to render (past walls), click any 'Reveal Phone Number' control, then read text/links/html.
+    Reads only; the one click is a public page's own reveal control (t_3ac43137). -> (status, text, links, html)"""
     import core
+    r = pg.goto(url, timeout=40000, wait_until="domcontentloaded"); status = r.status if r else None
+    text = ""
+    for _ in range(max(1, wait_s // 2)):
+        pg.wait_for_timeout(2000)
+        try: text = pg.inner_text("body", timeout=8000)
+        except Exception: text = ""
+        if not WALL_RE.search(text[:4000]) and len(text.strip()) > 200: break
+    try: clicked = pg.evaluate(REVEAL_JS)
+    except Exception: clicked = 0
+    if isinstance(clicked, int) and not isinstance(clicked, bool) and clicked > 0:   # the phone sits behind a click (us-info): let it appear, then re-read
+        pg.wait_for_timeout(1500)
+        try: text = pg.inner_text("body", timeout=8000)
+        except Exception: pass
+    try: links = pg.evaluate(core.LINKS_JS)
+    except Exception: links = []
+    try: raw = pg.content()
+    except Exception: raw = None
+    return status, text, links, raw
+
+
+def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
+    """Read the rendered page in a FRESH signed-out context of the Chrome on `cdp`. Opens and closes one context; reads only. Walls are waited on, never solved."""
     from playwright.sync_api import sync_playwright
     p = sync_playwright().start()
     try:
@@ -76,17 +107,7 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
         ctx = b.new_context()   # fresh, signed out (t_ac8b1bdd): contexts[0] is the signed-in build profile and shows owner-only pending edits
         pg = ctx.new_page()
         try:
-            r = pg.goto(url, timeout=40000, wait_until="domcontentloaded"); status = r.status if r else None
-            text = ""
-            for _ in range(max(1, wait_s // 2)):
-                pg.wait_for_timeout(2000)
-                try: text = pg.inner_text("body", timeout=8000)
-                except Exception: text = ""
-                if not WALL_RE.search(text[:4000]) and len(text.strip()) > 200: break
-            try: links = pg.evaluate(core.LINKS_JS)
-            except Exception: links = []
-            try: raw = pg.content()
-            except Exception: raw = None
+            status, text, links, raw = read_rendered(pg, url, wait_s)
             return Page(status, pg.url, text, links, html=raw)
         finally:
             try: pg.close()
@@ -95,10 +116,40 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30):
             except Exception: pass
     except Exception as e:
         down = "connect" in str(e).lower() or "ECONNREFUSED" in str(e)
-        return Page(0, url, "", err=("build Chrome not reachable on %s (start job/build_chrome.py)" % cdp) if down else type(e).__name__)
+        return Page(0, url, "", err=("Chrome not reachable on %s" % cdp) if down else type(e).__name__)
     finally:
         try: p.stop()
         except Exception: pass
+
+
+class SignedOutReader:
+    """The recheck/Proof fallback reader (t_3ac43137): its OWN headful Chrome, clean throwaway profile (never signed in), own random CDP port
+    (never 9333, never the build profile). Started on the first page that needs it, closed by close(). Callable: reader(url) -> Page. Never raises."""
+    def __init__(self, chrome_factory=None, fetcher=None, wait_s=30):
+        self._factory, self._fetch, self.wait_s = chrome_factory, fetcher or chrome_fetch, wait_s
+        self.chrome, self.starts = None, 0
+
+    def _start(self):
+        if self.chrome is None:
+            if self._factory: oc = self._factory()
+            else:
+                import owned_chrome as OC
+                oc = OC.OwnedChrome()   # profile=None: throwaway temp profile, deleted on close; port=None: free random port
+            oc.__enter__(); self.chrome = oc; self.starts += 1
+            if str(oc.port) == "9333":
+                self.close(); raise RuntimeError("the signed-out reader must not use the build Chrome port 9333")
+        return self.chrome
+
+    def __call__(self, url):
+        try: oc = self._start()
+        except Exception as e: return Page(0, url, "", err="signed-out Chrome did not start: %s" % type(e).__name__)
+        return self._fetch(url, oc.cdp_url, self.wait_s)
+
+    def close(self):
+        oc, self.chrome = self.chrome, None
+        if oc is not None:
+            try: oc.__exit__(None, None, None)
+            except Exception: pass
 
 
 OSM_NODE_RE = re.compile(r"^https://www\.openstreetmap\.org/node/(\d+)/?$")
@@ -255,11 +306,29 @@ def _block_from(lines, i, first):
     return out
 
 
+LOGIN_URL_RE = re.compile(r"(?i)/(log-?in|sign-?in|signin|auth)([/?.#]|$)")
+
+
+def not_public(page, how):
+    """Why a CLEANLY RENDERED page without our listing block is `not-public` (login redirect, 404, 'we couldn't find', an add form), else None.
+    Walls, errors and unrendered/too-short reads stay unreadable. Only the rendered (Chrome) route or an explicit 404/410 can say it."""
+    if page.err or WALL_RE.search((page.text or "")[:4000]): return None
+    if page.status in (404, 410): return "HTTP %s" % page.status
+    if how != "chrome" or page.status != 200 or len((page.text or "").strip()) < 50: return None
+    if LOGIN_URL_RE.search(urlparse(page.url or "").path): return "redirected to a login page"
+    t = page.text
+    if re.search(r"(?i)\b404\b|page (could )?not (be )?found|doesn'?t exist", t[:600]): return "page not found"
+    if NOTFOUND_RE.search(t) or re.search(r"(?im)^we (could not|couldn'?t|can'?t) find|no results found", t): return "not found in the Directory"
+    return "rendered page has no listing for this business"
+
+
 def compare(text, canonical, html_=None):
     """-> {"verdict": match|mismatch|nap-incomplete|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
     nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
     block = read_block(text, canonical)
     if not block:
+        if UNLISTED_RE.search(text or ""):   # t_3ac43137: "HIDDEN until ACTIVATED" with nothing parseable is a page that exists but is not public: nap-incomplete, not unreadable
+            return {"verdict": "nap-incomplete", "wrong": [], "gaps": ["listing visibility"], "nap": None}
         return {"verdict": "unreadable", "wrong": [], "gaps": [], "nap": None}
     wrong, gaps = [], []
     if exact_name(block[0]) != exact_name(canonical["name"]):
@@ -310,7 +379,7 @@ def compare(text, canonical, html_=None):
     nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else masked_txt) if x)
     if ADDR_NOT_LISTED_RE.search("\n".join(block)) and "address" not in gaps and not got: gaps.append("address")
     if UNLISTED_RE.search(text or "") and "listing visibility" not in gaps: gaps.append("listing visibility")   # paused / hidden: not public yet even if the NAP shown matches
-    verdict = "mismatch" if wrong else "nap-incomplete" if gaps else "match"
+    verdict = "nap-incomplete" if "listing visibility" in gaps else "mismatch" if wrong else "nap-incomplete" if gaps else "match"   # a hidden/paused banner wins, even on a partial parse (t_3ac43137)
     return {"verdict": verdict, "wrong": wrong, "gaps": gaps, "nap": nap, "masked": masked_ok}
 
 
@@ -323,7 +392,7 @@ def note_for(cmp_):
 # Pages that are the way INTO a Directory (add / register / claim / thank-you / lookup / the bare homepage), never the listing itself. A row's
 # evidence_url often holds one of these (brownbook /add-business, showmelocal /, dnb lookup, discoverourtown thankyou.php) while the real
 # listing lives in listing_url. Reading the form page was the "unreadable" of batch 8 (t_560dd259).
-ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing|payment(\.php)?|checkout|submission)([/?#.]|$)|thankyou|[?&]flow=lookup")
+ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing|payment(\.php)?|checkout|submission|dashboard|account|businesses/new)([/?#.]|$)|thankyou|[?&]flow=lookup")
 
 
 def _is_entry_page(url):
@@ -334,6 +403,10 @@ def _is_entry_page(url):
 
 def _permalink(row):
     d = row.get("directory")
+    import listing_capture as LC
+    for k in ("listing_url", "evidence_url"):   # t_3ac43137: an owner-view URL with a known pattern becomes its PUBLIC url (never read signed in)
+        pub = LC.public_url(d, row.get(k))
+        if pub and L.is_permalink(d, pub): return pub
     for k in ("evidence_url", "listing_url"):   # evidence first; fix-bing keeps its Bing Maps permalink in listing_url, bingplaces.com is not a listing
         u = row.get(k)
         if u and L.is_permalink(d, u) and not _is_entry_page(u): return u
@@ -352,10 +425,18 @@ def resolve_bbb(page, ident, biz="SCC"):
     return url if (url and kind == "listing" and "/profile/" in url) else None
 
 
+RECHECK_SEARCH = {
+    "localsolution.com": lambda x: "https://www.localsolution.com/businesses?q=%s&geo=%s" % (quote(x["name"]), quote("%s, %s" % (x["city"], x["st"]))),
+    "listyourbusiness.us": lambda x: "https://listyourbusiness.us/businesses?q=%s" % quote(x.get("short") or x["name"]),
+}
+
+
 def search_url_for(directory, ident, biz="SCC", cat_rows=None):
     """Name + city search URL on the Directory itself: the create-discovery builder, else the Catalog template ({name},{short},{city},{st}). None when neither exists."""
     from urllib.parse import quote_plus as qp
     x = ident["BIZ"][biz]
+    if directory in RECHECK_SEARCH:   # t_3ac43137: Directories whose public search is known but not in the create-discovery table
+        return RECHECK_SEARCH[directory](x)
     try:
         import create_discovery as CD
         cfg = CD.CREATE_DIRS.get(directory)
@@ -410,7 +491,16 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
         raise Q.QueueError("queue canonical phone differs from the approved identity; refusing to recheck")
     if record is None:
         import transitions; record = transitions.record_transition
-    chrome = (chrome or chrome_fetch) if use_chrome else None
+    own_reader = None
+    if use_chrome and chrome is None: chrome = own_reader = SignedOutReader()   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
+    elif not use_chrome: chrome = None
+    try:
+        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live)
+    finally:
+        if own_reader: own_reader.close()
+
+
+def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live):
     results = []
     for kind, row in candidates(q, include_live, only):
         d, rid, before = row["directory"], row["id"], row["state"]
@@ -425,16 +515,20 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
                     note = "weekly recheck: found the BBB profile URL"
                     if write: record("SCC", rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
                     res["note"] = note
+            searched_ok = False
             if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
                 su = search_url_for(d, ident)
                 if su:
                     sp, _how = get_page(su, plain, chrome)
                     url = resolve_by_search(d, sp, ident)
+                    searched_ok = not url and not walled(sp) and not sp.err and (sp.status or 0) < 400   # a readable search page with no card for us: not public
                     if url:
                         res["note"] = "recheck: found the listing URL by name + city search"
                         if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
             if url is None:
-                res["verdict"] = "no-permalink"; continue
+                res["verdict"] = "not-public" if searched_ok else "no-permalink"
+                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business"
+                continue
             res["url"] = url
             page, how = get_page(url, plain, chrome, canonical)
             cmp_ = compare(page.text, canonical, getattr(page, "html", None))
@@ -442,8 +536,11 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
                 for _ in range(STABLE_READS - 1):
                     again = osm_fetch(url) if how == "osm" else chrome(url); c2 = compare(again.text, canonical, getattr(again, "html", None))
                     if c2["verdict"] != "match": page, cmp_ = again, c2; break
-            res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["masked"] = bool(cmp_.get("masked"))
+            res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["nap"] = cmp_.get("nap"); res["masked"] = bool(cmp_.get("masked"))
             if cmp_["verdict"] == "unreadable":
+                why = not_public(page, how)
+                if why:   # t_3ac43137: the Directory answered and nothing is published for us at this URL: a real verdict, nothing written
+                    res["verdict"] = "not-public"; res["fields"] = []; res["note"] = "signed-out page shows no listing: " + why; continue
                 res["error"] = "page not readable (%s)" % (page.err or page.status); continue
             if cmp_["verdict"] == "match":
                 if before == "live":   # already live: report only, unless --proof-live names the row (t_1c503c7f): Proof only, state stays live
@@ -496,7 +593,7 @@ def format_report(results):
     lines = []
     for r in results:
         f = "; ".join("%s=%s" % (a, b) if isinstance(a, str) and b else str(a) for a, b in [(x if isinstance(x, tuple) else (x, "")) for x in r["fields"]])
-        lines.append("%-26s %-14s -> %-14s %-12s %s%s" % (r["row"], r["before"], r["after"], (r["verdict"] or "") + (" (masked)" if r.get("masked") and r["verdict"] == "match" else ""), f, ("  ERR " + r["error"]) if r["error"] else ""))
+        lines.append("%-26s %-14s -> %-14s %-12s %s%s%s" % (r["row"], r["before"], r["after"], (r["verdict"] or "") + (" (masked)" if r.get("masked") and r["verdict"] == "match" else ""), f, ("  ERR " + r["error"]) if r["error"] else "", ("  NAP[%s]" % r["nap"]) if r.get("nap") else (("  (%s)" % r["note"]) if r.get("note") and r["verdict"] == "not-public" else "")))
     return "\n".join(lines)
 
 

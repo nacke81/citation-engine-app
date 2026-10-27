@@ -89,6 +89,15 @@ class Ctx:
         if self.dry_run: cmd = [c for c in cmd if c not in ("--field", selector)] + ["--lookup-only"]
         r = self._runner(cmd, capture_output=True, text=True, timeout=180)
         out = ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()
+        if getattr(r, "returncode", 1) != 0 and not self.item_id and "reason=not-found" in out:
+            # t_3ac43137: the spec name did not match ('SCC - acompio' vs 'SCC - acompio.com'). Resolve the one item that names/links this registrable domain, retry once by id.
+            import vault_item as VI
+            try: self.item_id, _name = VI.resolve_for_domain(self.site.domain, runner=self._runner)
+            except VI.VaultItemError as e: raise BuildError("vault fill failed: %s" % str(e)[:200])
+            self.log("  vault item resolved by domain %s: %s" % (self.site.domain, _name))
+            cmd = [c for c in cmd]; i = cmd.index("--name"); cmd[i:i + 2] = ["--item-id", self.item_id]
+            r = self._runner(cmd, capture_output=True, text=True, timeout=180)
+            out = ((getattr(r, "stdout", "") or "") + (getattr(r, "stderr", "") or "")).strip()
         if getattr(r, "returncode", 1) != 0:
             last = (out.splitlines()[-1] if out else "no output")[:200]
             # A dry run only LOOKS the item up. A seat without vault credentials cannot do that; say so, do not fail the whole dry run.
@@ -138,6 +147,26 @@ class Ctx:
 
 
 # ---- run ----------------------------------------------------------------------------------------------------------------
+CAPTURE_RANK = {"listing": 4, "public-from-owner": 3, "owner": 2, "confirmation": 1}
+
+
+def capture_listing(ctx, site):
+    """t_3ac43137: after a live step, keep the best listing URL the page shows (permalink > public URL built from an owner id > owner view > confirmation URL)
+    and any listing id in ctx.state['captured']; record_live saves it on the row. Reads the page URL and text only; never raises."""
+    import listing_capture as LC
+    try:
+        try: text = ctx.page.inner_text("body", timeout=3000)
+        except Exception: text = ""
+        c = LC.capture(site.domain, ctx.page.url, text)
+    except Exception:
+        return None
+    cur = ctx.state.get("captured") or {}
+    if c["listing_url"] and CAPTURE_RANK.get(c["kind"], 0) > CAPTURE_RANK.get(cur.get("kind") or "", 0): cur = dict(cur, **c)
+    elif c["listing_id"] and not cur.get("listing_id"): cur = dict(cur, listing_id=c["listing_id"])
+    if cur: ctx.state["captured"] = cur
+    return cur or None
+
+
 def run_site(site, ctx, only=None):
     """-> {site, mode, steps:[{name, kind, status, detail}], stopped_before}. Raises nothing for a failed step: it is recorded and the run stops there."""
     res = {"site": site.name, "mode": "dry-run" if ctx.dry_run else "live", "steps": [], "stopped_before": None, "ok": True}
@@ -164,6 +193,7 @@ def run_site(site, ctx, only=None):
                 if last_open is not None: last_open.fn(ctx)
             detail = st.fn(ctx)
             if st.kind == "read": last_open = st
+            if not ctx.dry_run: capture_listing(ctx, site)
             res["steps"].append({"name": st.name, "kind": st.kind, "status": "ok", "detail": PK.redact(str(detail)) if detail is not None else ""})
         except Exception as e:
             res["steps"].append({"name": st.name, "kind": st.kind, "status": "failed", "detail": PK.redact(str(e))[:300]}); res["ok"] = False; break
@@ -228,14 +258,27 @@ def wall_gate(site, queue_path=None, today=None):
     return W.gate(q, site.domain, today)
 
 
+def _brand(domain):
+    """'www.acompio.us' -> 'acompio'; 'accounts.yellowpages.com' -> 'yellowpages'. The label left of the TLD (country-code second levels co/com/org skipped)."""
+    p = [x for x in (domain or "").lower().split(".") if x and x != "www"]
+    if len(p) >= 3 and len(p[-1]) == 2 and p[-2] in ("co", "com", "org", "net", "gov", "edu", "ac"): return p[-3]
+    return p[-2] if len(p) >= 2 else (p[0] if p else "")
+
+
+def same_directory(row_dir, site_domain):
+    """A queue row's directory and a spec's domain name the same Directory: equal, or the same brand on a different TLD (row acompio.us, spec acompio.com;
+    row tupalo.com, spec tupalo.co). t_3ac43137"""
+    return row_dir == site_domain or (bool(_brand(row_dir)) and _brand(row_dir) == _brand(site_domain))
+
+
 def find_row(row_id, site, queue_path=None):
     """The queue row a live run builds. Refuses before any browser starts: unknown row, or a row for a different Directory than the site."""
     import buildqueue as Q
-    try: rows = Q.load_rows(queue_path)
+    try: rows = Q.load_all_rows(queue_path)   # fix_queue + create_rows + create_queue.rows (t_3ac43137)
     except (OSError, ValueError, Q.QueueError) as e: raise SystemExit("--row: cannot read the queue (%s)" % str(e)[:80])
     hit = [r for r in rows if r["id"] == row_id]
     if not hit: raise SystemExit("--row %s is not in the queue" % row_id)
-    if hit[0]["directory"] != site.domain: raise SystemExit("--row %s is for %s, not %s" % (row_id, hit[0]["directory"], site.domain))
+    if not same_directory(hit[0]["directory"], site.domain): raise SystemExit("--row %s is for %s, not %s" % (row_id, hit[0]["directory"], site.domain))
     return hit[0]
 
 
@@ -246,7 +289,7 @@ def is_full_run(site, res, only=None):
     return bool(res["ok"]) and len(done) == len(site.steps) and all(x["status"] == "ok" for x in done)
 
 
-def record_live(row, site, record=None):
+def record_live(row, site, record=None, captured=None):
     """After an ok live run: record `submitted` through buildqueue.submit_row(live=True) -> transitions.record_transition. Returns one log line, never raises:
     a refusal (no Mike approval, paid row, no vault item) is printed, and nothing is recorded."""
     import buildqueue as Q
@@ -255,7 +298,8 @@ def record_live(row, site, record=None):
         return "not recorded: this spec stops at a verify step (record none). Set the state with transitions.py (needs-human + verify_type)."
     row = dict(row); row.setdefault("vaultwarden_item", site.vault_item)
     try:
-        res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True, to=to)
+        res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True, to=to,
+                         captured_url=(captured or {}).get("listing_url"), captured_id=(captured or {}).get("listing_id"))
     except Q.SubmitRefused as e:
         return "NOT recorded (submit_row refused: %s). Record it with transitions.py." % e
     except Exception as e:
@@ -317,7 +361,7 @@ def main(argv=None):
         pw.stop()
     print(format_result(res))
     if n.live and res["ok"]:
-        if is_full_run(site, res, only): print("  " + record_live(row, site))
+        if is_full_run(site, res, only): print("  " + record_live(row, site, captured=ctx.state.get("captured")))
         else: print("  NOT recorded (partial run: --only or a discovery run sends no listing, so it never records). Run the full spec to record.")
     return 0 if res["ok"] else 1
 

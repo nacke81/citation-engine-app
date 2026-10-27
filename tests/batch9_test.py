@@ -83,7 +83,7 @@ check("X2 payment.php evidence + no listing_url: found by name+city search, read
 rows[0]["evidence_url"] = "https://x.example/submission/"
 p, q = q_with(rows); calls.clear()
 res = R.recheck(q, IDENT, plain=lambda u: R.Page(200, u, "Results" + PAD, []), chrome=None, record=lambda *a, **k: {}, queue_path=p, today="2026-11-02", write=False)
-check("X2 /submission/ evidence, search finds nothing: no-permalink, nothing written", res[0]["verdict"] == "no-permalink")
+check("X2 /submission/ evidence, search finds nothing: not-public (t_3ac43137: a readable search with no card for us), nothing written", res[0]["verdict"] == "not-public")
 R.search_url_for = orig
 
 # ---- X3 fit homepage flag --------------------------------------------------------------------------------------------------

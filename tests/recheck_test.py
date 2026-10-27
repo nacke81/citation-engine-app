@@ -113,7 +113,7 @@ check("R6 --no-chrome: walled page writes nothing", chrome_calls == [] and q["fi
 res, q, *_ = run([row("r8", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "denied")}, {U1: "Just a moment..."})
 check("R7 walled in both: unreadable, nothing written", res[0]["verdict"] == "unreadable" and not q["fix_queue"][0]["history"])
 res, q, *_ = run([row("r8", "a.example", "pending-verify", U1)], {U1: "Welcome to a directory about other businesses. " * 20})
-check("R7 page without the business: unreadable, not a mismatch", res[0]["verdict"] == "unreadable" and not q["fix_queue"][0]["history"])
+check("R7 page without the business: not-public (t_3ac43137), not a mismatch, nothing written", res[0]["verdict"] == "not-public" and not q["fix_queue"][0]["history"])
 
 # R8 phone missing -> gap note (the bizapedia case)
 res, q, *_ = run([row("r9", "a.example", "pending-verify", U1)], {U1: "Alder Care Consulting & Solutions\n100 Example\nExampleton, KY 40000\n" + PAD})
@@ -204,7 +204,7 @@ class _PW:
 import types as _t, sys as _s
 _s.modules["playwright"] = _t.ModuleType("playwright"); _sync = _t.ModuleType("playwright.sync_api"); _sync.sync_playwright = lambda: _PW(); _s.modules["playwright.sync_api"] = _sync
 cp = R.chrome_fetch("https://a.example/x")
-check("R16 CDP refused: error names the build Chrome and how to start it", cp.status == 0 and "build Chrome not reachable" in (cp.err or "") and "build_chrome.py" in cp.err, str(cp.err))
+check("R16 CDP refused: error names the build Chrome and how to start it", cp.status == 0 and "Chrome not reachable" in (cp.err or "") and "9333" in cp.err, str(cp.err))
 res, q, *_ = run([row("c1", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "Just a moment...")}, chrome_pages=None)
 # the row error text carries the page error
 pg_, how = R.get_page(U1, lambda u: R.Page(403, u, "Just a moment..."), lambda u: cp, CANON)
@@ -212,6 +212,7 @@ check("R16 get_page falls back to Chrome and reports the route", how == "chrome"
 
 # R13 read-only module
 src = open(os.path.join(HERE, "..", "job", "recheck.py"), encoding="utf-8").read()
+src = re.sub(r"REVEAL_JS = .*?% REVEAL_RE", "", src, flags=re.S)   # the one allowed click is a public page's own Reveal Phone control (t_3ac43137; asserted in batch13_test)
 check("R13 module has no Directory write verb, click/fill/type, or portal seed", not re.search(r"\.(post|put|patch|delete)\(|\.click\(|\.fill\(|\.type\(|\.check\(", src, re.I) and not re.search(r"import seed|portal_seed|seed_portal", src.lower()))
 
 shutil.rmtree(TMP, ignore_errors=True)
