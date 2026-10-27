@@ -283,7 +283,7 @@ check("R2 a run with fewer steps than the spec is not recordable", not B.is_full
 check("R2 a run with a failed step is not recordable", not B.is_full_run(_s, _res(_s, _all, ok_=False, status="failed")))
 _ac = B.load_site("acompio")
 check("R2 acompio --only discover_contact (the skill's own command) does not qualify for recording", not B.is_full_run(_ac, _res(_ac, ["discover_contact"]), only={"discover_contact"}))
-for _n in ("acompio", "storeboard"):
+for _n in ("storeboard",):
     check("R2 %s ships record none (it ends at list_fields)" % _n, F.load_spec(_n)["record"] == "none" and B.load_site(_n).record == "none")
     _sp = F.load_spec(_n); _sp = dict(_sp); _sp.pop("record")
     try: F.validate(_sp); _got = ""

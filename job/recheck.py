@@ -5,7 +5,7 @@ For every queue row in submitted / pending-verify / found (and live, report only
   fetch the public page -> read the listing's own block -> compare name / street / phone to q["canonical"].
   all three match  -> Proof on ce_directory_status, then live through transitions.record_transition (with the permalink)
   a field differs  -> same-state note naming the field and the value shown (no state change)
-  a field is absent-> same-state note naming the gap
+  a field is absent / the page is paused-> verdict nap-incomplete, same-state note naming the gap (a created-unlisted row stays created-unlisted)
   page unreadable  -> nothing written
   no permalink     -> nothing written (bbb.org is the exception: its profile URL is looked up by name + city and stored with a same-state note)
 A note identical to the row's last history note is not written again, so a weekly run does not pile up duplicates.
@@ -23,7 +23,7 @@ import listing as L
 import walls as W
 
 STABLE_READS = 3   # a Chrome-route match must hold on this many fresh signed-out reads (t_ac8b1bdd)
-WAITING = ("submitted", "pending-verify", "found")
+WAITING = ("submitted", "pending-verify", "found", "created-unlisted")
 CDP_URL = "http://127.0.0.1:9333"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 WALL_RE = re.compile(r"(?i)just a moment|quick security check|performing a quick|verify you are (a )?human|attention required|access denied|"
@@ -31,6 +31,9 @@ WALL_RE = re.compile(r"(?i)just a moment|quick security check|performing a quick
 PLUS_PHONE_RE = re.compile(r"(?<![\w+])\+\d[\d\s().\-]{5,18}\d")
 MASKED_NUM_RE = re.compile(r"\+?(\d[\d\s().\-]{0,6}?)\s*[*xX\u2022]{2,}\s*([\d\s().\-]{0,6}\d)")   # +127****2550
 HEXID_RE = re.compile(r"(?i)^[0-9a-f]{4,}(-[0-9a-f]{2,})+$")
+# t_f707b644: a page that EXISTS but is not a public, complete listing yet (showmelocal "HIDDEN until ACTIVATED", paused). Its NAP may match; it is still not live.
+UNLISTED_RE = re.compile(r"(?i)hidden until activated|listing (is |has been )?(currently )?(paused|hidden|unpublished|not (yet )?(public|visible|published))|this listing is paused|pending (review|approval|activation)")
+ADDR_NOT_LISTED_RE = re.compile(r"(?i)address (is )?not (listed|provided|available|shown)")
 MASKED_PHONE_RE = re.compile(r"\*{2,}|reveal phone|show phone|click to (call|view)", re.I)   # a hidden phone is not a wrong phone
 
 
@@ -253,7 +256,8 @@ def _block_from(lines, i, first):
 
 
 def compare(text, canonical, html_=None):
-    """-> {"verdict": match|mismatch|gap|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure."""
+    """-> {"verdict": match|mismatch|nap-incomplete|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
+    nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
     block = read_block(text, canonical)
     if not block:
         return {"verdict": "unreadable", "wrong": [], "gaps": [], "nap": None}
@@ -304,12 +308,14 @@ def compare(text, canonical, html_=None):
         gaps.append("address")
     street_txt = got[0] if got else None
     nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else masked_txt) if x)
-    verdict = "mismatch" if wrong else "gap" if gaps else "match"
+    if ADDR_NOT_LISTED_RE.search("\n".join(block)) and "address" not in gaps and not got: gaps.append("address")
+    if UNLISTED_RE.search(text or "") and "listing visibility" not in gaps: gaps.append("listing visibility")   # paused / hidden: not public yet even if the NAP shown matches
+    verdict = "mismatch" if wrong else "nap-incomplete" if gaps else "match"
     return {"verdict": verdict, "wrong": wrong, "gaps": gaps, "nap": nap, "masked": masked_ok}
 
 
 def note_for(cmp_):
-    parts = ["%s shows %s" % (f, v) for f, v in cmp_["wrong"]] + ["%s not shown on the public page (hidden or missing)" % f for f in cmp_["gaps"]]
+    parts = ["%s shows %s" % (f, v) for f, v in cmp_["wrong"]] + [("listing is paused or not public yet" if f == "listing visibility" else "%s not shown on the public page (hidden or missing)" % f) for f in cmp_["gaps"]]
     return "weekly recheck: " + "; ".join(parts)
 
 

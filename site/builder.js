@@ -6,7 +6,7 @@ const hasErrors = (k) => Array.isArray(k.diffs) && k.diffs.some((d) => d && d.fi
 const dirOf = (s) => s.domain || s.directory;
 const KIND_ACTION = { fix: 'fix', create: 'new' };
 const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '');
-export const QUEUE_LABEL = { queued: 'Queued', submitted: 'Submitted', 'pending-verify': 'Pending verify', 'needs-human': 'Needs human', live: 'Live', rejected: 'Rejected' };
+export const QUEUE_LABEL = { queued: 'Queued', 'created-unlisted': 'Created, not public yet', submitted: 'Submitted', 'pending-verify': 'Pending verify', 'needs-human': 'Needs human', live: 'Live', rejected: 'Rejected' };
 
 export const STOPPED_LABEL = 'Blocked 3 days, stopped. Mike to look.';
 
@@ -43,7 +43,7 @@ export function builderRows(checks, status, dirs) {
     const cand = candidateAction(check, s), q = s?.queue_state || null;
     let state = 'none', action = cand;
     if (q === 'live' && hasProof(s)) { state = 'result'; action = s.build_action || KIND_ACTION[s.queue_kind] || cand; }
-    else if (q === 'live' || q === 'submitted' || q === 'pending-verify') state = 'waiting';
+    else if (q === 'live' || q === 'submitted' || q === 'pending-verify' || q === 'created-unlisted') state = 'waiting';
     else if (q === 'needs-human' || ((!q || q === 'queued') && d?.agent_access === 'blocked' && (cand || q === 'queued'))) state = 'needsPerson';
     else if (q === 'rejected') state = 'none';
     else if (cand || q === 'queued') state = 'toBuild'; // a queued row is work to do even when the finder had no candidate (never checked, couldn't check)

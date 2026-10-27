@@ -9,11 +9,12 @@ import json, os
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The real queue holds the client's identity, so it lives outside the repo (like the identity file). Tests point CE_QUEUE at a placeholder fixture.
 QUEUE_PATH = os.environ.get("CE_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/queue/scc-fix-create-queue.json")
-LISTING_STATES = ("live", "pending-verify", "submitted")
+LISTING_STATES = ("live", "pending-verify", "submitted", "created-unlisted")
 PORTAL_STATES = ("submitted", "pending-verify", "needs-human", "live", "rejected")
 # found = SCC is already listed and the claim is not done. Internal only: the client sees needs-human, like queued.
 # claimed-unverified = found and claimed (free account linked) but edits are ID-gated (D&B). Internal like found; the client sees needs-human.
-QUEUE_TO_PORTAL = {"queued": "needs-human", "found": "needs-human", "claimed-unverified": "needs-human"}
+# created-unlisted = the listing exists but is not public yet / lacks full NAP (t_f707b644). The portal already has `submitted` (In flight), so it maps there: no portal enum change.
+QUEUE_TO_PORTAL = {"queued": "needs-human", "found": "needs-human", "claimed-unverified": "needs-human", "created-unlisted": "submitted"}
 for _s in PORTAL_STATES:
     QUEUE_TO_PORTAL[_s] = _s
 
@@ -76,12 +77,13 @@ def approval_ok(row):
 LIVE_FROM = ("queued", "found", "needs-human")   # states the transition matrix lets move to submitted
 
 
-def submit_row(row, get_login, free_only=True, record=None, live=False):
+def submit_row(row, get_login, free_only=True, record=None, live=False, to="submitted"):
     """One submit. live=False (default) is a DRY RUN: returns the intended transition, never records unless CE_RECORD_TRANSITIONS=1 or record= is given.
     live=True is build_runner --live after the Directory build succeeded (t_df278575): the same refusals apply, a queued/found/needs-human row may move,
     and the `submitted` transition is recorded by default (no env flag). Refusals raise before anything is recorded. This function itself never contacts a Directory."""
     if not approval_ok(row):
         raise SubmitRefused("no Mike approval recorded for row %s" % row.get("id"))
+    if to not in ("submitted", "created-unlisted"): raise SubmitRefused("a build records submitted or created-unlisted, not %r" % (to,))
     if row.get("state") != "queued" and not (live and row.get("state") in LIVE_FROM):
         raise SubmitRefused("row %s is not queued" % row.get("id"))
     if free_only and not str(row.get("cost", "")).startswith("free"):
@@ -95,12 +97,12 @@ def submit_row(row, get_login, free_only=True, record=None, live=False):
         raise SubmitRefused("Vaultwarden read failed for row %s" % row.get("id")) from None
     if not cred:
         raise SubmitRefused("Vaultwarden item missing for row %s" % row.get("id"))
-    res = {"id": row["id"], "dry_run": not live, "directory": row["directory"], "field": row.get("wrong_field"), "to": row.get("right_value"), "next_state": "submitted"}
+    res = {"id": row["id"], "dry_run": not live, "directory": row["directory"], "field": row.get("wrong_field"), "to": row.get("right_value"), "next_state": to}
     # Success path: record the submitted state (queue + Local SEO + gated Activities). submit_row is still a dry run (no Directory adapter
     # exists), so recording is opt-in via CE_RECORD_TRANSITIONS=1 or an injected record(); once a live adapter lands, flip the default.
     if record is None and (live or os.environ.get("CE_RECORD_TRANSITIONS") == "1"):
         import transitions
         record = transitions.record_transition
     if record:
-        res["recorded"] = record("SCC", row["id"], "submitted", row.get("listing_url"), "submitted via build queue")
+        res["recorded"] = record("SCC", row["id"], to, row.get("listing_url"), "submitted via build queue" if to == "submitted" else "created via build queue; not public yet or NAP incomplete")
     return res

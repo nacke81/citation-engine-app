@@ -168,3 +168,10 @@ test("every home stat card deep-links to its group, and the group exists on the 
   for (const g of new Set(links)) assert.ok(page.includes(`id="grp-${g}"`), g);
   assert.ok(!/<a[^>]*>[^]*?<a /.test(home.replace(/<\/a>/g, "</a>\n").split("\n").filter((l) => /<a [^]*<a /.test(l)).join("")), "no nested anchors");
 });
+
+test("created-unlisted (t_f707b644): exists but not public yet / no full NAP -> Waiting (In flight), never Needs person, never a result card", () => {
+  const s = stats([nf("a.com")], [st("a.com", { queue_state: "created-unlisted", queue_note: "page not public yet" })]);
+  assert.equal(s.waiting, 1); assert.equal(s.needsPerson, 0); assert.equal(s.newLive + s.claimed + s.fixed, 0);
+  const row = builderRows([nf("a.com")], [st("a.com", { queue_state: "created-unlisted" })], [])[0];
+  assert.equal(row.state, "waiting"); assert.equal(row.queue, "created-unlisted");
+});

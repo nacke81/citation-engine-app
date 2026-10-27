@@ -1,0 +1,87 @@
+{
+  "site": "tupalo",
+  "domain": "tupalo.co",
+  "record": "created-unlisted",
+  "notes": "b12 resume (t_03181a0a). Add-spot flow needs no login; email is just a field. Anubis passed with no action in the build Chrome. The add form has NO phone field, so the public page shows name + address only (nap-incomplete); a phone needs a paid claim ($4.99/mo, Mike decides) so the row is created-unlisted, never live. Address: type the full address into #address and pick the .pointer.pa2 suggestion, then overwrite #address-street and the lat/long (the GBP/Nominatim point used elsewhere). Category is a Shoelace sl-dropdown: JS-click the sl-menu-item 'Local Service' (no consulting category). Email is sl-input[type=email]. reCAPTCHA v2 sitekey 6LccDmUqAAAAAJ1ObMt2YMeWyW9u4rfaDgp5lwXp: 1 CapSolver solve, token injected with callbacks 0. Save is an sl-button.",
+  "steps": [
+    {
+      "name": "open_add_spot",
+      "do": "open",
+      "url": "https://www.tupalo.co/en/api/v5/spot/new",
+      "wall_seconds": 90,
+      "expect": [
+        "#name"
+      ]
+    },
+    {
+      "name": "cookies",
+      "do": "click_text",
+      "text": "Decline",
+      "tag": "button,sl-button,a",
+      "exact": false,
+      "optional": true,
+      "settle_ms": 500
+    },
+    {
+      "name": "name",
+      "do": "fill",
+      "selector": "#name",
+      "key": "name"
+    },
+    {
+      "name": "address",
+      "do": "type_pick",
+      "selector": "#address",
+      "value": "{street}, {city} {st} {zip}",
+      "pick_selector": ".pointer.pa2",
+      "delay_ms": 80,
+      "settle_ms": 2500
+    },
+    {
+      "name": "street",
+      "do": "set_value",
+      "selector": "#address-street",
+      "key": "street"
+    },
+    {
+      "name": "lat",
+      "do": "set_value",
+      "selector": "#address-lat",
+      "value": "37.3149813"
+    },
+    {
+      "name": "long",
+      "do": "set_value",
+      "selector": "#address-long",
+      "value": "-87.4964262"
+    },
+    {
+      "name": "category",
+      "do": "click_text",
+      "text": "Local Service",
+      "tag": "sl-menu-item",
+      "settle_ms": 500
+    },
+    {
+      "name": "email",
+      "do": "set_value",
+      "selector": "sl-input[type=email]",
+      "key": "email"
+    },
+    {
+      "do": "stop_before_submit"
+    },
+    {
+      "name": "recaptcha",
+      "do": "solve_captcha"
+    },
+    {
+      "name": "save",
+      "do": "click_text",
+      "text": "Save",
+      "tag": "sl-button",
+      "submit": true,
+      "settle_ms": 6000
+    }
+  ]
+}

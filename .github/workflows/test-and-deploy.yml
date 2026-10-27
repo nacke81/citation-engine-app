@@ -99,6 +99,8 @@ jobs:
         run: python tests/fit_test.py
       - name: Batch 12 (formspecs, live recording, CAPTCHA solve helper, Chrome lease warning, tab sweep)
         run: python tests/batch12_test.py
+      - name: Batch 12 resume (nap-incomplete, created-unlisted, acompio/tupalo/showmelocal formspecs, playbook_write)
+        run: python tests/batch12b_test.py
       - name: CapSolver count (per-row solve log, balance delta, cap)
         run: python tests/count_capsolver_test.py
       - name: Build runner (three site scripts dry-run, vault item id, ad clearing, logo upload, mail; all mocked)
