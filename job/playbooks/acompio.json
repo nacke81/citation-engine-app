@@ -1,6 +1,7 @@
 {
   "site": "acompio",
   "domain": "acompio.com",
+  "record": "none",
   "vault_item": "SCC - acompio.com",
   "mail": {"sender": "acompio", "link_re": "https://account\\.acompio\\.com/confirm\\.php\\?code=[0-9a-f]+"},
   "notes": "b12. Account at account.acompio.com, then a company wizard (Category, Branches/Employees, Contact, Description, Summary). The Turnstile on signup passed by itself in the build Chrome in batch 12 (0 solves); if it does not, add solve_captcha after the stop marker. Branches=1 and Employees=1-10 are Nate's ruling (SCC is a one-person business). The 'Proceed to Next' button can stay disabled after the selects: click_text force:true enables it. Contact/Description/Summary were NEVER reached in batch 12, so those steps are list_fields discovery: run once with --only, read the fields, then write the fills into this file. Logo: not attempted.",

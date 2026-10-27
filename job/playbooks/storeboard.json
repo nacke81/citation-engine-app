@@ -1,6 +1,7 @@
 {
   "site": "storeboard",
   "domain": "storeboard.com",
+  "record": "none",
   "vault_item": "SCC - storeboard.com",
   "notes": "b12 playbook storeboard.com.md. Signup (reCAPTCHA v2) then the /welcome/ business wizard. ids are SWAPPED: #regReceiveSubscribe is the REQUIRED Terms box, #chkagree is the OPTIONAL SMS consent (leave unchecked). Password 8-16 chars, letters/digits/@!$ only (the vault item must be made with mkpayload --alnum). No email verify. Logo upload is rejected: skipped. A Cloudflare 'Just a moment' page clears by itself in the build Chrome (open waits it out).",
   "steps": [

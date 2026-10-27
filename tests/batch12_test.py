@@ -120,7 +120,7 @@ p3 = FakePage(url="https://a.example/", evals={"want": True}); s3 = F.build_site
 s3.fn(ctx_for(C.Site("t", "a.example", []), p3))
 check("F4 click_text force passes force:true to the page script", [a for a in p3.acts if a[0] == "eval" and a[2] and a[2].get("force") is True])
 lines = []; p4 = FakePage(evals={"querySelectorAll": ["input|text|a|b|Name|", "button|||next|Proceed|disabled"]})
-F.build_site(dict(site="t", domain="a.example", steps=[{"do": "list_fields"}])).steps[0].fn(ctx_for(C.Site("t", "a.example", []), p4, log=lambda *a: lines.append(" ".join(map(str, a)))))
+F.build_site(dict(site="t", domain="a.example", record="none", steps=[{"do": "list_fields"}])).steps[0].fn(ctx_for(C.Site("t", "a.example", []), p4, log=lambda *a: lines.append(" ".join(map(str, a)))))
 check("F4 list_fields prints one line per visible control and no values", len([l for l in lines if "|" in l]) == 2 and "value" not in " ".join(lines).lower())
 p5 = FakePage(url="https://a.example/wizard")
 try: F.build_site(dict(site="t", domain="a.example", steps=[{"do": "expect_url", "contains": "/done", "wait_ms": 500}])).steps[0].fn(ctx_for(C.Site("t", "a.example", []), p5)); eu = False
@@ -199,7 +199,7 @@ def row(**kw):
     r.update(kw); return r
 calls = []
 rec = lambda *a: calls.append(a) or "recorded-ok"
-site = B.load_site("storeboard")
+site = B.load_site("storeboard"); site.record = "submitted"   # round 2: the shipped spec is record none until its fills land; force it to exercise the recorder
 msg = B.record_live(row(), site, record=rec)
 check("L1 an ok live run records `submitted` for the row through submit_row(live=True)", calls and calls[0][:3] == ("SCC", "create-storeboard", "submitted") and "recorded" in msg, msg)
 res = Q.submit_row(row(), lambda i: {"u": 1}, record=rec, live=True)
@@ -271,6 +271,43 @@ check("C2 with no blank tab left a blank one is opened BEFORE the foreign one cl
 uo, seen = fake_cdp([{"id": "B", "type": "page", "url": "about:blank"}])
 check("C2 a clean Chrome closes nothing", KA.sweep_foreign_tabs(9333, uo) == [] and len(seen) == 1)
 check("C2 sweep uses only the loopback DevTools port", all(u.startswith("http://127.0.0.1:9333/") for m, u in seen))
+
+
+# ---- R2 (review round 1): partial runs never record, incomplete specs refuse `submitted`, sweep after restart ---------------
+def _res(site, names, ok_=True, status="ok"):
+    return {"site": site.name, "mode": "live", "ok": ok_, "stopped_before": None, "steps": [{"name": n, "kind": "read", "status": status, "detail": ""} for n in names]}
+_s = B.load_site("citylocalpro"); _all = [x.name for x in _s.steps]
+check("R2 a full all-ok run is recordable", B.is_full_run(_s, _res(_s, _all)))
+check("R2 an --only run is never recordable, even when ok", not B.is_full_run(_s, _res(_s, _all[:1]), only={_all[0]}))
+check("R2 a run with fewer steps than the spec is not recordable", not B.is_full_run(_s, _res(_s, _all[:-1])))
+check("R2 a run with a failed step is not recordable", not B.is_full_run(_s, _res(_s, _all, ok_=False, status="failed")))
+_ac = B.load_site("acompio")
+check("R2 acompio --only discover_contact (the skill's own command) does not qualify for recording", not B.is_full_run(_ac, _res(_ac, ["discover_contact"]), only={"discover_contact"}))
+for _n in ("acompio", "storeboard"):
+    check("R2 %s ships record none (it ends at list_fields)" % _n, F.load_spec(_n)["record"] == "none" and B.load_site(_n).record == "none")
+    _sp = F.load_spec(_n); _sp = dict(_sp); _sp.pop("record")
+    try: F.validate(_sp); _got = ""
+    except C.BuildError as e: _got = str(e)
+    check("R2 %s without record none is refused by validate" % _n, "record 'submitted' needs a final submit step" in _got, _got[:90])
+check("R2 a spec whose last step is list_fields is refused with the default record", "needs a final submit" in (bad([{"do": "stop_before_submit"}, {"do": "list_fields"}]) or ""))
+check("R2 a stop marker with no submit after it is refused with the default record", "needs a final submit" in (bad([{"do": "stop_before_submit"}, {"do": "wait", "ms": 1}]) or ""))
+check("R2 stop marker then a submit click is accepted with the default record", bad([{"do": "stop_before_submit"}, {"do": "click", "selector": "#go", "submit": True}]) is None)
+check("R2 record none is accepted for a list_fields ending", bad([{"do": "list_fields"}], record="none") is None)
+# sweep after a Chrome restart, before reconnect
+_order = []
+_ctx = ctx_for(C.Site("t", "a.example", [C.Step("a", "read", lambda c: "ok"), C.Step("b", "read", lambda c: "ok")]), FakePage())
+_ctx.chrome_check = lambda: "restarted" if not _order else "up"
+_ctx.sweep = lambda: _order.append("sweep") or ["http://localhost:3177/reviews"]
+_ctx.reconnect = lambda: _order.append("reconnect") or FakePage()
+_r = B.run_site(_ctx.site, _ctx)
+check("R2 a restart runs the tab sweep BEFORE the reconnect", _order[:2] == ["sweep", "reconnect"], str(_order))
+check("R2 the restart step reports the swept tab", any(s["name"] == "chrome_restart" and "closed 1 foreign tab" in s["detail"] for s in _r["steps"]))
+_ctx2 = ctx_for(C.Site("t", "a.example", [C.Step("a", "read", lambda c: "ok")]), FakePage())
+_ctx2.chrome_check = lambda: "restarted"; _ctx2.reconnect = lambda: FakePage()
+def _boom(): raise RuntimeError("cdp gone")
+_ctx2.sweep = _boom
+check("R2 a failing sweep does not fail the run", B.run_site(_ctx2.site, _ctx2)["ok"])
+check("R2 main wires ctx.sweep to the keepalive sweep", "ctx.sweep = lambda: KA.sweep_foreign_tabs" in open(os.path.join(JOB, "build_runner.py"), encoding="utf-8").read())
 
 if __name__ == "__main__":
     print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
