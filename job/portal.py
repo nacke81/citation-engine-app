@@ -157,7 +157,7 @@ def write_run(checks, captured_day, portal=None, queue_rows=None):
         p = build_payload(cs, captured_day)
         if b == "SCC":  # fix/create queue state is shown on SCC only
             import buildqueue
-            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_rows(), captured_day)
+            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_all_rows(), captured_day)
         row = portal.upsert_snapshot(ids[b], captured_day, p)
         out[b] = {"client_id": row["client_id"], "source": row["source"], "captured_day": row["captured_day"],
                   "summary": p["summary"]}

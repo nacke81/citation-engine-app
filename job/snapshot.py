@@ -2,8 +2,8 @@
 
 Row states in the snapshot: live, submitted, pending-verify, nap-fix, blocked, rejected (plus the scan's absent / couldnt_check for rows the queue does not hold).
 The queue keeps `needs-human` internally; the snapshot never shows it.
-  nap-fix  = the listing exists but the NAP on it is wrong or unproven (a person fixes the listing).
-  blocked  = no listing yet and a person has to do something (login, ID check, paid, wall).
+  nap-fix  = a listing was read and its NAP is wrong (napConsistent False, or queue nap_check.consistent False). Nothing else.
+  blocked  = every other needs-human row (login, ID check, paid, wall, claim step, no listing yet).
 Summary = recount of the rows on every write (`summary_from_rows`). No stored total survives a write.
 """
 
@@ -14,26 +14,20 @@ IN_PROGRESS = ("submitted", "pending-verify")
 
 def has_listing(queue_row, d=None):
     """True when the queue row (or its snapshot row) shows a real listing: a listing URL, a listing-permalink evidence URL, or the queue state `found` / `claimed-unverified`."""
-    r = queue_row or {}
-    if r.get("state") in ("found", "claimed-unverified"): return True
-    if r.get("listing_url"): return True
-    d = d or {}
-    if d.get("urlKind") == "listing" and d.get("url"): return True
-    if d.get("napConsistent") is False: return True
-    ev = r.get("evidence_url")
-    if ev and r.get("directory"):
-        try:
-            import listing
-            return bool(listing.is_permalink(r["directory"], ev))
-        except Exception:
-            return False
-    return False
+    return nap_read_wrong(queue_row, d)
+
+
+def nap_read_wrong(queue_row, d=None):
+    """True only when a listing was READ and its NAP came back wrong: snapshot napConsistent is False, or the queue row's stored nap_check.consistent is False."""
+    if (d or {}).get("napConsistent") is False: return True
+    nc = (queue_row or {}).get("nap_check")
+    return isinstance(nc, dict) and nc.get("consistent") is False
 
 
 def classify_needs_human(queue_row=None, d=None):
-    """-> 'nap-fix' | 'blocked'. A listing whose NAP is already proven right (napConsistent True) is not a NAP fix: it is blocked on a claim step."""
-    if (d or {}).get("napConsistent") is True: return "blocked"
-    return "nap-fix" if has_listing(queue_row, d) else "blocked"
+    """-> 'nap-fix' | 'blocked'. nap-fix = a NAP read came back wrong. Nothing else: a listing_url, evidence_url, urlKind listing or queue state
+    found / claimed-unverified alone is blocked. Same answer on every write path (finalize-only, fix-rows overlay, all-rows overlay)."""
+    return "nap-fix" if nap_read_wrong(queue_row, d) else "blocked"
 
 
 def apply_nap_check(d, nap_check):

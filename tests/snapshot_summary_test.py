@@ -57,12 +57,13 @@ check("G2 build_payload (scan) carries a recounted summary and no frozen totals"
 # G3 needs-human split
 qrow = lambda **k: dict(id="fix-x", directory="x.example", state="queued", **k)
 check("G3 queued, no listing -> blocked", SN.classify_needs_human(qrow(), {}) == "blocked")
-check("G3 queue state found (SCC already listed) -> nap-fix", SN.classify_needs_human(dict(qrow(), state="found"), {}) == "nap-fix")
-check("G3 queue state claimed-unverified -> nap-fix", SN.classify_needs_human(dict(qrow(), state="claimed-unverified"), {}) == "nap-fix")
-check("G3 a listing_url on the row -> nap-fix", SN.classify_needs_human(qrow(listing_url="https://x.example/biz/1"), {}) == "nap-fix")
-check("G3 snapshot row with a listing permalink or napConsistent False -> nap-fix",
-      SN.classify_needs_human(qrow(), {"url": "https://x.example/biz/1", "urlKind": "listing"}) == "nap-fix" and SN.classify_needs_human(qrow(), {"napConsistent": False}) == "nap-fix")
-check("G3 NAP already proven right is not a NAP fix -> blocked", SN.classify_needs_human(dict(qrow(), state="found"), {"napConsistent": True}) == "blocked")
+check("G3 queue state found alone -> blocked (nap-fix needs a wrong NAP read)", SN.classify_needs_human(dict(qrow(), state="found"), {}) == "blocked")
+check("G3 queue state claimed-unverified alone -> blocked", SN.classify_needs_human(dict(qrow(), state="claimed-unverified"), {}) == "blocked")
+check("G3 a listing_url on the row alone -> blocked", SN.classify_needs_human(qrow(listing_url="https://x.example/biz/1"), {}) == "blocked")
+check("G3 napConsistent False on the snapshot row -> nap-fix; a listing permalink alone -> blocked",
+      SN.classify_needs_human(qrow(), {"url": "https://x.example/biz/1", "urlKind": "listing"}) == "blocked" and SN.classify_needs_human(qrow(), {"napConsistent": False}) == "nap-fix")
+check("G3 queue nap_check.consistent False -> nap-fix", SN.classify_needs_human(qrow(nap_check={"consistent": False}), {}) == "nap-fix")
+check("G3 NAP proven right is not a NAP fix -> blocked", SN.classify_needs_human(dict(qrow(), state="found"), {"napConsistent": True}) == "blocked")
 check("G3 a search URL alone is not a listing -> blocked", SN.classify_needs_human(qrow(), {"url": "https://x.example/search?q=a", "urlKind": "search"}) == "blocked")
 check("G3 queue state machine unchanged: needs-human still internal, PORTAL_STATES and matrix intact",
       "needs-human" in Q.PORTAL_STATES and "needs-human" in T.STATES and Q.QUEUE_TO_PORTAL["found"] == "needs-human" and T.ANY_FROM == {"rejected", "needs-human"})

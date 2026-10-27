@@ -257,7 +257,7 @@ p, rid, d = fresh("found"); fp = portal_with(d)
 r = rec(p, rid, "claimed-unverified", None, fp, note="claimed; edits need ID check")
 check("T15 no client activity row", r["activity_record"] is None and not any(c[0] == "POST" and "deliverables" in str(c[1]) for c in fp.calls))
 check("T15 portal maps it to needs-human and it is not an activity state", Q.QUEUE_TO_PORTAL["claimed-unverified"] == "needs-human" and "claimed-unverified" not in T.ACTIVITY_STATES)
-check("T15 portal snapshot row shows nap-fix (listed + claimed, edits ID-gated), not needs-human", fp.snaps[SCC]["directories"][0]["state"] == "nap-fix")
+check("T15 portal snapshot row shows blocked (claimed, edits ID-gated, no wrong NAP read), not needs-human", fp.snaps[SCC]["directories"][0]["state"] == "blocked")
 check("T15 parse_rows accepts it", Q.parse_rows(json.load(open(p))) is not None)
 import directories as DIR
 check("T15 Directory sync knows the state", "claimed-unverified" in DIR.QUEUE_STATES)
