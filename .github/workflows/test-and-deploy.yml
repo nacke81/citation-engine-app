@@ -111,6 +111,8 @@ jobs:
         run: python tests/batch16_test.py
       - name: Batch 17 (acompio has-account branch, --only opens first, late-street reader, post-fail evidence, re-send result, owner-read specs, mail-only rows)
         run: python tests/batch17_test.py
+      - name: Batch 18 (owner specs on the live login paths, us-info final URL, public-read backoff)
+        run: python tests/batch18_test.py
       - name: CapSolver count (per-row solve log, balance delta, cap)
         run: python tests/count_capsolver_test.py
       - name: Build runner (three site scripts dry-run, vault item id, ad clearing, logo upload, mail; all mocked)

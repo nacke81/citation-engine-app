@@ -56,7 +56,11 @@ NOTE_ONLY_STATES = ("found", "claimed-unverified", "created-unlisted", "needs-hu
 REASON_MIN = 10
 
 
-def check_transition(old, new, note=None, reason=None):
+def check_transition(old, new, note=None, reason=None, refresh_url=False):
+    if refresh_url:   # t_962161f4: a LIVE row whose Directory URL moved (redirect to a new slug): same state, new URL, a note
+        if old != "live" or new != "live" or not (note or "").strip():
+            raise TransitionRefused("--refresh-url is live -> live only and needs a note")
+        return
     if new == "queued":   # t_d2f75685: the ONE way back. A rejected listing may be re-created, with a written reason; never a silent reset.
         if old != "rejected":
             raise TransitionRefused("only a rejected row can go back to queued (row is %s)" % (old,))
@@ -225,7 +229,7 @@ def build_activity_record(client_id, row, new, evidence_url, day):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -243,7 +247,10 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     old = row["state"]
     if W.is_stopped(row) and new_state != "needs-human":
         raise TransitionRefused("row %s is STOPPED by the hard-block cap; only Mike's --reset-wall (job/walls.py) clears it" % row_id)
-    check_transition(old, new_state, note, reason)
+    check_transition(old, new_state, note, reason, refresh_url)
+    if refresh_url:   # the evidence URL is the new URL; listing_url follows it, so the next recheck reads the live slug
+        if not evidence_url: raise TransitionRefused("--refresh-url needs --evidence (the final URL after redirects)")
+        listing_url = evidence_url
     requeue = new_state == "queued"
     if requeue: note = "re-create after rejection: %s" % reason.strip()   # t_d2f75685: logged, never a silent reset (the history entry also carries requeue + reason)
     evidence_url = check_evidence(evidence_url, new_state)
@@ -366,9 +373,10 @@ def main(argv=None):
     a.add_argument("--today", default=None)
     a.add_argument("--reason", default=None, help="rejected -> queued only: why a re-create can succeed this time (10+ characters; logged in the row history)")
     a.add_argument("--recheck-due", default=None, help="YYYY-MM-DD: batch tools skip this row until that day (retry later, e.g. a Directory sender limit)")
+    a.add_argument("--refresh-url", action="store_true", help="live -> live only: store --evidence as both evidence_url and listing_url (the Directory moved the listing; needs --note)")
     n = a.parse_args(argv)
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due)
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url)
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1
