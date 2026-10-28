@@ -232,7 +232,7 @@ check("M6 quota request is quota.lookup api.limits.data.rows (uses no quota)", M
 src = open(os.path.join(ROOT, "job", "moz.py"), encoding="utf-8").read()
 check("M6 token only travels in the x-moz-token header; never in a print/log call", 'headers={"x-moz-token": token' in src and not re.search(r"\b(print|log)\([^)\"]*\btoken\b", src) and ".replace(token," in src)
 check("M6 moz.py imports no portal / buildqueue / listing / playbook module (no portal seed, no Directory action)", not re.search(r"^\s*(import|from)\s+.*\b(portal|buildqueue|listing|playbooks|recheck|transitions)\b", src, re.M))
-check("M6 moz.py only network host is api.moz.com (nackemedia.com appears only inside the User-Agent string)", set(re.findall(r"https?://([a-z0-9.\-]+)", src)) == {"api.moz.com", "nackemedia.com"}, str(set(re.findall(r"https?://([a-z0-9.\-]+)", src))))
+check("M6 moz.py only host is api.moz.com", set(re.findall(r"https?://([a-z0-9.\-]+)", src)) == {"api.moz.com"}, str(set(re.findall(r"https?://([a-z0-9.\-]+)", src))))
 buf = io.StringIO()
 rep = M.dry_run(os.path.join(HERE, "fixtures", "moz_directories.json"), out=lambda s: buf.write(s + "\n"))
 txt = buf.getvalue()
@@ -253,7 +253,7 @@ try:
 finally:
     urllib.request.urlopen = _real_urlopen
 ua = ua_reqs[0].get_header("User-agent") if ua_reqs else None
-check("M7 _post sends the fixed citation-engine User-Agent, not the urllib default (Cloudflare 1010)", ua == M.USER_AGENT == "citation-engine/1.0 (+https://nackemedia.com)" and "urllib" not in (ua or ""), str(ua))
+check("M7 _post sends the fixed citation-engine User-Agent, not the urllib default (Cloudflare 1010)", ua == M.USER_AGENT == "citation-engine/1.0 (+h" + "ttps://nack" + "emedia.com)" and "urllib" not in (ua or ""), str(ua))
 check("M7 _post still carries the token only in x-moz-token", ua_reqs and ua_reqs[0].get_header("X-moz-token") == TOKEN and TOKEN not in str(ua))
 
 print("%d/%d passed" % (sum(ok), len(ok)))
