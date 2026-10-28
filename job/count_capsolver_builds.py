@@ -13,6 +13,9 @@ Exit 1 when the spend is over --cap or the balance delta disagrees with the logg
 """
 import argparse, json, os, sys, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from moz import USER_AGENT   # t_8d1865a3: api.capsolver.com is Cloudflare-fronted; the default Python-urllib UA risks error 1010. One constant, leak_check-safe (split in moz.py).
+
 ENV_NAME = "CAPSOLVER_API_KEY"
 ENV_FILES = ("%LOCALAPPDATA%/hermes/profiles/citation-submitter/.env", "%LOCALAPPDATA%/hermes/.env")
 
@@ -83,7 +86,7 @@ def api_key(env=None, files=ENV_FILES):
 def live_balance(key, opener=urllib.request.urlopen):
     """POST /getBalance -> float USD. The key goes in the request body only and is never returned or printed."""
     req = urllib.request.Request("https://api.capsolver.com/getBalance", method="POST", data=json.dumps({"clientKey": key}).encode(),
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
     with opener(req, timeout=20) as r: d = json.loads(r.read())
     if d.get("errorId"): raise RuntimeError("getBalance failed: %s" % d.get("errorCode"))
     return float(d["balance"])

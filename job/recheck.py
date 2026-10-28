@@ -523,6 +523,9 @@ def search_url_for(directory, ident, biz="SCC", cat_rows=None):
 # Directories whose listing page has NO public source (t_bbc32230). The row is reported, never fetched, never live, never retried by a run.
 # foursquare.com: every /v/ URL 302s to /login signed out, and every Places endpoint (api.foursquare.com v2/v3, places-api.foursquare.com) answers
 # 400/401 without an API key (an account). A signed-in read is not allowed: the Bing false live came from one.
+NO_SEARCH = ("dnb.com", "discoverourtown.com")   # t_8d1865a3: the lookup's no-search rows (job/lookup.py SEARCH has url=None); the report says so
+
+
 UNREADABLE_PUBLIC = {
     "foursquare.com": "no public source: foursquare.com/v redirects to /login and the Places API needs a key; row is never counted live by recheck",
 }
@@ -602,15 +605,34 @@ def final_url(url, page):
     return url if (a.path.rstrip("/"), a.query) == (b.path.rstrip("/"), b.query) else f
 
 
-def _backoff(res, row, write, record, queue_path, day, note=None):
+def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
     """t_962161f4: a `not-public` / `unreadable-public` verdict sets recheck_due = today + BACKOFF_DAYS on the row, so a batch does not burn time on it each turn.
     Same-state note refresh on a waiting row only (transitions refuses it elsewhere); a row already live is never touched. Dry run reports the date, writes nothing."""
     import datetime, transitions as T
     due = (datetime.date.fromisoformat(day) + datetime.timedelta(days=BACKOFF_DAYS)).isoformat()
+    res["recheck_due_old"] = row.get("recheck_due")   # t_8d1865a3: the report prints `old -> new` for every row it backs off
     res["recheck_due"] = due
     if not write or row.get("state") not in T.NOTE_ONLY_STATES: return
+    cur = row.get("recheck_due")
+    if no_url and cur and str(cur) > day:   # t_8d1865a3 review: a named row read before it is due adds no counted backoff (at most one per due period); the date stays
+        res["recheck_due"] = cur; res["not_due"] = True; res["written"] = True
+        return
+    if no_url and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS:   # t_8d1865a3: 3 backoffs and still no listing URL: park it, never a silent forever-submitted row
+        n = "no public permalink after %d backoffs (public search, mail scan); parked for a human: find the listing by hand or reject" % T.MAX_NO_URL_BACKOFFS
+        record("SCC", row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink")
+        res["after"] = "needs-human"; res["parked"] = "no-public-permalink"; res["recheck_due"] = None
+        return
     n = ((note or res.get("note") or "public read: not public")[:160]) + " (recheck due %s)" % due
-    record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due)
+    kw = {"backoff": "no-permalink"} if no_url else {}
+    record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due, **kw)
+    res["written"] = _written(queue_path, row["id"], due) if queue_path else None
+
+
+def _written(queue_path, rid, due):
+    """Read the queue file back: did recheck_due land on the row? (batch 21: the worker could not tell.)"""
+    import transitions as T
+    try: return str(T._find(T._read(queue_path), rid).get("recheck_due")) == str(due)
+    except Exception: return False
 
 
 def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False, any_state=False):
@@ -653,7 +675,9 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, None, res["note"], queue_path=queue_path, today=day, listing_url=url)
             if url is None:
                 res["verdict"] = "not-public" if searched_ok else "no-permalink"
-                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", ""); _backoff(res, row, bw, record, queue_path, day)
+                if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", "")
+                else: res["note"] = res.get("note") or ("no public search for this Directory; no approval mail" if d in NO_SEARCH else "no listing URL found (public search / approval mail)")
+                _backoff(res, row, bw, record, queue_path, day, no_url=True)   # t_8d1865a3: EVERY row with no URL gets a date (dnb, discoverourtown had none) and counts toward the cap
                 continue
             res["url"] = url
             page, how, cmp_ = read_listing(url, plain, chrome, canonical)   # t_03a74bae: the one read + verdict path for dry run and --write
@@ -764,6 +788,11 @@ def format_report(results):
     for r in results:
         f = "; ".join("%s=%s" % (a, b) if isinstance(a, str) and b else str(a) for a, b in [(x if isinstance(x, tuple) else (x, "")) for x in r["fields"]])
         lines.append("%-26s %-14s -> %-14s %-12s %s%s%s" % (r["row"], r["before"], r["after"], (r["verdict"] or "") + (" (masked)" if r.get("masked") and r["verdict"] == "match" else ""), f, ("  ERR " + r["error"]) if r["error"] else "", ("  NAP[%s]" % r["nap"]) if r.get("nap") else (("  (%s)" % r["note"]) if r.get("note") and r["verdict"] == "not-public" else "")))
+        if "recheck_due" in r:   # t_8d1865a3: old -> new for every backed-off row, and whether the queue file really holds it
+            tag = {True: " (written)", False: " (NOT WRITTEN)", None: " (dry run: not stored)"}[r["written"]] if "written" in r else " (dry run: not stored)"
+            if r.get("parked"): lines.append("    parked: %s -> needs-human, reason %s (3 no-URL backoffs used)" % (r["before"], r["parked"]))
+            elif r.get("not_due"): lines.append("    recheck_due %s (unchanged, not due; no backoff counted)" % r["recheck_due"])
+            else: lines.append("    recheck_due %s -> %s%s" % (r.get("recheck_due_old") or "none", r["recheck_due"], tag))
     return "\n".join(lines)
 
 

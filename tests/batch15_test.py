@@ -84,7 +84,7 @@ check("3 run 2: with no mail, recheck reads the stored listing_url", r2[0]["url"
 json.dump({"canonical": CANON, "fix_queue": [{"id": "create-bbb", "directory": "bbb.org", "state": "submitted", "mike_approval": None, "evidence_url": "https://www.bbb.org/get-listed/success", "history": []}]}, open(qp, "w"))
 wrote = []
 r3 = R.recheck(json.load(open(qp)), IDENT, plain=plain, chrome=plain, record=lambda *a, **k: wrote.append((a, k)), db=db, queue_path=qp, today="2026-10-28", write=True, use_chrome=False, mail=MS.MailScanner(messages=M_SEARCH, name=CANON["name"]))
-check("3 a search-only approval mail: nothing recorded, verdict no-permalink", not wrote and r3[0]["verdict"] == "no-permalink" and r3[0]["url"] is None, str(r3[0]))
+check("3 a search-only approval mail: no listing URL recorded, verdict no-permalink; only the no-URL backoff date is written (t_8d1865a3)", all(k.get("listing_url") is None and k.get("backoff") == "no-permalink" and a[2] == "submitted" for a, k in wrote) and len(wrote) == 1 and r3[0]["verdict"] == "no-permalink" and r3[0]["url"] is None, str(r3[0]))
 # transitions itself refuses a non-http listing_url
 try:
     T.record_transition("SCC", "create-bbb", "submitted", None, "x", queue_path=qp, today="2026-10-28", portal=fp, activities=fp, verification=fp, directories=db, listing_url="javascript:alert(1)")

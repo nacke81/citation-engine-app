@@ -93,7 +93,7 @@ check("R3 wrong street named", res[0]["verdict"] == "mismatch" and "address show
 
 # R4 no permalink -> no transition, no fetch
 res, q, plain_calls, chrome_calls, db, fp = run([row("r4", "a.example", "pending-verify", "https://a.example/search?q=alder"), row("r5", "b.example", "submitted", None)], {})
-check("R4 no permalink: nothing written, nothing fetched", res[0]["verdict"] == "no-permalink" and res[1]["verdict"] == "no-permalink" and not plain_calls and not chrome_calls and not fp.calls and not db.calls and all(r["state"] != "live" and not r["history"] for r in q["fix_queue"]))
+check("R4 no permalink: nothing fetched, never live, state unchanged; the ONLY write is a recheck_due backoff (t_8d1865a3: no silent forever-submitted rows)", res[0]["verdict"] == "no-permalink" and res[1]["verdict"] == "no-permalink" and not plain_calls and not chrome_calls and all(r["state"] != "live" for r in q["fix_queue"]) and [r["state"] for r in q["fix_queue"]] == ["pending-verify", "submitted"] and all(r.get("recheck_due") and len(r["history"]) == 1 and r["history"][0]["backoff"] == "no-permalink" and r["history"][0]["from"] == r["history"][0]["to"] for r in q["fix_queue"]))
 
 # R5 dry run
 res, q, _, _, db, fp = run([row("r6", "a.example", "pending-verify", U1)], {U1: page_text()}, write=False)
@@ -148,7 +148,7 @@ check("R11 bbb: search url is by name + city", "find_text=" in SEARCH and "Examp
 check("R11 bbb: profile url found, stored as evidence and read", r["evidence_url"] == PROFILE and PROFILE in plain_calls, str(r.get("evidence_url")))
 check("R11 bbb: match on the profile page goes live", r["state"] == "live")
 res, q, plain_calls, *_ = run([row("bbb1", "bbb.org", "submitted", "https://www.bbb.org/get-listed/success")], {SEARCH: R.Page(200, SEARCH, "No results" + PAD, [])})
-check("R11 bbb: no profile in search -> no transition", res[0]["verdict"] == "no-permalink" and q["fix_queue"][0]["state"] == "submitted" and not q["fix_queue"][0]["history"])
+check("R11 bbb: no profile in search -> no state transition (a no-URL recheck_due backoff only)", res[0]["verdict"] == "no-permalink" and q["fix_queue"][0]["state"] == "submitted" and [h["to"] for h in q["fix_queue"][0]["history"]] == ["submitted"] and q["fix_queue"][0]["history"][0]["backoff"] == "no-permalink")
 other = R.Page(200, SEARCH, "Search" + PAD, [{"href": "https://www.bbb.org/us/ky/exampleton/profile/plumbing/other-co-1", "text": "Other Plumbing Co", "card": "Other Plumbing Co Exampleton, KY", "aria": ""}])
 res, q, plain_calls, *_ = run([row("bbb1", "bbb.org", "submitted", "https://www.bbb.org/get-listed/success")], {SEARCH: other})
 check("R11 bbb: a profile link for another business is not taken", q["fix_queue"][0]["evidence_url"].endswith("get-listed/success") and res[0]["verdict"] == "no-permalink")

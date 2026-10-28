@@ -58,6 +58,14 @@ NOTE_ONLY_STATES = ("found", "claimed-unverified", "created-unlisted", "needs-hu
 
 
 REASON_MIN = 10
+BACKOFF_MARKERS = ("no-permalink",)   # t_8d1865a3: a structured history field (not prose) so a cap can count them
+PARK_REASONS = ("no-public-permalink",)
+MAX_NO_URL_BACKOFFS = 3
+
+
+def no_url_backoffs(row):
+    """How many no-URL backoffs the row's history records (entries with backoff == 'no-permalink'). A prose note is not a counter (lesson 2026-10-27)."""
+    return sum(1 for h in (row.get("history") or []) if isinstance(h, dict) and h.get("backoff") == "no-permalink")
 
 
 def check_transition(old, new, note=None, reason=None, refresh_url=False):
@@ -253,7 +261,7 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -272,6 +280,11 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if W.is_stopped(row) and new_state != "needs-human":
         raise TransitionRefused("row %s is STOPPED by the hard-block cap; only Mike's --reset-wall (job/walls.py) clears it" % row_id)
     check_transition(old, new_state, note, reason, refresh_url)
+    if backoff is not None and (backoff not in BACKOFF_MARKERS or old != new_state or not recheck_due):
+        raise TransitionRefused("backoff %r: only %s, as a same-state move with --recheck-due" % (backoff, "/".join(BACKOFF_MARKERS)))
+    if park_reason is not None:   # t_8d1865a3: the cap move. Any waiting row -> needs-human, with a structured reason.
+        if park_reason not in PARK_REASONS or new_state != "needs-human" or old == "needs-human" or not (note or "").strip():
+            raise TransitionRefused("park_reason %r: only %s, on a move INTO needs-human from another state, with a note" % (park_reason, "/".join(PARK_REASONS)))
     if refresh_url:   # the evidence URL is the new URL; listing_url follows it, so the next recheck reads the live slug
         if not evidence_url: raise TransitionRefused("--refresh-url needs --evidence (the final URL after redirects)")
         listing_url = evidence_url
@@ -297,6 +310,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if verify_type: entry["verify_type"] = verify_type  # history carries the type, not only the note text (t_568f1ee6)
     if requeue: entry["requeue"] = True; entry["reason"] = reason.strip()
     if recheck_due: entry["recheck_due"] = str(recheck_due)
+    if backoff: entry["backoff"] = backoff
+    if park_reason: entry["park_reason"] = park_reason
     new_row.setdefault("history", [])
     new_row["history"] = list(new_row["history"]) + [entry]
     assert new_row.get("mike_approval") == approval_before  # never touched
@@ -397,10 +412,11 @@ def main(argv=None):
     a.add_argument("--today", default=None)
     a.add_argument("--reason", default=None, help="rejected -> queued only: why a re-create can succeed this time (10+ characters; logged in the row history)")
     a.add_argument("--recheck-due", default=None, help="YYYY-MM-DD: batch tools skip this row until that day (retry later, e.g. a Directory sender limit)")
+    a.add_argument("--park-reason", default=None, choices=PARK_REASONS, help="needs-human only: why the row is parked by a cap (no-public-permalink: 3 backoffs and still no listing URL)")
     a.add_argument("--refresh-url", action="store_true", help="live -> live only: store --evidence as both evidence_url and listing_url (the Directory moved the listing; needs --note)")
     n = a.parse_args(argv)
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url)
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason)
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1

@@ -303,5 +303,18 @@ p, rid, d = fresh("submitted"); fp = portal_with(d)
 try: rec(p, rid, "needs-human", fp=fp, verify_type="postcard", steps=STEPS); bad = False
 except T.TransitionRefused: bad = not fp.calls
 check("T16 steps refused on a non id-check type", bad)
+# T17 (t_8d1865a3): no-public-permalink park edge + structured backoff marker
+for st in ("found", "submitted", "pending-verify", "created-unlisted"):
+    p, rid, d = fresh(st); fp = portal_with(d)
+    rec(p, rid, "needs-human", ev=None, fp=fp, note="no public permalink after 3 backoffs", park_reason="no-public-permalink")
+    h = json.load(open(p))["fix_queue"][0]["history"][-1]
+    check("T17 %s -> needs-human with park_reason no-public-permalink is recorded in the history" % st, h["to"] == "needs-human" and h["park_reason"] == "no-public-permalink")
+for label, kw, state in (("unknown reason", dict(park_reason="whatever"), "submitted"), ("reason on a live target", dict(park_reason="no-public-permalink"), "submitted"),
+                         ("backoff without a date", dict(backoff="no-permalink"), "submitted"), ("backoff that changes state", dict(backoff="no-permalink", recheck_due="2026-10-29"), "submitted")):
+    p, rid, d = fresh(state); fp = portal_with(d); before = open(p, "rb").read()
+    to = "live" if label == "reason on a live target" else ("needs-human" if label == "backoff that changes state" else state)
+    try: rec(p, rid, to, fp=fp, note="a note", **kw); bad = False
+    except T.TransitionRefused: bad = open(p, "rb").read() == before and not fp.calls
+    check("T17 refused before any write: %s" % label, bad)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
