@@ -613,6 +613,10 @@ def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
     res["recheck_due_old"] = row.get("recheck_due")   # t_8d1865a3: the report prints `old -> new` for every row it backs off
     res["recheck_due"] = due
     if not write or row.get("state") not in T.NOTE_ONLY_STATES: return
+    cur = row.get("recheck_due")
+    if no_url and cur and str(cur) > day:   # t_8d1865a3 review: a named row read before it is due adds no counted backoff (at most one per due period); the date stays
+        res["recheck_due"] = cur; res["not_due"] = True; res["written"] = True
+        return
     if no_url and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS:   # t_8d1865a3: 3 backoffs and still no listing URL: park it, never a silent forever-submitted row
         n = "no public permalink after %d backoffs (public search, mail scan); parked for a human: find the listing by hand or reject" % T.MAX_NO_URL_BACKOFFS
         record("SCC", row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink")
@@ -787,6 +791,7 @@ def format_report(results):
         if "recheck_due" in r:   # t_8d1865a3: old -> new for every backed-off row, and whether the queue file really holds it
             tag = {True: " (written)", False: " (NOT WRITTEN)", None: " (dry run: not stored)"}[r["written"]] if "written" in r else " (dry run: not stored)"
             if r.get("parked"): lines.append("    parked: %s -> needs-human, reason %s (3 no-URL backoffs used)" % (r["before"], r["parked"]))
+            elif r.get("not_due"): lines.append("    recheck_due %s (unchanged, not due; no backoff counted)" % r["recheck_due"])
             else: lines.append("    recheck_due %s -> %s%s" % (r.get("recheck_due_old") or "none", r["recheck_due"], tag))
     return "\n".join(lines)
 

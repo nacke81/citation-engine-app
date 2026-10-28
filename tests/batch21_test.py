@@ -116,6 +116,18 @@ check("2 the cap holds on --write as well", cur[0]["state"] == "needs-human" and
 cur = [row("create-x", "dnb.com", "found", history=[{"at": "2026-10-20", "from": "found", "to": "found", "note": "prose only: no-permalink no-permalink no-permalink"}] * 4)]
 r, cur = run(cur, backoff_only=True)
 check("2 prose notes are not counters: four prose notes do not park the row", cur[0]["state"] == "found" and cur[0]["recheck_due"] == "2026-10-29")
+# review round 1: same-day named reruns must not burn the cap
+cur = copy.deepcopy(NOURL[:2])
+for i in range(4):
+    r, cur = run(cur, today="2026-10-27", backoff_only=True, only={"create-dnb", "create-discoverourtown"})
+check("2 4 same-day named runs leave no_url_backoffs at 1 and the state unchanged", [T.no_url_backoffs(x) for x in cur] == [1, 1] and [x["state"] for x in cur] == ["found", "submitted"] and all(x["recheck_due"] == "2026-10-29" for x in cur), str([(x["state"], T.no_url_backoffs(x)) for x in cur]))
+check("2 the not-due read reports unchanged, no backoff counted", "unchanged, not due" in R.format_report(r), R.format_report(r))
+cur = copy.deepcopy(NOURL[:2])
+for day in ("2026-10-27", "2026-10-29", "2026-10-31"):
+    r, cur = run(cur, today=day, backoff_only=True, only={"create-dnb", "create-discoverourtown"})
+check("2 3 due-day backoffs (today, +2, +4) count 3 and still wait", [T.no_url_backoffs(x) for x in cur] == [3, 3] and [x["state"] for x in cur] == ["found", "submitted"])
+r, cur = run(cur, today="2026-11-02", backoff_only=True, only={"create-dnb", "create-discoverourtown"})
+check("2 the 4th due read parks both rows", [x["state"] for x in cur] == ["needs-human", "needs-human"], str([x["state"] for x in cur]))
 # a URL found resets nothing wrongly: a row with a listing_url never takes the no-URL path
 r, cur = run([row("create-bbb2", "tupalo.com", listing_url="https://tupalo.example/x")], backoff_only=True)
 check("2 a row WITH a listing_url is not counted as a no-URL backoff", T.no_url_backoffs(cur[0]) == 0)
