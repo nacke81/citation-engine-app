@@ -133,7 +133,7 @@ r = rec(p, rid, "submitted", fp=fp, activities=acts, activities_flag=True)
 b = acts.calls[0][2][0]
 check("T6 flag on writes one client-voiced row", r["activities_written"] and len(acts.calls) == 1 and acts.calls[0][1].startswith("deliverables") and b["title"] == "Submitted your business listing to a.example"
       and b["client_id"] == SCC and b["source"] == "citation_engine" and b["source_ref"] == "citation-transition:%s:submitted" % rid)
-check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.ACTIVITY_STATES) and set(b) <= {"approved_at", "client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref"})
+check("T6 activity title has no terminal period and no NAP fields", all(not T.activity_title(s, "a.example").endswith(".") for s in T.ACTIVITY_STATES) and set(b) <= {"approved_at", "client_id", "deliverable_type", "title", "date_completed", "in_scope", "units", "evidence_url", "source", "source_ref", "channel_label"})
 os.environ["CE_ACTIVITIES_WRITE"] = "1"
 p, rid, d = fresh("queued"); acts = FakePortal(); r = rec(p, rid, "submitted", fp=portal_with(d), activities=acts)
 os.environ.pop("CE_ACTIVITIES_WRITE")
