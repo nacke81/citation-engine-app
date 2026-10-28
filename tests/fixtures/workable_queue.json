@@ -1,0 +1,1692 @@
+{
+ "canonical": {
+  "name": "Alder Care Consulting & Solutions",
+  "address": "100 Example Drive, Exampleton KY 40000",
+  "phone": "(502) 555-0101"
+ },
+ "fix_queue": [
+  {
+   "id": "fix-bing",
+   "directory": "bing.com",
+   "state": "submitted",
+   "kind": null,
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-bing"
+   },
+   "history": [
+    {
+     "at": "2026-10-26",
+     "from": "submitted",
+     "to": "submitted",
+     "note": "weekly recheck: phone shows (502) 555-0199"
+    }
+   ],
+   "listing_url": "https://bing.com/listing/scrubbed",
+   "evidence_url": "https://bing.com/evidence/scrubbed"
+  },
+  {
+   "id": "fix-mapquest",
+   "directory": "mapquest.com",
+   "state": "needs-human",
+   "kind": null,
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-mapquest"
+   },
+   "history": [
+    {
+     "at": "2026-10-21",
+     "from": "queued",
+     "to": "needs-human",
+     "note": "Claim it routes to listings.mapquest.com/pl/mapquest-claims, a Yext Li"
+    }
+   ],
+   "listing_url": "https://mapquest.com/listing/scrubbed",
+   "evidence_url": "https://mapquest.com/evidence/scrubbed"
+  },
+  {
+   "id": "fix-yellowpages",
+   "directory": "yellowpages.com",
+   "state": "needs-human",
+   "kind": null,
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-yellowpages"
+   },
+   "history": [
+    {
+     "at": "2026-10-26",
+     "from": "needs-human",
+     "to": "needs-human",
+     "note": "parked for client verification (phone-call)",
+     "verify_type": "phone-call"
+    }
+   ],
+   "listing_url": "https://yellowpages.com/listing/scrubbed",
+   "evidence_url": "https://yellowpages.com/evidence/scrubbed"
+  },
+  {
+   "id": "fix-superpages",
+   "directory": "superpages.com",
+   "state": "needs-human",
+   "kind": null,
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-superpages"
+   },
+   "history": [
+    {
+     "at": "2026-10-26",
+     "from": "needs-human",
+     "to": "needs-human",
+     "note": "2026-10-26: superpages.com loads; page for this slug shows no SCC list"
+    }
+   ],
+   "listing_url": "https://superpages.com/listing/scrubbed",
+   "evidence_url": "https://superpages.com/evidence/scrubbed"
+  },
+  {
+   "id": "fix-dexknows",
+   "directory": "dexknows.com",
+   "state": "needs-human",
+   "kind": null,
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-dexknows"
+   },
+   "history": [
+    {
+     "at": "2026-10-26",
+     "from": "needs-human",
+     "to": "needs-human",
+     "note": "parked for client verification (phone-call)",
+     "verify_type": "phone-call"
+    }
+   ],
+   "listing_url": "https://dexknows.com/listing/scrubbed",
+   "evidence_url": "https://dexknows.com/evidence/scrubbed"
+  },
+  {
+   "id": "fix-merchantcircle",
+   "directory": "merchantcircle.com",
+   "state": "needs-human",
+   "kind": "fix",
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-merchantcircle"
+   },
+   "history": [
+    {
+     "at": "2026-10-25",
+     "from": "needs-human",
+     "to": "needs-human",
+     "note": "declined: marketing consent (Mike 10/25)"
+    }
+   ],
+   "listing_url": "https://merchantcircle.com/listing/scrubbed",
+   "evidence_url": "https://merchantcircle.com/evidence/scrubbed"
+  },
+  {
+   "id": "fix-hotfrog",
+   "directory": "hotfrog.com",
+   "state": "live",
+   "kind": "fix",
+   "mike_approval": {
+    "approved_by": "mike",
+    "at": "2026-10-25T17:45:00+00:00",
+    "row_id": "fix-hotfrog"
+   },
+   "history": [
+    {
+     "at": "2026-10-25",
+     "from": "needs-human",
+     "to": "live",
+     "note": "Claimed free (email verify via listings@), website "
+    }
+   ],
+   "listing_url": "https://hotfrog.com/listing/scrubbed",
+   "evidence_url": "https://hotfrog.com/evidence/scrubbed"
+  }
+ ],
+ "create_queue": {
+  "rows": [
+   {
+    "id": "create-acompio",
+    "directory": "acompio.us",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-acompio"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "created-unlisted",
+      "to": "live",
+      "note": "weekly recheck: listing live, NAP matches canonical"
+     }
+    ],
+    "evidence_url": "https://acompio.us/evidence/scrubbed"
+   },
+   {
+    "id": "create-yelp",
+    "directory": "yelp.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-yelp"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "hCaptcha after Continue; no account created"
+     }
+    ],
+    "evidence_url": "https://yelp.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-bbb",
+    "directory": "bbb.org",
+    "state": "submitted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-bbb"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "submitted",
+      "to": "submitted",
+      "note": "b21 t_55f368e7: ONE reset sent 17:4x 10/27 (answer: sent). all-folder ",
+      "recheck_due": "2026-10-29"
+     }
+    ],
+    "recheck_due": "2026-10-29",
+    "evidence_url": "https://bbb.org/evidence/scrubbed"
+   },
+   {
+    "id": "create-manta",
+    "directory": "manta.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-manta"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "live",
+      "note": "2026-10-26: email verified (CF checkbox passed in build Chrome), compa"
+     }
+    ],
+    "evidence_url": "https://manta.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-brownbook",
+    "directory": "brownbook.net",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-brownbook"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "found",
+      "to": "live",
+      "note": "weekly recheck: listing live, NAP matches canonical"
+     }
+    ],
+    "listing_url": "https://brownbook.net/listing/scrubbed",
+    "evidence_url": "https://brownbook.net/evidence/scrubbed"
+   },
+   {
+    "id": "create-chamberofcommerce",
+    "directory": "chamberofcommerce.com",
+    "state": "created-unlisted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-chamberofcommerce"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "created-unlisted",
+      "to": "created-unlisted",
+      "note": "name + city search on the Directory shows no listing for this business",
+      "recheck_due": "2026-10-29"
+     }
+    ],
+    "recheck_due": "2026-10-29",
+    "evidence_url": "https://chamberofcommerce.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-bizapedia",
+    "directory": "bizapedia.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-bizapedia"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "live",
+      "note": "b5 2026-10-25: free claim (KY file 1306562, relationship Owner, Lea An"
+     }
+    ],
+    "evidence_url": "https://bizapedia.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-ezlocal",
+    "directory": "ezlocal.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-ezlocal"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "parked for client verification (sms)",
+      "verify_type": "sms"
+     }
+    ],
+    "evidence_url": "https://ezlocal.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-showmelocal",
+    "directory": "showmelocal.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-showmelocal"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "parked for client verification (client-email): needs the client's own ",
+      "verify_type": "client-email"
+     },
+     {
+      "at": "2026-10-27",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: 10/27 logged in as listings@ (vault login ok)"
+     }
+    ],
+    "listing_url": "https://showmelocal.com/listing/scrubbed",
+    "evidence_url": "https://showmelocal.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-yellowbook",
+    "directory": "yellowbook.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-yellowbook"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: yellowbook.com is a Hibu articles site, no business s"
+     }
+    ],
+    "evidence_url": "https://yellowbook.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-localstack",
+    "directory": "localstack.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-localstack"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: localstack.com is a cloud-dev product site (www retur"
+     }
+    ],
+    "evidence_url": "https://localstack.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-facebook",
+    "directory": "facebook.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-facebook"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "out of scope: handled outside the engine (Mike 10/25). No Page created"
+     }
+    ],
+    "evidence_url": "https://facebook.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-yellowbot",
+    "directory": "yellowbot.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-yellowbot"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "b14 2026-10-26: retry 1 in build Chrome: homepage HTTP 504 Cloudflare "
+     }
+    ],
+    "evidence_url": "https://yellowbot.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-botw",
+    "directory": "botw.org",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-botw"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: botw wall gone (Cloudflare clear 10/27). Appl"
+     }
+    ],
+    "evidence_url": "https://botw.org/evidence/scrubbed"
+   },
+   {
+    "id": "create-enrollbusiness",
+    "directory": "enrollbusiness.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-enrollbusiness"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "WALL:cloudflare-click 2026-10-27: us.enrollbusiness.com returns 403 Cf"
+     }
+    ],
+    "evidence_url": "https://enrollbusiness.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-data-axle",
+    "directory": "data-axle.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-data-axle"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "parked for client verification (phone-call)",
+      "verify_type": "phone-call"
+     }
+    ],
+    "evidence_url": "https://data-axle.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-citysquares",
+    "directory": "citysquares.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-citysquares"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "live",
+      "note": "2026-10-26: CF cleared in build Chrome (homepage 200). Existing listin"
+     }
+    ],
+    "evidence_url": "https://citysquares.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-tupalo",
+    "directory": "tupalo.com",
+    "state": "created-unlisted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-tupalo"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "created-unlisted",
+      "to": "created-unlisted",
+      "note": "signed-out page shows no listing: rendered page has no listing for thi",
+      "recheck_due": "2026-10-29"
+     }
+    ],
+    "recheck_due": "2026-10-29",
+    "evidence_url": "https://tupalo.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-yellow",
+    "directory": "yellow.place",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-yellow"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: yellow.place home is an empty page that JS-redirects "
+     }
+    ],
+    "evidence_url": "https://yellow.place/evidence/scrubbed"
+   },
+   {
+    "id": "create-2findlocal",
+    "directory": "2findlocal.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-2findlocal"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "CapSolver image solve failed: 3 attempts returned x5i8, qiy, 1+1= (con"
+     }
+    ],
+    "evidence_url": "https://2findlocal.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-cortera",
+    "directory": "cortera.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-cortera"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: cortera.com 301s to moodys.com trade-credit data page"
+     }
+    ],
+    "evidence_url": "https://cortera.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-cylex",
+    "directory": "cylex.us",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-cylex"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "WALL:hard-block try 1/3 2026-10-26: 403 'Attention Required' Cloudflar"
+     },
+     {
+      "wall": "hard-block",
+      "try": 1,
+      "at": "2026-10-27",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "WALL:hard-block try 1/3"
+     }
+    ],
+    "evidence_url": "https://cylex.us/evidence/scrubbed"
+   },
+   {
+    "id": "create-justlanded",
+    "directory": "justlanded.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-justlanded"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: justlanded.com resolves (144.76.127.113) but the conn"
+     }
+    ],
+    "evidence_url": "https://justlanded.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-neustarlocaleze",
+    "directory": "neustarlocaleze.biz",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-neustarlocaleze"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: TransUnion/Neustar Localeze account is 99 USD"
+     }
+    ],
+    "evidence_url": "https://neustarlocaleze.biz/evidence/scrubbed"
+   },
+   {
+    "id": "create-storeboard",
+    "directory": "storeboard.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-storeboard"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "live",
+      "note": "2026-10-26 signup reCAPTCHA v2 solved (CapSolver, 2 ok + 1 failed solv"
+     }
+    ],
+    "evidence_url": "https://storeboard.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-us-info",
+    "directory": "us-info.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-us-info"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "live",
+      "to": "live",
+      "note": "Directory redirected the listing to the new slug (old phone in the old"
+     }
+    ],
+    "listing_url": "https://us-info.com/listing/scrubbed",
+    "evidence_url": "https://us-info.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-whatsnearby",
+    "directory": "whatsnearby.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-whatsnearby"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: whatsnearby.com DNS does not resolve (getaddrinfo fai"
+     }
+    ],
+    "evidence_url": "https://whatsnearby.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-foursquare",
+    "directory": "foursquare.com",
+    "state": "submitted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-foursquare"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "submitted",
+      "to": "submitted",
+      "note": "no public source: foursquare.com/v redirects to /login and the Places ",
+      "recheck_due": "2026-10-29"
+     }
+    ],
+    "recheck_due": "2026-10-29",
+    "evidence_url": "https://foursquare.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-nextdoor",
+    "directory": "nextdoor.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-nextdoor"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "parked for client verification (id-check)",
+      "verify_type": "id-check"
+     },
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "parked for client verification (id-check)",
+      "verify_type": "id-check"
+     }
+    ],
+    "evidence_url": "https://nextdoor.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-dnb",
+    "directory": "dnb.com",
+    "state": "found",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-dnb"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "found",
+      "to": "found",
+      "note": "VERIFY:id - client does Veriff photo-ID herself (Mike 10/26). Steps in"
+     }
+    ],
+    "evidence_url": "https://dnb.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-here",
+    "directory": "here.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-here"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row: here.com is the HERE developer/mapping platform, no b"
+     }
+    ],
+    "evidence_url": "https://here.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-infobel",
+    "directory": "infobel.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-infobel"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Bad Catalog row/duplicate: infobel 403 to build Chrome; US directory i"
+     }
+    ],
+    "evidence_url": "https://infobel.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-americasbestcompanies",
+    "directory": "americasbestcompanies.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-americasbestcompanies"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "2026-10-26 try 3: filled 4 fields (password from vault), set __EVENTTA"
+     }
+    ],
+    "evidence_url": "https://americasbestcompanies.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-activityhero",
+    "directory": "activityhero.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-activityhero"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Not a fit: ActivityHero lists kids camps and classes only. Rejected ba"
+     }
+    ],
+    "evidence_url": "https://activityhero.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-vivinavi",
+    "directory": "vivinavi.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-vivinavi"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Not a fit: Japanese-language classifieds, no Kentucky area. Rejected b"
+     }
+    ],
+    "evidence_url": "https://vivinavi.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-fyple",
+    "directory": "fyple.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-fyple"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "b14 2026-10-26: /register/ and /addcompany show 'We are updating our w"
+     }
+    ],
+    "evidence_url": "https://fyple.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-houzz",
+    "directory": "houzz.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-houzz"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Fit: Houzz lists home-design/remodel pros only; no senior-care consult"
+     }
+    ],
+    "evidence_url": "https://houzz.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-ibdb",
+    "directory": "ibdb.us",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-ibdb"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Fit: Internet Broadway Database (theatre shows/people), not a business"
+     }
+    ],
+    "evidence_url": "https://ibdb.us/evidence/scrubbed"
+   },
+   {
+    "id": "create-joomlocal",
+    "directory": "joomlocal.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-joomlocal"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Bad Catalog row: joomlocal.com ERR_NAME_NOT_RESOLVED in build Chrome ("
+     }
+    ],
+    "evidence_url": "https://joomlocal.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-judysbook",
+    "directory": "judysbook.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-judysbook"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier: claim funnel is $19.92/mo (30-day free trial code FREEBASIC"
+     }
+    ]
+   },
+   {
+    "id": "create-loc8nearme",
+    "directory": "loc8nearme.com",
+    "state": "submitted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-loc8nearme"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "submitted",
+      "to": "submitted",
+      "note": "b21: public-search lookup NOT FOUND (10/27); mail scan all folders non",
+      "recheck_due": "2026-10-29"
+     }
+    ],
+    "recheck_due": "2026-10-29",
+    "evidence_url": "https://loc8nearme.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-localsolution",
+    "directory": "localsolution.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-localsolution"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "submitted",
+      "to": "live",
+      "note": "weekly recheck: listing live, NAP matches canonical"
+     }
+    ],
+    "evidence_url": "https://localsolution.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-macraesbluebook",
+    "directory": "macraesbluebook.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-macraesbluebook"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "no-fit: industrial / manufacturing only (matched 'Industrial and Manuf"
+     }
+    ]
+   },
+   {
+    "id": "create-maplenmain",
+    "directory": "maplenmain.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-maplenmain"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Not a directory: paid local-marketing service ($559/mo Complete Packag"
+     }
+    ]
+   },
+   {
+    "id": "create-mylocalservices",
+    "directory": "mylocalservices.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-mylocalservices"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier: $2 one-time listing fee (site says one payment, lifetime). "
+     }
+    ]
+   },
+   {
+    "id": "create-openstreetmap",
+    "directory": "openstreetmap.org",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-openstreetmap"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "live",
+      "note": "2026-10-26: office=consulting node at GBP pin 37.3150934,-87.4966459, "
+     }
+    ],
+    "evidence_url": "https://openstreetmap.org/evidence/scrubbed"
+   },
+   {
+    "id": "create-pages24",
+    "directory": "pages24.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-pages24"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "submitted",
+      "to": "live",
+      "note": "email activation via listings@ clicked; public page loaded 2026-10-26,"
+     }
+    ],
+    "evidence_url": "https://pages24.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-thumbtack",
+    "directory": "thumbtack.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-thumbtack"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "rejected",
+      "note": "no-fit: Thumbtack pro profile is a pay-per-lead home-services marketpl"
+     }
+    ]
+   },
+   {
+    "id": "create-topratedlocal",
+    "directory": "topratedlocal.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-topratedlocal"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: \"manage my business\" on topratedlocal.com red"
+     }
+    ]
+   },
+   {
+    "id": "create-uscity",
+    "directory": "uscity.net",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-uscity"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: uscity signup requires identity verification,"
+     }
+    ]
+   },
+   {
+    "id": "create-usindex",
+    "directory": "usindex.app",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-usindex"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "rejected",
+      "note": "no-fit: usindex.app signup \"Requires Invitation Code\"; no public listi"
+     }
+    ]
+   },
+   {
+    "id": "create-vetpronetwork",
+    "directory": "vetpronetwork.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-vetpronetwork"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "rejected",
+      "note": "no-fit: veteran-owned businesses only; SCC not claimed veteran-owned"
+     }
+    ]
+   },
+   {
+    "id": "create-ailoq",
+    "directory": "ailoq.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-ailoq"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "Paid-tier, Mike decides: Basic Membership $1.99/mo, Premium $9.99/mo o"
+     }
+    ],
+    "evidence_url": "https://ailoq.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-tntownsquare",
+    "directory": "tntownsquare.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-tntownsquare"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "rejected",
+      "note": "no-fit: Tennessee-only directory (TN Town Square); SCC is elsewhere"
+     }
+    ]
+   },
+   {
+    "id": "create-herenashville",
+    "directory": "herenashville.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-herenashville"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Fit: Nashville TN news site; its business directory covers Nashville o"
+     }
+    ],
+    "evidence_url": "https://herenashville.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-nashvegas",
+    "directory": "nashvegas.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-nashvegas"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "rejected",
+      "note": "No-fit: Nashville entertainment/events news site, not a business direc"
+     }
+    ]
+   },
+   {
+    "id": "create-uscolist",
+    "directory": "uscolist.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-uscolist"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: uscolist Standard $4.95 one-time activation ("
+     }
+    ]
+   },
+   {
+    "id": "create-com-yellowpages",
+    "directory": "com-yellowpages.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-com-yellowpages"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "found",
+      "to": "needs-human",
+      "note": "parked for client verification (phone-call)",
+      "verify_type": "phone-call"
+     }
+    ],
+    "evidence_url": "https://com-yellowpages.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-listyourbusiness",
+    "directory": "listyourbusiness.us",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-listyourbusiness"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "submitted",
+      "to": "live",
+      "note": "b14 2026-10-26: approval mail 'now live' from listyourbusiness.us; pub"
+     }
+    ],
+    "evidence_url": "https://listyourbusiness.us/evidence/scrubbed"
+   },
+   {
+    "id": "create-getlistedusa",
+    "directory": "getlistedusa.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-getlistedusa"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "submitted",
+      "to": "live",
+      "note": "b14 2026-10-26: owner My Listings shows Published (listing_id 22985); "
+     }
+    ],
+    "evidence_url": "https://getlistedusa.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-sbdpro",
+    "directory": "sbdpro.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-sbdpro"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: draft saved (id 12316, status Incomplete); pu"
+     }
+    ],
+    "evidence_url": "https://sbdpro.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-uslocaldir",
+    "directory": "uslocaldir.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-uslocaldir"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: uslocaldir add-business = updatelisting.com s"
+     }
+    ]
+   },
+   {
+    "id": "create-freelistingusa",
+    "directory": "freelistingusa.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-freelistingusa"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "submitted",
+      "to": "live",
+      "note": "Public page 2026-10-25: name, 100 Example Drive, Exampleton KY 40000"
+     }
+    ],
+    "evidence_url": "https://freelistingusa.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-8coupons",
+    "directory": "8coupons.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-8coupons"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "Paid-tier, Mike decides: no free path. Wizard step 4 of 4 offers Own Y"
+     }
+    ],
+    "evidence_url": "https://8coupons.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-businessyab",
+    "directory": "businessyab.com",
+    "state": "submitted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-businessyab"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "submitted",
+      "to": "submitted",
+      "note": "b21: public-search lookup NOT FOUND (10/27); mail scan all folders non",
+      "recheck_due": "2026-10-29"
+     }
+    ],
+    "recheck_due": "2026-10-29",
+    "evidence_url": "https://businessyab.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-usdirectory",
+    "directory": "usdirectory.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-usdirectory"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "paid-tier, Mike decides: usdirectory.com merchant profile $49/mo. Not "
+     }
+    ]
+   },
+   {
+    "id": "create-ibegin",
+    "directory": "ibegin.com",
+    "state": "needs-human",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-ibegin"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "needs-human",
+      "note": "parked for client verification (phone-call)",
+      "verify_type": "phone-call"
+     }
+    ],
+    "evidence_url": "https://ibegin.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-accountantfinder",
+    "directory": "accountantfinder.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-accountantfinder"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Not a fit: CPA-only directory, firm-add form unreachable (500). Reject"
+     }
+    ],
+    "evidence_url": "https://accountantfinder.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-buildzoom",
+    "directory": "buildzoom.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-buildzoom"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "Not a fit: BuildZoom lists licensed contractors from permit data; no S"
+     }
+    ],
+    "evidence_url": "https://buildzoom.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-caring",
+    "directory": "caring.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-caring"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "needs-human",
+      "to": "rejected",
+      "note": "declined: paid lead form (Mike 10/26)"
+     }
+    ],
+    "evidence_url": "https://caring.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-citylocalpro",
+    "directory": "citylocalpro.com",
+    "state": "pending-verify",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-citylocalpro"
+    },
+    "history": [
+     {
+      "at": "2026-10-27",
+      "from": "pending-verify",
+      "to": "pending-verify",
+      "note": "b17: Re-send clicked once 10/27, no verify mail in listings@ after ~2 ",
+      "recheck_due": "2026-10-28"
+     }
+    ],
+    "recheck_due": "2026-10-28",
+    "evidence_url": "https://citylocalpro.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-discoverourtown",
+    "directory": "discoverourtown.com",
+    "state": "submitted",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-discoverourtown"
+    },
+    "history": [
+     {
+      "at": "2026-10-26",
+      "from": "submitted",
+      "to": "submitted",
+      "note": "b14 2026-10-26: no permalink found. Public search by name+city shows n"
+     }
+    ],
+    "evidence_url": "https://discoverourtown.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-find-us-here",
+    "directory": "find-us-here.com",
+    "state": "live",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-find-us-here"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "submitted",
+      "to": "live",
+      "note": "Public page loaded 2026-10-25: name, 100 Example Drive, Exampleton K"
+     }
+    ],
+    "evidence_url": "https://find-us-here.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-fixr",
+    "directory": "fixr.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-fixr"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Fit: Fixr lists home-improvement contractors only; no senior-care cons"
+     }
+    ],
+    "evidence_url": "https://fixr.com/evidence/scrubbed"
+   },
+   {
+    "id": "create-golocalpages",
+    "directory": "golocalpages.com",
+    "state": "rejected",
+    "kind": "create",
+    "mike_approval": {
+     "approved_by": "mike",
+     "at": "2026-10-25T17:45:00+00:00",
+     "row_id": "create-golocalpages"
+    },
+    "history": [
+     {
+      "at": "2026-10-25",
+      "from": "queued",
+      "to": "rejected",
+      "note": "Bad Catalog row: golocalpages.com ERR_NAME_NOT_RESOLVED in build Chrom"
+     }
+    ],
+    "evidence_url": "https://golocalpages.com/evidence/scrubbed"
+   }
+  ]
+ }
+}

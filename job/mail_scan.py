@@ -143,6 +143,41 @@ def presence_main(directories, days, messages=None, out=print, folders="all"):
     return 0
 
 
+SUBJECT_SCRUB_RE = re.compile(r"https?://\S+|\d{4,}")
+
+
+def scrub_subject(subject):
+    """A subject may carry a code or a link (`Your code is 482913`): digit runs of 4+ and URLs are masked before anything is printed."""
+    return SUBJECT_SCRUB_RE.sub("[x]", " ".join((subject or "").split()))[:100]
+
+
+def from_domain(frm):
+    addr = email.utils.parseaddr(frm or "")[1].lower()
+    return addr.rsplit("@", 1)[1] if "@" in addr else "-"
+
+
+def header_rows(directory, messages):
+    """-> [{folder, date, from_domain, to, subject}] for every mail that belongs to `directory` (newest first). HEADERS ONLY: never the body, a code or a link. Pure."""
+    domain = SCAN_DIRECTORIES.get(directory)
+    if not domain: return []
+    mine = [m for m in messages if mail_is_from(m, domain)]
+    return [{"folder": m.get("folder") or "INBOX", "date": m.get("date") or "-", "from_domain": from_domain(m.get("from")),
+             "to": ", ".join(m.get("to") or []) or "-", "subject": scrub_subject(m.get("subject"))}
+            for m in sorted(mine, key=lambda x: (x.get("date") or "", x.get("uid") or 0), reverse=True)]
+
+
+def headers_main(directories, days, messages=None, out=print, folders="all"):
+    """`--presence --headers`: per matching mail, one line: folder | date | From domain | To address | Subject. Batch 22 reads it to learn which address bbb writes to."""
+    try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
+    except Exception as e:
+        print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
+    for d in directories:
+        rows = header_rows(d, msgs)
+        out("%s | %d matching mail(s)" % (d, len(rows)))
+        for r in rows: out("  %s | %s | from @%s | to %s | %s" % (r["folder"], r["date"], r["from_domain"], r["to"], r["subject"]))
+    return 0
+
+
 def reset_main(directories, days, messages=None, out=print, folders="inbox"):
     """`--reset-link`: print the newest reset link / code per Directory to stdout. Read-only mail access. Exit 0 found, 1 none, 2 mailbox unreadable."""
     try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
@@ -164,6 +199,21 @@ def _text_of(msg):
         raw = part.get_payload(decode=True)
         if raw: out.append(html.unescape(raw.decode(part.get_content_charset() or "utf-8", "replace")))
     return "\n".join(out)
+
+
+TO_HEADERS = ("To", "Delivered-To", "X-Original-To", "Envelope-To", "Cc")
+
+
+def _to_addresses(msg):
+    """t_8d1865a3: the addresses a mail was sent to (To, Delivered-To, X-Original-To, Envelope-To, Cc), lowercased, deduped. Headers only; no body."""
+    out = []
+    for h in TO_HEADERS:
+        try: vals = [str(make_header(decode_header(v))) for v in (msg.get_all(h) or [])]
+        except Exception: vals = [str(v) for v in (msg.get_all(h) or [])]
+        for _name, addr in email.utils.getaddresses(vals):
+            a = (addr or "").strip().lower()
+            if a and a not in out: out.append(a)
+    return out
 
 
 JUNK_RE = re.compile(r"(?i)junk|spam|bulk")
@@ -213,7 +263,7 @@ def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vaul
                 try: dt = email.utils.parsedate_to_datetime(msg.get("Date")).strftime("%Y-%m-%dT%H:%M")
                 except Exception: dt = ""
                 out.append({"uid": uid, "folder": folder, "from": str(make_header(decode_header(msg.get("From", "")))), "subject": str(make_header(decode_header(msg.get("Subject", "")))),
-                            "date": dt, "body": _text_of(msg)})
+                            "date": dt, "to": _to_addresses(msg), "body": _text_of(msg)})
     finally:
         try: m.logout()
         except Exception: pass
@@ -257,9 +307,13 @@ def main(argv=None):
     a.add_argument("--directory", action="append", default=None)
     a.add_argument("--queue", default=None)
     a.add_argument("--reset-link", action="store_true", help="print the newest password-reset link / code from bbb / businessyab mail (terminal only; never stored)")
-    a.add_argument("--folders", choices=("inbox", "all"), default="inbox", help="all = INBOX + the server's Junk/Spam/Bulk folders (read-only; never moves or deletes)")
+    a.add_argument("--folders", choices=("inbox", "all"), default=None, help="all = INBOX + the server's Junk/Spam/Bulk folders (read-only; never moves or deletes)")
     a.add_argument("--presence", action="store_true", help="print yes/no per Directory (mail count, folders, 'code present'); never a code, link or body")
+    a.add_argument("--headers", action="store_true", help="with --presence: one line per matching mail (folder, date, From domain, To address, scrubbed Subject); never a body, code or link. Reads every folder unless --folders inbox")
     n = a.parse_args(argv)
+    if n.headers and not n.presence: a.error("--headers goes with --presence")
+    if n.headers: return headers_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders or "all")
+    n.folders = n.folders or "inbox"   # headers mode defaults to all folders (above); every other mode keeps the INBOX default
     if n.presence: return presence_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     if n.reset_link: return reset_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     import buildqueue as Q
