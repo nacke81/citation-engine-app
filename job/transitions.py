@@ -41,6 +41,7 @@ ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
 FLAG = "CE_ACTIVITIES_WRITE"
 HOLD_FLAG = "CE_ACTIVITIES_HOLD"
+ACTIVITY_CHANNEL_LABEL = "SEO & Local SEO"  # t_ef2b05e9: directory listings are Local SEO; shared contract with portal card t_9bc7d948
 ACTIVITY_STATES = ("submitted", "pending-verify", "live", "rejected")  # needs-human is internal, never client news
 VERIFY_TYPES = ("phone-call", "sms", "postcard", "id-check", "client-email")
 # client-email (t_d2f75685, Nate 2026-10-27): the Directory wants the owner to attest the email "belongs directly to the business and is not a proxy or
@@ -321,7 +322,8 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
     approved = None if activities_hold(hold) else (now or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     return {"approved_at": approved, "client_id": client_id, "deliverable_type": "citation", "title": activity_title(new, row["directory"]),
             "date_completed": day, "in_scope": True, "units": 1, "evidence_url": evidence_url,
-            "source": ACTIVITY_SOURCE, "source_ref": "citation-transition:%s:%s" % (row["id"], new)}
+            "source": ACTIVITY_SOURCE, "source_ref": "citation-transition:%s:%s" % (row["id"], new),
+            "channel_label": ACTIVITY_CHANNEL_LABEL}
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
