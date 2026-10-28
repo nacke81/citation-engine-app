@@ -53,7 +53,8 @@ check("S2 rejected row is not pulled back into the overlay by a later transition
 # S3 live row keeps its permalink after another row moves
 p, fp = queue(), FakePortal()
 T.record_transition("SCC", "fix-a", "submitted", None, "n", queue_path=p, today=DAY, portal=fp, activities_flag=False)
-T.record_transition("SCC", "fix-a", "live", "https://a.example/listing/1", "n", queue_path=p, today=DAY, portal=fp, activities_flag=False)
+T.record_transition("SCC", "fix-a", "live", "https://a.example/listing/1", "n", queue_path=p, today=DAY, portal=fp, activities_flag=False,
+                    proof={"proof_url": "https://a.example/listing/1", "proof_nap": "NAP", "proof_at": "2026-10-20T00:00:00Z", "proof_nap_match": True, "build_action": "fix"})   # t_d660babc
 T.record_transition("SCC", "fix-b", "submitted", None, "n", queue_path=p, today=DAY, portal=fp, activities_flag=False)
 check("S3 live row still live after a later transition", st(fp, "a.example") == "live")
 

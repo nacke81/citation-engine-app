@@ -695,8 +695,10 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                         res["note"] = "listing URL moved: %s -> %s" % (url, final)
                         if write: record("SCC", rid, "live", final, "weekly recheck: the Directory redirected the listing to a new URL", queue_path=queue_path, today=day, refresh_url=True)
                     if proof_live and write and only:
-                        _proof_only(row, kind, final, cmp_["nap"], day, db)
+                        _proof_only(row, kind, final, cmp_["nap"], day, db, queue_path)
                         res["note"] = "proof written (row stays live)"
+                    elif proof_live and only:
+                        res["note"] = "dry run: would write proof (row stays live): %s | %s" % (final, cmp_["nap"])
                     continue
                 res["note"] = "weekly recheck: listing live, NAP matches canonical"
                 url = final
@@ -761,18 +763,19 @@ def _proof_then_live(row, kind, url, nap, day, db, record, queue_path, note):
     db = db or D.DirDB()
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     action = PR.build_action(kind, row, row.get("claim_status"))
-    D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)])
-    out = record("SCC", row["id"], "live", url, note, queue_path=queue_path, today=day, listing_url=url)   # t_962161f4: the final URL is both
+    pf = dict(proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)
+    out = record("SCC", row["id"], "live", url, note, queue_path=queue_path, today=day, listing_url=url, proof=pf)   # t_d660babc: Proof travels with the one live writer
     if out.get("errors"): raise RuntimeError("; ".join(out["errors"])[:200])
 
 
-def _proof_only(row, kind, url, nap, day, db):
+def _proof_only(row, kind, url, nap, day, db, queue_path=None):
     """Proof columns for a row that is already live and whose signed-out read matched on every stable read. No state change."""
     import datetime, directories as D, proof as PR
     db = db or D.DirDB()
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     action = PR.build_action(kind, row, row.get("claim_status"))
-    D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)])
+    import transitions as T
+    T.record_proof(row["id"], dict(proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action), queue_path=queue_path, today=day, db=db)   # t_d660babc: same validation, same writer
 
 
 def recheck_file(path=None, ident=None, **kw):
@@ -804,6 +807,7 @@ def main(argv=None):
     a.add_argument("--include-live", action="store_true", help="also read live rows (report only)")
     a.add_argument("--row", action="append", default=None)
     a.add_argument("--proof-live", action="store_true", help="with --write --include-live --row ID: write Proof for named rows already live (state unchanged)")
+    a.add_argument("--proof-backfill", action="store_true", help="t_d660babc: for named LIVE rows with incomplete Proof: run the signed-out proof read and write Proof + build_action through transitions.record_proof. Needs --row. Dry run unless --write")
     a.add_argument("--backoff-only", action="store_true", help="dry run that still writes ONLY recheck_due (+2 days) on not-public / unreadable-public waiting rows; no transition, never live")
     a.add_argument("--any-state", action="store_true", help="with --row ID: read the row in ANY state (e.g. needs-human after a ruling). Dry run only; refused with --write")
     a.add_argument("--no-chrome", action="store_true")
@@ -811,6 +815,16 @@ def main(argv=None):
     n = a.parse_args(argv)
     if n.any_state and (n.write or n.backoff_only or n.proof_live or not n.row):
         print("REFUSED: --any-state is a dry-run read of named rows (--row ID); never with --write / --backoff-only / --proof-live", file=sys.stderr); return 1
+    if n.proof_backfill:   # t_d660babc: eligible = named LIVE rows whose stored Proof is incomplete; reads via the existing signed-out path, writes via transitions.record_proof
+        if not n.row or n.any_state or n.backoff_only:
+            print("REFUSED: --proof-backfill needs --row ID and never combines with --any-state / --backoff-only", file=sys.stderr); return 1
+        import transitions as T
+        qq = json.load(open(n.queue or Q.QUEUE_PATH, encoding="utf-8"))
+        need = dict(T.live_rows_missing_proof(qq))
+        bad = [r for r in n.row if r not in need]
+        if bad:
+            print("REFUSED: --proof-backfill takes live rows with incomplete Proof only; not eligible: %s" % ", ".join(bad), file=sys.stderr); return 1
+        n.include_live = True; n.proof_live = True
     from cfg import IDENT
     mail = MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal.
     res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write, any_state=n.any_state)

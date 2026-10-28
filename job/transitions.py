@@ -54,6 +54,40 @@ class TransitionRefused(Exception):
     pass
 
 
+PROOF_FIELDS = ("proof_url", "proof_nap", "proof_at", "proof_nap_match", "build_action")
+BUILD_ACTIONS = ("new", "claim", "fix")
+
+
+def proof_problems(proof):
+    """Pure. [] when `proof` is a complete Proof (t_d660babc): http(s) proof_url, non-empty proof_nap, proof_at, proof_nap_match True, build_action new|claim|fix."""
+    if not isinstance(proof, dict): return ["no proof"]
+    bad = []
+    u = str(proof.get("proof_url") or "")
+    if not u.startswith(("http://", "https://")) or "@" in urlsplit(u).netloc: bad.append("proof_url")
+    if not str(proof.get("proof_nap") or "").strip(): bad.append("proof_nap")
+    if not str(proof.get("proof_at") or "").strip(): bad.append("proof_at")
+    if proof.get("proof_nap_match") is not True: bad.append("proof_nap_match")
+    if proof.get("build_action") not in BUILD_ACTIONS: bad.append("build_action")
+    return bad
+
+
+def check_proof(proof):
+    bad = proof_problems(proof)
+    if bad: raise TransitionRefused("live needs complete Proof; missing or invalid: %s" % ", ".join(bad))
+    return {k: proof[k] for k in PROOF_FIELDS}
+
+
+def live_rows_missing_proof(q):
+    """Guard (t_d660babc): [(row id, [bad fields])] for every live queue row whose stored Proof is incomplete."""
+    out = []
+    for _key, _kind, rows in _row_lists(q):
+        for r in rows:
+            if r.get("state") == "live":
+                bad = proof_problems(r.get("proof"))
+                if bad: out.append((r.get("id"), bad))
+    return out
+
+
 NOTE_ONLY_STATES = ("found", "claimed-unverified", "created-unlisted", "needs-human", "submitted", "pending-verify")  # a same-state move is a note refresh on a waiting row (the weekly recheck names a wrong field); needs a note
 
 
@@ -202,6 +236,22 @@ def set_nap_check(row_id, nap_check, queue_path=None):
     return row
 
 
+def record_proof(row_id, proof, *, queue_path=None, today=None, db=None):
+    """Proof for a row ALREADY live (backfill, --proof-live). Same validation as the live move; state unchanged; queue row + ce_directory_status. Refuses a non-live row."""
+    path = queue_path or Q.QUEUE_PATH
+    day = today or datetime.date.today().isoformat()
+    proof = check_proof(proof)
+    q = _read(path)
+    row = _find(q, row_id)
+    if row.get("state") != "live": raise TransitionRefused("record_proof is for a live row, %s is %s" % (row_id, row.get("state")))
+    db = db or (D.DirDB() if D.enabled() else None)
+    if db is not None:   # status first: a failed write leaves the queue unchanged and the audit still lists the row
+        D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, **proof)])
+    row["proof"] = dict(proof)
+    _write_atomic(path, q)
+    return {"row_id": row_id, "proof": proof, "queue_written": path, "directories_written": db is not None}
+
+
 def _row_lists(q):
     """(key, kind, list) for every list that holds queue rows. The weekly create discovery writes create rows under
     create_queue.rows (a dict); create_rows is the older flat list. Lists are returned live so callers can replace rows in place."""
@@ -261,7 +311,7 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -280,6 +330,10 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if W.is_stopped(row) and new_state != "needs-human":
         raise TransitionRefused("row %s is STOPPED by the hard-block cap; only Mike's --reset-wall (job/walls.py) clears it" % row_id)
     check_transition(old, new_state, note, reason, refresh_url)
+    if new_state == "live" and not refresh_url:   # t_d660babc: the ONE live writer fails closed: no live without complete Proof
+        proof = check_proof(proof)
+    elif proof is not None:
+        raise TransitionRefused("proof only applies to a move into live")
     if backoff is not None and (backoff not in BACKOFF_MARKERS or old != new_state or not recheck_due):
         raise TransitionRefused("backoff %r: only %s, as a same-state move with --recheck-due" % (backoff, "/".join(BACKOFF_MARKERS)))
     if park_reason is not None:   # t_8d1865a3: the cap move. Any waiting row -> needs-human, with a structured reason.
@@ -298,6 +352,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     approval_before = copy.deepcopy(row.get("mike_approval"))
     new_row = copy.deepcopy(row)
     new_row["state"] = new_state
+    if proof: new_row["proof"] = dict(proof)
     if evidence_url: new_row["evidence_url"] = evidence_url
     if old != new_state: new_row.pop("recheck_due", None)   # t_d2f75685: a retry-later marker belongs to the state it was set in
     listing_url = check_evidence(listing_url, "submitted") if listing_url else None   # t_3ac43137: the URL the Directory showed at submit (permalink, owner view or confirmation); plain http(s) only
@@ -389,7 +444,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out["directories_written"] = False
     if directories is not None or D.enabled():
         try:
-            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories)
+            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories, proof=proof)
             out["directories_written"] = True
         except Exception as e:
             out["errors"].append("directories: %s" % e)
@@ -400,8 +455,8 @@ def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Record a citation state transition (queue + Local SEO + gated Activities)")
     a.add_argument("--client", default="SCC")
-    a.add_argument("--row", required=True)
-    a.add_argument("--to", required=True, dest="new_state")
+    a.add_argument("--row", default=None)
+    a.add_argument("--to", default=None, dest="new_state")
     a.add_argument("--evidence", default=None)
     a.add_argument("--note", default=None)
     a.add_argument("--verify-type", default=None, choices=VERIFY_TYPES, help="needs-human only: stopped at a phone call, SMS or postcard; writes the portal verification queue")
@@ -414,7 +469,13 @@ def main(argv=None):
     a.add_argument("--recheck-due", default=None, help="YYYY-MM-DD: batch tools skip this row until that day (retry later, e.g. a Directory sender limit)")
     a.add_argument("--park-reason", default=None, choices=PARK_REASONS, help="needs-human only: why the row is parked by a cap (no-public-permalink: 3 backoffs and still no listing URL)")
     a.add_argument("--refresh-url", action="store_true", help="live -> live only: store --evidence as both evidence_url and listing_url (the Directory moved the listing; needs --note)")
+    a.add_argument("--audit", action="store_true", help="read-only: list live rows with incomplete Proof; exit 1 if any")
     n = a.parse_args(argv)
+    if n.audit:
+        miss = live_rows_missing_proof(_read(n.queue or Q.QUEUE_PATH))
+        for rid, bad in miss: print("LIVE WITHOUT PROOF %s: %s" % (rid, ", ".join(bad)))
+        print("%d live rows without complete Proof" % len(miss)); return 1 if miss else 0
+    if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
         res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason)
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:

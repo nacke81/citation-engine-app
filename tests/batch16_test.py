@@ -113,6 +113,7 @@ check("1 the password is in no log line and no exception text", SECRET not in bu
 
 # ---- 2 rejected -> queued ---------------------------------------------------------------------------------------------------------------------
 def rec(rid, new, **kw):
+    if new == "live" and "proof" not in kw and not kw.get("refresh_url"): kw["proof"] = {"proof_url": "https://x.example/p", "proof_nap": "NAP", "proof_at": "2026-10-28T00:00:00Z", "proof_nap_match": True, "build_action": "new"}   # t_d660babc
     return T.record_transition("SCC", rid, new, kw.pop("evidence", None), kw.pop("note", None), queue_path=QP, today=kw.pop("today", "2026-10-28"),
                                portal=FakePortal(), **kw)
 class FakePortal:
@@ -377,7 +378,7 @@ hrow = json.load(open(QP))["create_rows"][0]; he = hrow["history"][-1]
 check("7 history carries verify_type client-email", he.get("verify_type") == "client-email" and hrow["state"] == "needs-human")
 check("7 the note says we never attest listings@ (the client's own address is needed)", "client's own email" in he["note"] and "never attest" in he["note"] and "listings@" in he["note"], he["note"])
 check("7 internal state: no Activities row (client news) for a needs-human park", r["activity_record"] is None)
-m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "live", "https://x.example/a", None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="client-email", dry_run=True), T.TransitionRefused)
+m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "live", "https://x.example/a", None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="client-email", dry_run=True, proof={"proof_url": "https://x.example/a", "proof_nap": "NAP", "proof_at": "2026-10-28T00:00:00Z", "proof_nap_match": True, "build_action": "new"}), T.TransitionRefused)
 check("7 client-email only applies to needs-human", m and "needs-human" in m, str(m))
 write_q([row("create-showmelocal", "showmelocal.com", "created-unlisted")])
 m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "needs-human", None, None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="client-email", steps=["x"], dry_run=True), T.TransitionRefused)
