@@ -97,6 +97,12 @@ class Ctx:
     # Vaultwarden: the helper reads the item and sets the field in the page; stdout is `fill=success ...` only.
     def vault_fill(self, selector, url):
         url = url.split("#")[0]   # an ad adds #google_vignette; the helper ignores fragments, but never pass one on
+        if not self.dry_run:
+            # The vault helper chooses the focused target among same-URL tabs. Activate the
+            # Playwright page the spec just navigated to; never fill a restored/stale tab.
+            if self.page.url.split("#")[0].split("?")[0] != url.split("#")[0].split("?")[0]:
+                raise BuildError("vault fill refused: current page changed before secure handoff")
+            self.page.bring_to_front()
         cmd = ["node", FILL_JS, "--organization", ORG, "--collection", COLLECTION, "--url", url, "--field", selector, "--cdp", self.cdp]
         cmd += ["--item-id", self.item_id] if self.item_id else ["--name", getattr(self, "item_name", None) or self.site.vault_item]   # item_name: the name `python job/vault_item.py --domain D` printed (t_d2f75685)
         if self.dry_run: cmd = [c for c in cmd if c not in ("--field", selector)] + ["--lookup-only"]
@@ -206,6 +212,11 @@ def run_site(site, ctx, only=None):
     last_open = None
     steps = list(site.steps)
     if only:
+        # Removed/unobserved names must fail before even opening a page.
+        unknown = set(only) - {st.name for st in steps}
+        if unknown:
+            res["steps"].append({"name": "only_unknown_step", "kind": "read", "status": "failed", "detail": "--only names no compiled step: %s" % ", ".join(sorted(unknown))})
+            res["ok"] = False; return res
         # t_03a74bae: --only never runs on a blank page. The spec's open / sign-in step runs first; a spec without one fails loudly, before any step.
         op = open_step_for(site, ctx)
         if op is None:

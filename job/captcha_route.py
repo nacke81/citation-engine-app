@@ -10,7 +10,7 @@ Pure: no network, no browser. Reads text you hand it. Never reads or prints the 
   python job/captcha_route.py --url https://site.example/claim --html saved_page.html
   python job/captcha_route.py --url https://site.example/claim --stdin < saved_page.html
 """
-import json, os, re, sys
+import html as html_lib, json, os, re, sys
 
 MAX_TRIES = 3
 CLI = os.environ.get("CAPSOLVER_CLI") or "capsolver-cli.js"
@@ -23,7 +23,7 @@ TURNSTILE_JS_RE = re.compile(r"""(?is)turnstile\.render\([^,]+,\s*\{[^}]*sitekey
 HCAPTCHA_RE = re.compile(r"""(?is)(?:class=["'][^"']*h-captcha[^"']*["'][^>]*data-sitekey=["']([^"']+)["']|data-sitekey=["']([^"']+)["'][^>]*class=["'][^"']*h-captcha|hcaptcha\.com/1/api\.js)""")
 RECAPTCHA_V3_RE = re.compile(r"""(?is)recaptcha/(?:api|enterprise)\.js\?[^"'>]*render=(?!explicit)([A-Za-z0-9_\-]{20,})""")
 RECAPTCHA_V2_RE = re.compile(r"""(?is)(?:class=["'][^"']*g-recaptcha[^"']*["'][^>]*data-sitekey=["']([^"']+)["']|data-sitekey=["']([^"']+)["'][^>]*class=["'][^"']*g-recaptcha|grecaptcha\.render\([^,]+,\s*\{[^}]*sitekey\s*:\s*["']([^"']+)["'])""")
-RECAPTCHA_FRAME_RE = re.compile(r"""(?is)recaptcha/(?:api2|enterprise)/anchor\?[^"'>]*[?&]k=([A-Za-z0-9_\-]{20,})""")
+RECAPTCHA_FRAME_RE = re.compile(r"""(?is)recaptcha/(?:api2|enterprise)/anchor\?(?:[^"'>]*?&)?k=([A-Za-z0-9_\-]{20,})""")
 IMAGE_RE = re.compile(r"""(?is)<img\b[^>]*(?:captcha|securimage|security[-_ ]?code)[^>]*>""")
 HAS_FORM_RE = re.compile(r"(?is)<form\b|<input\b")
 
@@ -47,7 +47,7 @@ def detect(html, url=""):
     if m: add("hcaptcha", _first(m))
     m = RECAPTCHA_V3_RE.search(html)
     if m: add("recaptcha-v3", m.group(1))
-    k = _first(RECAPTCHA_V2_RE.search(html)) or _first(RECAPTCHA_FRAME_RE.search(html))
+    k = _first(RECAPTCHA_V2_RE.search(html)) or _first(RECAPTCHA_FRAME_RE.search(html_lib.unescape(html)))
     if k and not any(w["type"] == "recaptcha-v3" and w["sitekey"] == k for w in out): add("recaptcha-v2", k)
     if IMAGE_RE.search(html): add("image", None)
     return {"interstitial": False, "widgets": out}

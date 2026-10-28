@@ -306,11 +306,12 @@ class PRun:
     def __init__(s): s.calls = []
     def __call__(s, cmd, **k): s.calls.append(cmd); return s
 clp = types.SimpleNamespace(name="citylocalpro", domain="citylocalpro.com", vault_item="SCC - citylocalpro.com")
-pr = PRun(); c = B.Ctx(clp, None, NAP, runner=pr, dry_run=False, log=lambda *a: None); c.item_name = "SCC - citylocalpro"
+fake_clp = types.SimpleNamespace(url="https://citylocalpro.com/add-your-business", bring_to_front=lambda: None)
+pr = PRun(); c = B.Ctx(clp, fake_clp, NAP, runner=pr, dry_run=False, log=lambda *a: None); c.item_name = "SCC - citylocalpro"
 c.vault_fill("#password", "https://citylocalpro.com/add-your-business")
 cmd = pr.calls[0]
 check("5 fill helper is called with the RESOLVED name (--name 'SCC - citylocalpro'), not the spec's", cmd[cmd.index("--name") + 1] == "SCC - citylocalpro")
-pr = PRun(); c = B.Ctx(clp, None, NAP, runner=pr, dry_run=False, log=lambda *a: None)
+pr = PRun(); c = B.Ctx(clp, fake_clp, NAP, runner=pr, dry_run=False, log=lambda *a: None)
 c.vault_fill("#password", "https://citylocalpro.com/add-your-business")
 check("5 no --item-name: the spec's vault_item is used as before", pr.calls[0][pr.calls[0].index("--name") + 1] == "SCC - citylocalpro.com")
 ap = B.argparse if hasattr(B, "argparse") else None
@@ -326,7 +327,7 @@ subs = [i for i, s in enumerate(cs["steps"]) if s.get("submit") or s["do"] in ("
 check("6 every submit / mail step comes after stop_before_submit (dry run stops before submit)", subs and all(i > i_stop for i in subs))
 rawc = open(os.path.join(JOB, "playbooks", "cylex.json"), encoding="utf-8").read()
 check("6 no literal phone / email / password in the spec", not F._LITERAL_EMAIL.search(rawc) and not F._LITERAL_PHONE.search(rawc) and '"password": "' not in rawc)
-check("6 the notes say it was not seen live and is not run from this card", "UNPROVEN" in cs["notes"] and "NEVER RUN LIVE" in cs["notes"])
+check("6 the notes prohibit replay registration and distinguish code entry from success", "Never run registration again" in cs["notes"] and "typed code is not server verification" in cs["notes"])
 class Loc6:
     def __init__(s, pg, sel): s.pg, s.sel = pg, sel
     @property

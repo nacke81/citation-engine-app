@@ -61,6 +61,11 @@ def human_reason(r):
     """-> why only a person can move this row, or None. Looks at the latest verify_type and the latest note only (an old note does not outvote a newer one)."""
     if W.is_stopped(r): return "hard-block wall STOPPED after 3 tries: only Mike's --reset-wall clears it"
     st = r.get("state")
+    latest = _last_note(r)
+    if st == "needs-human" and r.get("directory") in ("botw.org", "showmelocal.com"):
+        price = re.search(r"\$\d+(?:\.\d{2})?(?:\s*/\s*(?:mo|month|yr|year))?", latest, re.I)
+        if price and re.search(r"(?i)paid|payment|price", latest):
+            return "paid tier %s: skip (never buy)" % price.group(0)
     vt = _last_verify(r)
     if vt in HUMAN_VERIFY and st in ("needs-human", "found", "submitted", "pending-verify"): return HUMAN_VERIFY[vt]
     # found / needs-human rows keep their human marker in an EARLIER note (dnb: "VERIFY:id" on 10/26; a later backoff note must not hide it). A waiting row
@@ -94,6 +99,8 @@ def agent_route(q, r, today):
     if st == "queued":
         return ("build: queued with Mike's blanket approval" if Q.approval_ok(r) else "queued but NOT approved (needs Mike's approval row)"), today
     if st == "needs-human":
+        if d == "cylex.us" and re.search(r"(?i)(code typed|browser-field-not-rendered)", _last_note(r)):
+            return "continue existing account: code entry is NOT submit success; verify server response before business form (2 prior wall days remain)", max(today, due) if due else today
         gate = W.gate(q, d, today)
         if gate:   # a hard-block try already happened today: one try per calendar day
             return "hard-block retry (%d of %d used): %s" % (len(W.tries(r)), W.MAX_TRIES, gate.split(": ", 1)[-1]), _plus(today, 1)
