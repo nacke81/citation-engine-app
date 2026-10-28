@@ -44,6 +44,7 @@ class FakePage:
         s.url, s.body, s.missing, s.acts, s.shot_fails, s.keyboard, s.clicked_text = url, body, set(missing), [], shot_fails, Kb(s), []
         s.context = types.SimpleNamespace(new_cdp_session=lambda p: None)
         s.after_click = None
+    def bring_to_front(s): s.acts.append(("focus", s.url))
     def goto(s, u, **k): s.acts.append(("goto", u)); s.url = u
     def locator(s, sel): return Loc(s, sel)
     def fill(s, sel, v, **k): s.acts.append(("fill", sel, v))
@@ -267,8 +268,8 @@ class SignInPage(FakePage):
         if "password" in sel and s.in_: l.count = lambda: 0
         return l
 def live_resend(after):
-    pg = SignInPage(url="https://citylocalpro.com/dashboard", body="Account\nPlease verify your email.\nRe-send verification\n")
-    pg.after_click = {"Re-send verification": after}
+    pg = SignInPage(url="https://citylocalpro.com/login", body="Account\nPlease verify your email.\nRe-send\n")
+    pg.after_click = {"Re-send": after}
     c = ctx_for(rsite, pg, dry_run=False)
     r = B.run_site(rsite, c, only={"resend_once", "read_result"})
     return r, c, pg
@@ -277,7 +278,7 @@ for label, text in (("sent", "Account\nPlease verify your email.\nA verification
                     ("unknown", "Account\nPlease verify your email.\nRe-send verification\n")):
     r, c, pg = live_resend(text)
     got = [s["detail"] for s in r["steps"] if s["name"] == "read_result"]
-    check("5 live fixture '%s': RESULT=%s, state[result]=%s, exactly one re-send click" % (label, label, label), got == ["RESULT=" + label] and c.state.get("result") == label and pg.clicked_text.count("Re-send verification") == 1, str(got) + str(r["steps"]))
+    check("5 live fixture '%s': RESULT=%s, state[result]=%s, exactly one re-send click" % (label, label, label), got == ["RESULT=" + label] and c.state.get("result") == label and pg.clicked_text.count("Re-send") == 1, str(got) + str(r["steps"]))
 r, c, pg = live_resend("Please verify your email.\nRe-send verification\nSorry, limit of one email per 24 hours. A verification email has been sent earlier.\n")
 check("5 a page with both words reports `limit` (limit is listed first)", c.state.get("result") == "limit")
 bad = {"site": "q", "domain": "q.example", "record": "none", "steps": [{"name": "o", "do": "open", "url": "https://q.example/"}, {"name": "r", "do": "read_result", "classes": {"sent": ["("]}}]}
@@ -289,7 +290,7 @@ try: F.build_site(bad); badok = False
 except C.BuildError: badok = True
 check("5 an empty classes map is refused", badok)
 raw = open(os.path.join(pb, "citylocalpro_resend.json"), encoding="utf-8").read()
-check("5 the spec holds no literal phone/email/password and says UNPROVEN selectors", not F._LITERAL_EMAIL.search(raw) and not F._LITERAL_PHONE.search(raw) and "UNPROVEN" in raw)
+check("5 spec holds no literal contact/credential and limits resend to observed login page", not F._LITERAL_EMAIL.search(raw) and not F._LITERAL_PHONE.search(raw) and '"password": "' not in raw and "Re-send" in raw and "login page" in raw)
 
 
 # ---- 6 owner-read login specs -------------------------------------------------------------------------------------------------------------------------

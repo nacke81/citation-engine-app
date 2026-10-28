@@ -35,6 +35,7 @@ class FakePage:
     def __init__(self, url="https://x.example/", body="", missing=(), evals=None):
         self.url, self.body, self.missing, self.acts, self.evals = url, body, set(missing), [], evals or {}; self.sticky = False
         self.context = types.SimpleNamespace(new_cdp_session=lambda p: None)
+    def bring_to_front(self): self.acts.append(("focus", self.url))
     def goto(self, u, **k): self.acts.append(("goto", u)); self.url = self.url if self.sticky else u
     def locator(self, s): return Loc(self, s)
     def fill(self, s, v, **k): self.acts.append(("fill", s, v))
@@ -91,14 +92,32 @@ check("D2 every site's first submit/mail step exists (a dry run can stop)", all(
 
 # ---- V1 vault: item id, fragment, no password in the argv ------------------------------------------------------------------
 site = FUH.SITE
-r = Runner(); c = ctx_for(site, FakePage(), runner=r, item_id="aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb", dry_run=False)
+r = Runner(); p = FakePage(url="https://www.find-us-here.com/register.php"); c = ctx_for(site, p, runner=r, item_id="aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb", dry_run=False)
 c.vault_fill("#scc-pw1", "https://www.find-us-here.com/register.php#google_vignette")
 cmd = r.calls[0]
 check("V1 live fill: --item-id used, --name not passed", "--item-id" in cmd and "--name" not in cmd and cmd[cmd.index("--item-id") + 1].startswith("aaaaaaaa"))
 check("V1 fragment stripped from --url, --cdp passed, field passed", cmd[cmd.index("--url") + 1] == "https://www.find-us-here.com/register.php" and cmd[cmd.index("--cdp") + 1] == B.CDP_URL and cmd[cmd.index("--field") + 1] == "#scc-pw1")
-r = Runner(); c = ctx_for(site, FakePage(), runner=r, dry_run=False); c.vault_fill("#p", "https://a.example/r")
+check("V1 secure fill focuses the just-navigated tab before invoking helper", p.acts[0] == ("focus", p.url) and len(r.calls) == 1)
+stale = FakePage(url="https://www.cylex.us.com/register")
+current = FakePage(url="https://www.cylex.us.com/register")
+class TabRunner(Runner):
+    def __call__(self, cmd, **kw):
+        self.calls.append(cmd)
+        # Credential-free fixture: the stale tab has only a hidden duplicate, while
+        # the current tab has both a hidden and a rendered password input.
+        tabs = [(stale, [False]), (current, [False, True])]
+        chosen = next((tab for tab, fields in tabs if tab.acts and tab.acts[-1][0] == 'focus'), None)
+        return Proc(0 if chosen is current and any(tabs[1][1]) else 1, 'fill=success' if chosen is current else 'fill=failed reason=browser-field-not-rendered')
+tabs_runner = TabRunner()
+ctx_for(site, current, runner=tabs_runner, dry_run=False).vault_fill('input[type=password]', current.url)
+check('V1 two identical-URL tabs: current tab with visible password chosen', len(tabs_runner.calls) == 1 and current.acts[-1][0] == 'focus' and not stale.acts)
+wrong = ctx_for(site, current, runner=TabRunner(), dry_run=False)
+try: wrong.vault_fill('input[type=password]', 'https://other.example/register'); mismatch = False
+except C.BuildError: mismatch = True
+check('V1 current-tab navigation mismatch refuses before any credential handoff', mismatch and wrong._runner.calls == [])
+r = Runner(); c = ctx_for(site, FakePage(url="https://a.example/r"), runner=r, dry_run=False); c.vault_fill("#p", "https://a.example/r")
 check("V1 without --item-id the item NAME is used", r.calls[0][r.calls[0].index("--name") + 1] == FUH.VAULT_ITEM)
-c = ctx_for(site, FakePage(), runner=Runner(1, "fill=failed reason=item-not-unique"), dry_run=False)
+c = ctx_for(site, FakePage(url="https://a.example/r"), runner=Runner(1, "fill=failed reason=item-not-unique"), dry_run=False)
 try: c.vault_fill("#p", "https://a.example/r"); failed = False
 except C.BuildError as e: failed = "item-not-unique" in str(e)
 check("V1 live fill failure is a BuildError naming the reason (no workaround)", failed)
@@ -151,7 +170,7 @@ check("S1 country first, then state, then city, then category", sel == ["USA", N
 fills = {a[1]: a[2] for a in acts(page, "fill")}
 check("S1 username is letters only (an email is rejected by the site)", fills["input[name=username]"] == "sccsolutions" and "@" not in fills["input[name=username]"])
 check("S1 email typed twice, name verbatim", fills["input[name=business_email_address]"] == NAP["email"] == fills["input[name=confirm_business_email_address]"] and fills["#business_name"] == NAP["name"])
-r = Runner(); c = ctx_for(FUH.SITE, FakePage(), runner=r, dry_run=False); FUH.fill_password(c)
+r = Runner(); c = ctx_for(FUH.SITE, FakePage(url="https://www.find-us-here.com/register.php"), runner=r, dry_run=False); FUH.fill_password(c)
 check("S1 both password inputs filled through the vault helper by tagged id, page url without fragment", [x[x.index("--field") + 1] for x in r.calls] == ["#scc-pw1", "#scc-pw2"] and all(x[x.index("--url") + 1] == FUH.REGISTER_URL for x in r.calls))
 page = FakePage(url="https://www.find-us-here.com/dashboard_free.php", evals={"copy_link": "https://www.find-us-here.com/businesses/Senior-Care-1/1/"})
 c = ctx_for(FUH.SITE, page, dry_run=False)

@@ -1,0 +1,7 @@
+# Plan 2026-10-28 — batch 22 blockers (t_874bf87b)
+
+Read latest relevant plan `plans/2026-10-27-batch21-fixes.md` and lessons `docs/lessons/2026-10-27-prove-the-spec-on-the-live-page.md`, `2026-10-27-recount-from-rows-never-store-a-total.md`. Apply: fixture-only selectors are not live proof; summarize from actual rows, preserve history/due dates. Source: t_4600ca8f and batch22-report.md. Target app repository origin/main db4d55d; runtime and original queue read-only. No migration, Directory traffic, credential access or solver calls.
+
+Seams approved by card: `captcha_route.detect`, formspec/runner vault fill via credential-free fake helper and page, `mail_scan` presence/headers/CLI selection, `workable.classify`, `recheck` CLI row selection, formspec dry-run/account stage. Make one failing behavioral test then minimal code per seam. Keep host/origin checks, full-page parking, default due filtering, wall/day and no-URL backoff counters. The Cylex spec may encode only observed stages and must stop before unproven steps; account verification requires explicit post-submit success, not a code-entry event. Citylocalpro only observed login and resend selectors; no live sends.
+
+Run focused tests after each slice. Run complete existing suites, golden, leak/runs checks in clean shell; dry-run on a copy of queue with no network. Inspect diff, write dated lesson, commit, push branch, open one PR, capture head SHA and exact-head CI. Handoff independent review to Nate with problem-to-test map and source-card resume warnings. No self-merge or live claim.

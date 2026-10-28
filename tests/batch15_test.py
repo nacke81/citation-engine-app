@@ -108,6 +108,7 @@ class Kb:
 class FakePage:
     def __init__(s, accept=True, body="Company 10000001 Free Listing Status: Pending"):
         s.url, s.acts, s.keyboard, s.body, s.accept, s.signed_in = "https://account.acompio.com/login.php", [], Kb(s), body, accept, False
+    def bring_to_front(s): s.acts.append(("focus", s.url))
     def goto(s, u, **k): s.acts.append(("goto", u)); s.url = u
     def locator(s, sel): return Loc(s, sel)
     def fill(s, sel, v, **k): s.acts.append(("fill", sel, v))

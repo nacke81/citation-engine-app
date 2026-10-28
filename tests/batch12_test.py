@@ -34,6 +34,7 @@ class FakePage:
     def __init__(self, url="https://x.example/", body="", html="", evals=None):
         self.url, self.body, self.html, self.missing, self.acts, self.evals = url, body, html, set(), [], evals or {}
         self.keyboard = Kb(self)
+    def bring_to_front(self): self.acts.append(("focus", self.url))
     def goto(self, u, **k): self.acts.append(("goto", u)); self.url = u
     def locator(self, s): return Loc(self, s)
     def get_by_text(self, t, **k): self.acts.append(("get_by_text", t)); return Loc(self, "text:" + t)

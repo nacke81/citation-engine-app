@@ -26,6 +26,10 @@ for name, html, typ, key in (("v2", V2, "recaptcha-v2", KEY), ("v2 attr order", 
     d = C.detect(html, URL)
     check("D1 %s: type and sitekey" % name, not d["interstitial"] and len(d["widgets"]) == 1 and d["widgets"][0] == {"type": typ, "sitekey": key}, str(d))
 
+for variant in (V2_FRAME.replace('&k=', '&amp;k='), V2_FRAME.replace('ar=1&k=', 'k='), V2_FRAME.replace('api2/anchor', 'enterprise/anchor').replace('&k=', '&amp;k=')):
+    d = C.detect(variant, URL)
+    check('B22 escaped/first/enterprise anchor', d['widgets'] == [{'type': 'recaptcha-v2', 'sitekey': KEY}], str(d))
+
 d = C.detect(V3 + V2, URL)
 check("D2 v3 key is not also reported as v2", [w["type"] for w in d["widgets"]] == ["recaptcha-v3"], str(d))
 

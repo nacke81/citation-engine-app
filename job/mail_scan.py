@@ -22,6 +22,8 @@ SCAN_DIRECTORIES = {
     "loc8nearme.com": "loc8nearme.com",
     "businessyab.com": "businessyab.com",
     "discoverourtown.com": "discoverourtown.com",
+    "cylex.us": "cylex.us.com",
+    "cylex.us.com": "cylex.us.com",
 }
 APPROVED_RE = re.compile(r"(?i)\b(now live|is live|went live|has been (approved|published|activated|accepted)|was (approved|published|accepted)|(approved|published) and (is )?(now )?(live|visible|active)|"
                          r"listing (is )?(now )?(live|published|active|approved)|congratulations|accreditation is complete|profile is (now )?(live|published|active))\b")
@@ -300,11 +302,22 @@ def report(rows, scanner):
     return "\n".join(lines)
 
 
+def select_rows(all_rows, wanted, today, historical=False):
+    """Pure selection; historical is explicitly scoped and ignores due dates without changing any row."""
+    candidates = [r for r in all_rows if r.get("directory") in wanted]
+    if historical:
+        selected = [r for r in candidates if r.get("state") not in ("live", "rejected")]
+    else:
+        selected = [r for r in candidates if r.get("state") in ("submitted", "pending-verify", "found", "created-unlisted") and not Q.not_due(r, today)]
+    return selected, len(candidates) - len(selected)
+
+
 def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Read listings@ for approval / now-live mails of the moderated, account-less Directories (read-only)")
     a.add_argument("--days", type=int, default=30)
     a.add_argument("--directory", action="append", default=None)
+    a.add_argument("--historical", action="store_true", help="read-only explicitly selected --directory rows, all folders regardless of due date")
     a.add_argument("--queue", default=None)
     a.add_argument("--reset-link", action="store_true", help="print the newest password-reset link / code from bbb / businessyab mail (terminal only; never stored)")
     a.add_argument("--folders", choices=("inbox", "all"), default=None, help="all = INBOX + the server's Junk/Spam/Bulk folders (read-only; never moves or deletes)")
@@ -312,19 +325,22 @@ def main(argv=None):
     a.add_argument("--headers", action="store_true", help="with --presence: one line per matching mail (folder, date, From domain, To address, scrubbed Subject); never a body, code or link. Reads every folder unless --folders inbox")
     n = a.parse_args(argv)
     if n.headers and not n.presence: a.error("--headers goes with --presence")
+    if n.historical and (not n.directory or n.reset_link or n.presence or n.folders == "inbox"):
+        a.error("--historical requires --directory and cannot combine with reset/presence/inbox")
     if n.headers: return headers_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders or "all")
-    n.folders = n.folders or "inbox"   # headers mode defaults to all folders (above); every other mode keeps the INBOX default
+    n.folders = n.folders or ("all" if n.historical else "inbox")   # historical reads INBOX + Junk; automatic mode retains INBOX default
     if n.presence: return presence_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     if n.reset_link: return reset_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     import buildqueue as Q
-    wanted = set(n.directory) if n.directory else set(SCAN_DIRECTORIES)
+    wanted = set(n.directory) if n.directory else {"bbb.org", "loc8nearme.com", "businessyab.com", "discoverourtown.com"}
     import datetime
     today = datetime.date.today().isoformat()
-    rows = [(r["id"], r["directory"]) for r in Q.load_all_rows(n.queue) if r.get("directory") in wanted and r.get("state") in ("submitted", "pending-verify", "found", "created-unlisted")
-            and not Q.not_due(r, today)]   # t_d2f75685: recheck_due in the future = skip
+    selected, skipped = select_rows(Q.load_all_rows(n.queue), wanted, today, historical=n.historical)
+    rows = [(r["id"], r["directory"]) for r in selected]
     from cfg import IDENT
     sc = MailScanner(reader=lambda: read_messages(days=n.days, folders=n.folders), name=IDENT["BIZ"]["SCC"]["name"])
     print(report(rows, sc))
+    print("scan: selected=%d skipped=%d unread=%d; mode=%s" % (len(rows), skipped, len(rows) if sc.error else 0, "historical read-only" if n.historical else "automatic due-only"))
     if sc.error and rows: print("MAILBOX NOT READ: %s" % sc.error, file=sys.stderr)   # t_d2f75685: never read as "no approval mail"
     return 2 if sc.error and rows else 0
 

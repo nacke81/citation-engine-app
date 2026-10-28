@@ -3,31 +3,27 @@
   "domain": "citylocalpro.com",
   "record": "none",
   "vault_item": "SCC - citylocalpro.com",
-  "notes": "t_03a74bae. Click 'Re-send verification' ONCE and read what the site said. Batch 17 clicked it with no capture, so nobody knew if mail was sent or the site's 24h sender limit (SMTP 503) hit. Result label in the step detail: RESULT=sent | limit | unknown ('limit' is tested first). Record it with transitions.py --recheck-due (limit: tomorrow). The selectors for the sign-in form and the Re-send control were NOT seen live by this spec's author (fixture only): UNPROVEN, discover with --dry-run list_fields on the first real run. Never run it twice in a day: the click is a submit-kind step, so a dry run stops before it. Reads listings@ afterwards with mail_scan / hotfrog, not here.",
+  "notes": "Batch 22 observed 2026-10-28: login input[name=login], #loginBtn; unverified account remains on login page and offers Re-send. One resend returned RESULT=limit; next eligible 2026-10-29, one resend per day only. --dry-run stops before login and resend. Read result classes limit/sent/unknown; never infer delivery from a click. Existing vault item only; no duplicate account.",
   "steps": [
     {
-      "name": "sign_in",
-      "do": "login",
-      "url": "https://citylocalpro.com/login",
-      "user_selector": "input[name=email]",
-      "password_selector": "input[name=password]",
-      "wall_seconds": 60,
-      "settle_ms": 6000
-    },
-    {
-      "name": "open_account",
+      "name": "open_login",
       "do": "open",
-      "url": "https://citylocalpro.com/dashboard"
+      "url": "https://citylocalpro.com/login",
+      "expect": ["input[name=login]"]
     },
+    {"name":"fill_email","do":"fill","selector":"input[name=login]","key":"email"},
+    {"name":"fill_password","do":"vault_fill","selector":"input[name=password]","url":"https://citylocalpro.com/login"},
     {
       "do": "stop_before_submit"
     },
+    {"name":"login_attempt","do":"click","selector":"#loginBtn","submit":true,"frames":false},
+    {"name":"wait_banner","do":"wait","ms":2500},
     {
       "name": "resend_once",
       "do": "click_text",
-      "text": "Re-send verification",
+      "text": "Re-send",
       "tag": "a,button",
-      "exact": false,
+      "exact": true,
       "submit": true,
       "snapshot_before": true,
       "settle_ms": 4000

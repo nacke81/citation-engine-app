@@ -3,7 +3,7 @@
   "domain": "cylex.us",
   "record": "none",
   "vault_item": "SCC - cylex.us",
-  "notes": "t_d2f75685, scripted so hard-block try 3 is a script, not a hand walk. NEVER RUN LIVE FROM THIS CARD: tests use a fixture page only. Facts: cylex.us.com puts the agent browser behind Cloudflare 'Sorry, you have been blocked' (403, Ray ID). Try 1 was 10/26 (logged by hand as a prose note), try 2 was 10/27 (a50f7322cf193555); walls.gate counts both (2 of 3), allows one try per calendar day, and STOPS the row after try 3 until Mike resets it. The runner checks walls.gate BEFORE any browser starts, so a stopped or same-day row opens nothing. Flow from the Cylex FAQ (public): Register (user account by email) -> email code at listings@ -> Sign in -> 'Register business' -> company details -> submit. Free listing only; Premium Entry ($11.90/month) is never taken. record is none: this spec only creates the account and fills the business form; the row state is set by hand from what the page showed (created-unlisted / needs-human) until the form selectors are proven. Every selector below was NOT seen live (cylex was never opened past the wall): they are the generic Register-form names and carry UNPROVEN in the step name; step 'discover_form' prints every visible control (list_fields) so the first run that gets through the wall fixes the spec in one call. If the first step shows the Cloudflare block page: stop, record the try with `python job/walls.py --record-try create-cylex --ray-id <id>`, do not retry the same day. A Turnstile/reCAPTCHA inside the form goes to CapSolver (solve_captcha, 3 tries per row). The dry run stops before the first submit/mail step: it opens the page, clears the wall wait, reads the form and fills nothing that is sent.",
+  "notes": "Batch 22 observed 10/28: Cloudflare absent; email-first Continue, name/password, form reCAPTCHA, Register, optional My e-mail is correct, email code typed but NOT submitted. Existing vault item SCC - cylex.us only. Two CapSolver calls already spent; row solve log and 2 prior wall days must persist. This spec documents observed signup stages, NOT a safe instruction to re-register: on resume Lis must find the existing account/code stage, verify it live, and stop if page state differs. No business-form controls proven; no listing exists. A typed code is not server verification; only an explicit success response AFTER submit can justify a verified account. Never run registration again just to exercise this spec.",
   "mail": {
     "sender": "cylex",
     "link_re": "(?:code|verification code)[^0-9A-Za-z]{0,20}(?P<v>[0-9]{4,8})"
@@ -21,9 +21,9 @@
       "do": "list_fields"
     },
     {
-      "name": "cookies_UNPROVEN",
+      "name": "cookies",
       "do": "click_text",
-      "text": "Accept",
+      "text": "Do not consent",
       "tag": "button",
       "optional": true,
       "settle_ms": 500
@@ -36,50 +36,23 @@
       "settle_ms": 2500
     },
     {
-      "name": "email_UNPROVEN",
+      "name": "email_first",
       "do": "fill",
-      "selector": "input[type=email]",
+      "selector": "input[type=email], input[name*=mail i]",
       "key": "email"
     },
-    {
-      "name": "first_UNPROVEN",
-      "do": "fill",
-      "selector": "input[name*=first i]",
-      "key": "first",
-      "optional": true
-    },
-    {
-      "name": "last_UNPROVEN",
-      "do": "fill",
-      "selector": "input[name*=last i]",
-      "key": "last",
-      "optional": true
-    },
-    {
-      "name": "password_UNPROVEN",
-      "do": "vault_fill",
-      "selector": "input[type=password]",
-      "url": "{current}"
-    },
-    {
-      "do": "stop_before_submit"
-    },
-    {
-      "name": "submit_register_UNPROVEN",
-      "do": "click",
-      "selector": "button[type=submit]",
-      "submit": true,
-      "settle_ms": 5000
-    },
-    {
-      "name": "email_code",
-      "do": "wait_mail",
-      "as": "code",
-      "selector": "input[name*=code i]"
-    },
-    {
-      "name": "discover_business_form",
-      "do": "list_fields"
-    }
+    {"name":"terms","do":"check","selector":"input[type=checkbox]","js":true},
+    {"do":"stop_before_submit"},
+    {"name":"continue_email","do":"click","selector":"button:has-text('Continue')","submit":true,"settle_ms":5000},
+    {"name":"full_name","do":"fill","selector":"input[placeholder*='First']","key":"contact"},
+    {"name":"password","do":"vault_fill","selector":"input[type=password]","url":"{current}"},
+    {"name":"solve_recaptcha","do":"solve_captcha"},
+    {"name":"submit_registration","do":"click","selector":"button:has-text('Register') >> visible=true","submit":true,"settle_ms":5000},
+    {"name":"confirm_email","do":"click_text","text":"My e-mail is correct","tag":"a,button","optional":true,"submit":true,"settle_ms":4000},
+    {"name":"code_entry_only","do":"wait_mail","as":"code","selector":"input[name*=code i]"},
+    {"name":"inspect_code_page","do":"list_fields"},
+    {"name":"submit_code_UNPROVEN","do":"click","selector":"button[type=submit] >> visible=true","submit":true,"settle_ms":5000},
+    {"name":"require_server_confirmation_UNPROVEN","do":"read_text","expect_any":["email verified","account verified"]},
+    {"name":"business_form_UNPROVEN","do":"list_fields"}
   ]
 }
