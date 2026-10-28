@@ -67,9 +67,9 @@ res, q, _, _, db, fp = run([row("r1", "a.example", "pending-verify", U1)], {U1: 
 r = q["fix_queue"][0]
 check("R1 all match -> live", r["state"] == "live" and r["evidence_url"] == U1 and res[0]["after"] == "live" and res[0]["verdict"] == "match", str(res))
 check("R1 history names the recheck", "weekly recheck" in (r["history"][-1]["note"] or ""))
-proof_i = next(i for i, c in enumerate(db.calls) if "ce_directory_status" in c[1] and c[2][0].get("proof_nap_match") is True)
-status_i = max(i for i, c in enumerate(db.calls) if "ce_directory_status" in c[1])
-check("R1 Proof written before the live transition status", proof_i < status_i and db.calls[proof_i][2][0]["proof_url"] == U1)
+st_calls = [c for c in db.calls if "ce_directory_status" in c[1]]
+check("R1 Proof rides in the SAME status upsert as queue_state=live (t_d660babc)", len(st_calls) == 1 and st_calls[0][2][0].get("queue_state") == "live" and st_calls[0][2][0].get("proof_nap_match") is True and st_calls[0][2][0]["proof_url"] == U1 and st_calls[0][2][0].get("build_action"), str(st_calls))
+check("R1 the queue row stores the Proof too", r.get("proof", {}).get("proof_url") == U1)
 check("R1 Activities row sent for live", any("deliverables" in str(c[1]) for c in fp.calls))
 for st in ("submitted", "found"):
     res, q, *_ = run([row("r1", "a.example", st, U1)], {U1: page_text()})

@@ -90,9 +90,8 @@ def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None):
         for kind, row in waiting[d]:   # every waiting row on this Directory moves, not just the first
             try:
                 action = build_action(kind, row, (c.get("_claim") or {}).get("claim_status"))
-                D._upsert_status(db, [D._status_row(db, "SCC", d, day, proof_url=c["url"], proof_nap=c.get("nap_shown"), proof_at=stamp,
-                                                    proof_nap_match=True, build_action=action)])
-                res = record("SCC", row["id"], "live", c["url"], "weekly re-check: listing live, NAP matches canonical", queue_path=path, today=day)
+                pf = dict(proof_url=c["url"], proof_nap=c.get("nap_shown"), proof_at=stamp, proof_nap_match=True, build_action=action)
+                res = record("SCC", row["id"], "live", c["url"], "weekly re-check: listing live, NAP matches canonical", queue_path=path, today=day, proof=pf)   # t_d660babc: one writer
                 if res.get("errors"): out["errors"].append("%s: %s" % (d, "; ".join(res["errors"])[:200]))
                 out["moved"].append({"row": row["id"], "directory": d, "proof_url": c["url"], "build_action": action})
             except Exception as e:

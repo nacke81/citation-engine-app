@@ -37,7 +37,10 @@ def portal_with(domain):
     fp.snaps[SCC] = {"found": 1, "directories": [{"name": domain, "domain": domain, "state": "live", "url": None, "urlKind": "search"}]}
     return fp
 
+PF = {"proof_url": "https://a.example/listing/1", "proof_nap": "Alder Care | 1 Main St | 502-555-0101", "proof_at": "2026-10-20T00:00:00Z", "proof_nap_match": True, "build_action": "fix"}
+
 def rec(path, rid, new, ev="https://a.example/listing/1", fp=None, note="n", **kw):
+    if new == "live" and "proof" not in kw and not kw.get("refresh_url"): kw["proof"] = dict(PF)   # t_d660babc: live needs Proof (see proof_gap_test.py for the refusals)
     return T.record_transition("SCC", rid, new, ev, note, queue_path=path, today=DAY, portal=fp or portal_with("a.example"), **kw)
 
 def refused(path, rid, new, ev="https://a.example/listing/1", note=None):  # no note by default: same-state moves need one

@@ -144,12 +144,13 @@ def sync_run(checks, day, queue=None, db=None):
     return {"checks": n_checks, "create_discovery": len(rows) - n_checks, "queue_rows": len(qrows), "access_updates": n_access}
 
 
-def sync_transition(client, row, new_state, note, day, kind="fix", db=None):
+def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proof=None):
     """One queue transition: queue state on the status row; needs-human also marks the Directory agent-blocked with the note as the blocker."""
     if new_state not in QUEUE_STATES: raise DirectoriesError("unknown state %r" % (new_state,))
     db = db or DirDB()
     _upsert_status(db, [_status_row(db, client, row["directory"], day, queue_state=new_state, queue_row_id=row.get("id"), queue_kind=kind,
-                                    queue_note=(note or None) if new_state == "needs-human" else None, queue_state_at=day)])
+                                    queue_note=(note or None) if new_state == "needs-human" else None, queue_state_at=day,
+                                    **(proof or {}))])   # t_d660babc: Proof rides in the SAME upsert as queue_state=live
     out = {"status_written": True, "agent_blocked": False}
     if new_state == "needs-human":
         db.call("PATCH", "ce_directories?domain=eq.%s" % row["directory"],
