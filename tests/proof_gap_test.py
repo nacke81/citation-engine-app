@@ -55,6 +55,10 @@ def rec_for(db, fp):
 
 def raw(p): return open(p, "rb").read()
 
+DBP = {"v": None}   # what the stubbed read-only status GET returns (None = sink off)
+REAL_DBP = T.db_proof_by_directory
+T.db_proof_by_directory = lambda db=None: DBP["v"]
+
 def refuses(fn):
     try: fn()
     except T.TransitionRefused as e: return str(e)
@@ -203,6 +207,36 @@ for f in sorted(os.listdir(os.path.join(HERE, "fixtures"))):
 # ---- P9 the non-production path never touches the portal seed or a Directory ------------------------------------------------------------------
 check("P9 this suite made no network call (urlopen is poisoned and never fired)", True)
 check("P9 record_proof and the backfill path never reference the portal seed", "portal" not in open(os.path.join(HERE, "..", "job", "transitions.py"), encoding="utf-8").read().split("def record_proof")[1].split("def _row_lists")[0])
+
+# ---- P10 the DB Proof columns are the truth (review round 1) -------------------------------------------------------------------------------
+class GetDB(FakeDB):
+    def __init__(self, rows): super().__init__(); self.rows = rows
+    def call(self, method, path, body=None, prefer=None):
+        self.calls.append((method, path, body))
+        if method == "GET": return self.rows
+T.db_proof_by_directory = REAL_DBP   # the real reader for the GET tests below
+gdb = GetDB([dict(directory="a.example", **GOOD), dict(directory="b.example", proof_url=None, proof_nap=None, proof_at=None, proof_nap_match=None, build_action=None)])
+got = T.db_proof_by_directory(gdb)
+check("P10 db_proof_by_directory is one read-only GET of the Proof columns", [c[0] for c in gdb.calls] == ["GET"] and "ce_directory_status" in gdb.calls[0][1] and "biz=eq.SCC" in gdb.calls[0][1] and got["a.example"] == GOOD)
+ql = {"fix_queue": [row("a", "live", directory="a.example"), row("b", "live", directory="b.example"), row("c", "live", directory="c.example")]}
+miss = dict(T.live_rows_missing_proof(ql, got))
+check("P10 DB has complete Proof, queue row has no proof key: NOT flagged; DB-null row flagged; row with no status row flagged", set(miss) == {"b", "c"}, str(miss))
+check("P10 without the DB (sink off) only the queue proof counts", {r for r, _ in T.live_rows_missing_proof(ql, None)} == {"a", "b", "c"})
+check("P10 queue Proof complete + DB row null: still OK (queue has it)", T.live_rows_missing_proof({"fix_queue": [row("a", "live", directory="b.example", proof=dict(GOOD))]}, got) == [])
+T.db_proof_by_directory = lambda db=None: got
+p = make_queue(ql["fix_queue"]); out = io.StringIO()
+with contextlib.redirect_stdout(out): rc = T.main(["--audit", "--queue", p])
+check("P10 --audit names only b and c (prod shape: 12 good + 3 missing => 3)", rc == 1 and "LIVE WITHOUT PROOF b" in out.getvalue() and "LIVE WITHOUT PROOF c" in out.getvalue() and "LIVE WITHOUT PROOF a" not in out.getvalue() and "2 live rows" in out.getvalue(), out.getvalue())
+rc, e, seen = backfill(["--proof-backfill", "--row", "a"], ql["fix_queue"])
+check("P10 --proof-backfill on a row whose DB Proof is complete is refused (no re-read, no overwrite)", rc == 1 and not seen and "not eligible" in e, e)
+rc, e, seen = backfill(["--proof-backfill", "--row", "b", "--row", "c"], ql["fix_queue"])
+check("P10 --proof-backfill on the DB-incomplete rows is eligible (dry run by default)", rc == 0 and len(seen) == 1 and seen[0]["write"] is False and seen[0]["only"] == {"b", "c"}, str(seen))
+# post-merge sequence: after the 2 rows get Proof in the DB, the audit is clean
+got.update({"b.example": dict(GOOD), "c.example": dict(GOOD)})
+p = make_queue(ql["fix_queue"])
+with contextlib.redirect_stdout(io.StringIO()): rc = T.main(["--audit", "--queue", p])
+check("P10 after the missing rows get Proof, --audit prints 0 and exits 0", rc == 0)
+check("P10 the audit and eligibility never write: only GET calls on the stub db", all(c[0] == "GET" for c in gdb.calls))
 
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

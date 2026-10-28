@@ -820,7 +820,7 @@ def main(argv=None):
             print("REFUSED: --proof-backfill needs --row ID and never combines with --any-state / --backoff-only", file=sys.stderr); return 1
         import transitions as T
         qq = json.load(open(n.queue or Q.QUEUE_PATH, encoding="utf-8"))
-        need = dict(T.live_rows_missing_proof(qq))
+        need = dict(T.live_rows_missing_proof(qq, T.db_proof_by_directory()))   # DB Proof columns are the truth: a live row with complete Proof in ce_directory_status is not eligible
         bad = [r for r in n.row if r not in need]
         if bad:
             print("REFUSED: --proof-backfill takes live rows with incomplete Proof only; not eligible: %s" % ", ".join(bad), file=sys.stderr); return 1

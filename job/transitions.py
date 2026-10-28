@@ -77,13 +77,28 @@ def check_proof(proof):
     return {k: proof[k] for k in PROOF_FIELDS}
 
 
-def live_rows_missing_proof(q):
-    """Guard (t_d660babc): [(row id, [bad fields])] for every live queue row whose stored Proof is incomplete."""
+def db_proof_by_directory(db=None):
+    """Read-only GET of the Proof columns in ce_directory_status for SCC: {directory: {5 proof fields}}. None when the sink is off (CE_DIRECTORIES_WRITE=0)."""
+    db = db or (D.DirDB() if D.enabled() else None)
+    if db is None: return None
+    rows = db.call("GET", "ce_directory_status?biz=eq.SCC&owner=eq.%s&select=directory,%s" % (D._owner(db), ",".join(PROOF_FIELDS)), None, "return=representation") or []
+    return {r["directory"]: {k: r.get(k) for k in PROOF_FIELDS} for r in rows if r.get("directory")}
+
+
+def live_rows_missing_proof(q, db_proof=None):
+    """Guard (t_d660babc): [(row id, [bad fields])] for every live queue row without a complete Proof.
+    The ce_directory_status Proof columns are the source of truth (`db_proof` = db_proof_by_directory()): a live row whose status row has
+    complete Proof is fine even if the queue row has no `proof` key (every live row written before this guard). With db_proof=None (sink off)
+    only the queue row's own `proof` is checked."""
     out = []
     for _key, _kind, rows in _row_lists(q):
         for r in rows:
             if r.get("state") == "live":
                 bad = proof_problems(r.get("proof"))
+                if bad and db_proof is not None:
+                    d = db_proof.get(r.get("directory"))
+                    if d is not None:
+                        bad = proof_problems(d)
                 if bad: out.append((r.get("id"), bad))
     return out
 
@@ -472,7 +487,7 @@ def main(argv=None):
     a.add_argument("--audit", action="store_true", help="read-only: list live rows with incomplete Proof; exit 1 if any")
     n = a.parse_args(argv)
     if n.audit:
-        miss = live_rows_missing_proof(_read(n.queue or Q.QUEUE_PATH))
+        miss = live_rows_missing_proof(_read(n.queue or Q.QUEUE_PATH), db_proof_by_directory())   # one read-only GET; DB Proof columns are the truth
         for rid, bad in miss: print("LIVE WITHOUT PROOF %s: %s" % (rid, ", ".join(bad)))
         print("%d live rows without complete Proof" % len(miss)); return 1 if miss else 0
     if not n.row or not n.new_state: a.error("--row and --to are required")

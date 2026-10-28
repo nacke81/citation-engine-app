@@ -15,3 +15,11 @@ Every `state=live` write funnels through `transitions.record_transition` (queue 
 
 ## Tests (tests/proof_gap_test.py, in CI)
 One per live-writing path: proof_step, recheck --write, CLI, needs-human->live direct, pending-verify->live direct, record_proof, backfill; negative: each missing field refuses and leaves the queue file byte-identical; guard: a live row with a null proof field fails the audit; no portal-seed/Directory call on the non-prod path (poisoned urlopen). Existing suites that moved a row to live get a proof fixture.
+
+## Round 2 (review comment 394): the DB Proof columns are the source of truth
+- Before this PR no live queue row has a `proof` key, but 12 of the 15 prod live rows already have complete Proof in `ce_directory_status`. `live_rows_missing_proof(q, db_proof)` now takes `transitions.db_proof_by_directory()` (ONE read-only GET of the 5 Proof columns, SCC). A live row is OK if its queue `proof` OR its status row is complete. With the sink off (`CE_DIRECTORIES_WRITE=0`) only the queue proof counts.
+- `transitions.py --audit` and `recheck --proof-backfill` eligibility both use it, so a row whose DB Proof is complete is neither flagged nor re-read nor overwritten. Only the 3 rows with null DB Proof are eligible; after they are backfilled `--audit` prints 0.
+- No migration: no queue write, no Directory read, no new writer.
+
+## Runbook: human-verified live path
+`transitions.py --to live` always refuses (no proof arguments). A listing a human verified goes live with `recheck --write --row ID` (signed-out public read + Proof, through the single live writer). A live row that lacks Proof: `recheck --proof-backfill --row ID` (dry run), then add `--write`; read back with `transitions.py --audit`.
