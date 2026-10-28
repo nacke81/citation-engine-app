@@ -42,7 +42,7 @@ sys.path.insert(0, HERE)
 from build_core import BuildError, Step, Site
 
 NAP_KEYS = ("name", "street", "city", "st", "zip", "phone", "site", "email", "contact", "first", "last", "description", "state_name", "phone_digits", "description_long")
-VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit",
+VERBS = ("open", "clear_ads", "fill", "select", "upload_logo", "check", "vault_fill", "click", "wait_mail", "stop_before_submit", "stop_unproven",
          "uncheck", "select_native", "type_pick", "click_text", "wait", "expect_url", "list_fields", "solve_captcha",
          "type_text", "set_value", "remove", "login", "read_text", "read_result")
 WHEN = ("has_account", "new_account")   # t_03a74bae: a step may run on one branch only (acompio: login when the account exists, else sign up)
@@ -111,6 +111,8 @@ def validate(spec):
         if do == "wait_mail" and s.get("as") not in (None, "code", "link"): _fail(site, i, "wait_mail 'as' is 'link' (default) or 'code'")
         if do == "wait_mail" and s.get("as") == "code" and not s.get("selector"): _fail(site, i, "wait_mail as code needs 'selector' (the input the key is typed into)")
         if s.get("press") and not (do == "fill" and s.get("slow")): _fail(site, i, "'press' is only for fill with slow:true")
+        if do == "stop_unproven" and i != len(spec["steps"]) - 1:
+            _fail(site, i, "stop_unproven must be the final executable step")
         if do == "stop_before_submit": stop_seen = True
         if do == "click" and s.get("submit") and not stop_seen and not any(x.get("do") == "stop_before_submit" for x in spec["steps"][:i]):
             _fail(site, i, "a submit click must come after a stop_before_submit marker (dry runs stop there)")
@@ -451,9 +453,14 @@ def _v_read_result(s):
 def _v_stop(s):
     return lambda ctx: "live run passes the dry-run stop"
 
+def _v_stop_unproven(s):
+    def fn(ctx):
+        raise BuildError("unobserved continuation: stop before code submit; require live server confirmation separately")
+    return fn
+
 
 KIND = {"open": "read", "clear_ads": "fill", "fill": "fill", "select": "fill", "upload_logo": "fill", "check": "fill", "vault_fill": "fill",
-        "wait_mail": "mail", "stop_before_submit": "submit", "uncheck": "fill", "select_native": "fill", "type_pick": "fill",
+        "wait_mail": "mail", "stop_before_submit": "submit", "stop_unproven": "read", "uncheck": "fill", "select_native": "fill", "type_pick": "fill",
         "click_text": "fill", "wait": "read", "expect_url": "read", "list_fields": "read", "solve_captcha": "submit",
         "type_text": "fill", "set_value": "fill", "remove": "fill", "login": "fill", "read_text": "read", "read_result": "read"}
 
@@ -465,7 +472,7 @@ def build_site(spec):
     for i, s in enumerate(spec["steps"]):
         do = s["do"]
         fn = _v_wait_mail(s, spec) if do == "wait_mail" else {"open": _v_open, "clear_ads": _v_clear_ads, "fill": _v_fill, "select": _v_select, "upload_logo": _v_upload_logo,
-              "check": _v_check, "vault_fill": _v_vault_fill, "click": _v_click, "stop_before_submit": _v_stop, "uncheck": _v_uncheck,
+              "check": _v_check, "vault_fill": _v_vault_fill, "click": _v_click, "stop_before_submit": _v_stop, "stop_unproven": _v_stop_unproven, "uncheck": _v_uncheck,
               "select_native": _v_select_native, "type_pick": _v_type_pick, "click_text": _v_click_text, "wait": _v_wait, "expect_url": _v_expect_url,
               "list_fields": _v_list_fields, "solve_captcha": _v_solve_captcha, "type_text": _v_type_text, "set_value": _v_set_value, "remove": _v_remove, "login": _v_login, "read_text": _v_read_text, "read_result": _v_read_result}[do](s)
         kind = ("submit" if s.get("submit") else "fill") if do in ("click", "click_text") else KIND[do]

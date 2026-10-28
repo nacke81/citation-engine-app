@@ -98,23 +98,27 @@ cmd = r.calls[0]
 check("V1 live fill: --item-id used, --name not passed", "--item-id" in cmd and "--name" not in cmd and cmd[cmd.index("--item-id") + 1].startswith("aaaaaaaa"))
 check("V1 fragment stripped from --url, --cdp passed, field passed", cmd[cmd.index("--url") + 1] == "https://www.find-us-here.com/register.php" and cmd[cmd.index("--cdp") + 1] == B.CDP_URL and cmd[cmd.index("--field") + 1] == "#scc-pw1")
 check("V1 secure fill focuses the just-navigated tab before invoking helper", p.acts[0] == ("focus", p.url) and len(r.calls) == 1)
-stale = FakePage(url="https://www.cylex.us.com/register")
-current = FakePage(url="https://www.cylex.us.com/register")
-class TabRunner(Runner):
-    def __call__(self, cmd, **kw):
-        self.calls.append(cmd)
-        # Credential-free fixture: the stale tab has only a hidden duplicate, while
-        # the current tab has both a hidden and a rendered password input.
-        tabs = [(stale, [False]), (current, [False, True])]
-        chosen = next((tab for tab, fields in tabs if tab.acts and tab.acts[-1][0] == 'focus'), None)
-        return Proc(0 if chosen is current and any(tabs[1][1]) else 1, 'fill=success' if chosen is current else 'fill=failed reason=browser-field-not-rendered')
-tabs_runner = TabRunner()
-ctx_for(site, current, runner=tabs_runner, dry_run=False).vault_fill('input[type=password]', current.url)
-check('V1 two identical-URL tabs: current tab with visible password chosen', len(tabs_runner.calls) == 1 and current.acts[-1][0] == 'focus' and not stale.acts)
-wrong = ctx_for(site, current, runner=TabRunner(), dry_run=False)
+# Exercise the real secure-fill helper's CDP target, readiness, fill and retained
+# expressions against a credential-free DOM, not a fake subprocess success.
+import subprocess
+helper_env = {k: v for k, v in os.environ.items() if not k.startswith('BW_')}
+helper_probe = subprocess.run(['node', os.path.join(HERE, 'secure_fill_helper_test.cjs')],
+                              env=helper_env, capture_output=True, text=True, timeout=30)
+check('V1 actual helper chooses focused same-URL tab and visible password; refuses navigation and origin',
+      helper_probe.returncode == 0 and helper_probe.stdout.count('PASS ') == 3,
+      helper_probe.stderr[:200] if helper_probe.returncode else helper_probe.stdout.strip())
+current = FakePage(url='https://www.cylex.us.com/register')
+current.goto('https://www.cylex.us.com/other-path')
+nav_runner = Runner()
+wrong = ctx_for(site, current, runner=nav_runner, dry_run=False)
+try: wrong.vault_fill('input[type=password]', 'https://www.cylex.us.com/register'); mismatch = False
+except C.BuildError: mismatch = True
+check('V1 current-tab path navigation refuses before helper handoff', mismatch and nav_runner.calls == [])
+current.url = 'https://www.cylex.us.com/register'
 try: wrong.vault_fill('input[type=password]', 'https://other.example/register'); mismatch = False
 except C.BuildError: mismatch = True
-check('V1 current-tab navigation mismatch refuses before any credential handoff', mismatch and wrong._runner.calls == [])
+check('V1 foreign origin refuses before helper handoff', mismatch and nav_runner.calls == [])
+
 r = Runner(); c = ctx_for(site, FakePage(url="https://a.example/r"), runner=r, dry_run=False); c.vault_fill("#p", "https://a.example/r")
 check("V1 without --item-id the item NAME is used", r.calls[0][r.calls[0].index("--name") + 1] == FUH.VAULT_ITEM)
 c = ctx_for(site, FakePage(url="https://a.example/r"), runner=Runner(1, "fill=failed reason=item-not-unique"), dry_run=False)

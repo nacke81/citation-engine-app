@@ -212,6 +212,11 @@ def run_site(site, ctx, only=None):
     last_open = None
     steps = list(site.steps)
     if only:
+        # Removed/unobserved names must fail before even opening a page.
+        unknown = set(only) - {st.name for st in steps}
+        if unknown:
+            res["steps"].append({"name": "only_unknown_step", "kind": "read", "status": "failed", "detail": "--only names no compiled step: %s" % ", ".join(sorted(unknown))})
+            res["ok"] = False; return res
         # t_03a74bae: --only never runs on a blank page. The spec's open / sign-in step runs first; a spec without one fails loudly, before any step.
         op = open_step_for(site, ctx)
         if op is None:

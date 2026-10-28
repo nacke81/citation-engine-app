@@ -51,8 +51,6 @@
     {"name":"confirm_email","do":"click_text","text":"My e-mail is correct","tag":"a,button","optional":true,"submit":true,"settle_ms":4000},
     {"name":"code_entry_only","do":"wait_mail","as":"code","selector":"input[name*=code i]"},
     {"name":"inspect_code_page","do":"list_fields"},
-    {"name":"submit_code_UNPROVEN","do":"click","selector":"button[type=submit] >> visible=true","submit":true,"settle_ms":5000},
-    {"name":"require_server_confirmation_UNPROVEN","do":"read_text","expect_any":["email verified","account verified"]},
-    {"name":"business_form_UNPROVEN","do":"list_fields"}
+    {"name":"stop_before_unobserved_code_submit","do":"stop_unproven"}
   ]
 }

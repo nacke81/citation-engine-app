@@ -57,18 +57,45 @@ cylex = json.load(open(os.path.join(JOB, 'playbooks', 'cylex.json'), encoding='u
 city = json.load(open(os.path.join(JOB, 'playbooks', 'citylocalpro_resend.json'), encoding='utf-8'))
 for spec in (cylex, city): F.build_site(spec)
 cs = cylex['steps']; names = [x.get('name') for x in cs]
-check('Cylex code entry is distinct from an unproven submit and server confirmation', names.index('code_entry_only') < names.index('submit_code_UNPROVEN') < names.index('require_server_confirmation_UNPROVEN') and cylex['record'] == 'none')
-class BodyPage:
-    url = 'https://www.cylex.us.com/'
-    def __init__(self, body): self.body = body
-    def inner_text(self, selector): return self.body
-class StatusCtx:
-    def __init__(self, body): self.page = BodyPage(body)
-read = F._v_read_text(cs[names.index('require_server_confirmation_UNPROVEN')])
-try: read(StatusCtx('Code entered')); mistaken = True
-except Exception: mistaken = False
-check('typed code alone cannot certify account', not mistaken)
-check('explicit response after submit can satisfy confirmation stage', 'account verified' in read(StatusCtx('Account verified')).lower())
+check('Cylex code entry precedes executable stop; no unobserved selector or success marker compiles',
+      names.index('code_entry_only') < names.index('inspect_code_page') < names.index('stop_before_unobserved_code_submit')
+      and cs[-1]['do'] == 'stop_unproven' and cylex['record'] == 'none'
+      and not any(x.get('do') in ('click', 'read_text') for x in cs[names.index('inspect_code_page') + 1:]))
+import build_runner as B, build_core as C, types
+compiled = F.build_site(cylex)
+# Compiled terminal step and real runner; a no-network opener avoids signup.
+terminal = compiled.steps[-1]
+fixture_site = C.Site('cylex-fixture', 'cylex.us',
+                      [C.Step('open_register', 'read', lambda ctx: 'fixture page', opener=True), terminal])
+fixture_site.record = 'none'
+class StopCtx:
+    dry_run = False
+    mailbox = None
+    lease = chrome_check = None
+    has_account = False
+    state = {}
+    page = types.SimpleNamespace(url='https://www.cylex.us.com/', inner_text=lambda *a, **k: '')
+    log = staticmethod(lambda *args: None)
+old_evidence = B.save_failure_evidence
+B.save_failure_evidence = lambda *args: None
+try:
+    full = B.run_site(fixture_site, StopCtx())
+    only_stop = B.run_site(fixture_site, StopCtx(), only={'stop_before_unobserved_code_submit'})
+    only_legacy = B.run_site(fixture_site, StopCtx(), only={'submit_code_UNPROVEN', 'require_server_confirmation_UNPROVEN'})
+finally: B.save_failure_evidence = old_evidence
+check('compiled live runner fails closed before unobserved submit, never clicks',
+      not full['ok'] and full['steps'][-1]['name'] == terminal.name and full['steps'][-1]['status'] == 'failed'
+      and 'stop before code submit' in full['steps'][-1]['detail'])
+check('--only terminal cannot bypass stop; legacy --only names fail before opener',
+      not only_stop['ok'] and not only_legacy['ok'] and [x['name'] for x in only_legacy['steps']] == ['only_unknown_step'])
+check('typed code is not server-confirmed; no executable account success assertion exists',
+      cs[names.index('code_entry_only')]['do'] == 'wait_mail'
+      and not any(x.get('do') == 'read_text' for x in cs[names.index('code_entry_only') + 1:]))
+malformed = copy.deepcopy(cylex)
+malformed['steps'].append({'name': 'unsafe_after_stop', 'do': 'click', 'selector': 'button', 'submit': True})
+try: F.build_site(malformed); stop_terminal = False
+except C.BuildError: stop_terminal = True
+check('stop_unproven cannot be followed by an executable submit', stop_terminal)
 ss = city['steps']; snames = [x.get('name') for x in ss]
 check('Citylocalpro dry-run stop is before BOTH login and resend mutations', snames.index(None) < snames.index('login_attempt') < snames.index('resend_once') and ss[0]['expect'] == ['input[name=login]'] and ss[snames.index('login_attempt')]['selector'] == '#loginBtn')
 check('resend result preserves limit-first sent unknown classification', list(ss[-1]['classes']) == ['limit','sent'] and ss[-1]['new_only'] and ss[-1]['do'] == 'read_result')
