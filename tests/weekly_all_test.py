@@ -84,6 +84,25 @@ check("W15 no-method rows write no ce_directory_status row (earlier verdicts kep
 src_text = open(HERE.parent / "job" / "dirlist.py", encoding="utf-8").read()
 check("W16 dirlist has no write verb and no portal import", all(w not in src_text for w in ('"POST"', '"PATCH"', '"DELETE"', "portal")))
 
+# buildrows: a no-method check must not hide a stored found/match/permalink status
+import buildrows as BR
+_d = {"domain": "botw.org", "cost": "free", "build_route": "form", "priority": 1}
+_st = {"directory": "botw.org", "last_result": "found", "last_url": "https://botw.org/listing/abc-plumbing-123", "last_match": True}
+_nm = {"directory": "botw.org", "result": "couldnt_check", "note": "no-method", "url": None}
+_q = {"canonical": {}, "fix_queue": [], "create_rows": []}
+try:
+    _new, _rep = BR.build_rows(_q, [_d], [_st], [_nm], "2026-11-01")
+    _ok = _rep.get("create", 0) == 0 and _rep.get("none", 0) == 1
+except Exception as e:
+    _ok = False; _rep = repr(e)
+check("W17 buildrows: no-method check + stored found/match/permalink status gives none, not create", _ok, _rep)
+try:
+    _new, _rep2 = BR.build_rows(_q, [_d], [_st], [dict(_nm, note="blocked")], "2026-11-01")
+    _ok2 = _rep2.get("create", 0) == 1
+except Exception as e:
+    _ok2 = False; _rep2 = repr(e)
+check("W18 buildrows: a real couldnt_check (not no-method) is still taken as a check", _ok2, _rep2)
+
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 TEMP.cleanup()
 sys.exit(0 if all(ok) else 1)

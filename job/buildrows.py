@@ -88,6 +88,7 @@ def build_rows(queue, dirs, status, checks, day):
     sm = {s["directory"]: s for s in status or []}
     cm = {}
     for c in checks or []:
+        if c.get("note") == "no-method": continue   # nothing was tried: the stored status decides (t_716fc9cd)
         cur = cm.get(c["directory"])
         if not cur or (c.get("result") == "found" and cur.get("result") != "found"):
             cm[c["directory"]] = c
