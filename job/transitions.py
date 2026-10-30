@@ -27,6 +27,7 @@ import buildqueue as Q
 import portal as P
 import directories as D
 import walls as W
+import your_turn_gate as YT
 
 STATES = ("queued", "found", "claimed-unverified", "created-unlisted") + Q.PORTAL_STATES  # queued, found, claimed-unverified, created-unlisted, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
@@ -328,7 +329,7 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -363,6 +364,13 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if requeue: note = "re-create after rejection: %s" % reason.strip()   # t_d2f75685: logged, never a silent reset (the history entry also carries requeue + reason)
     evidence_url = check_evidence(evidence_url, new_state)
     verify_type = check_verify_type(verify_type, new_state)
+    if verify_type:   # t_e2db63f0: the Your turn gate. Refused BEFORE any write unless an agent saw the live verify step this cycle.
+        dir_row = None
+        if directories is not None or D.enabled():
+            try: dir_row = ((directories or D.DirDB()).call("GET", "ce_directories?domain=eq.%s&select=dead,dead_reason,cost,verification_methods" % row["directory"], None, "return=representation") or [None])[0]
+            except Exception as e: raise TransitionRefused("Your turn gate: could not read the Directory DB row for %s (%s); fail closed" % (row["directory"], type(e).__name__))
+        problems = YT.check_your_turn(row["directory"], verify_type, observation, dir_row, day)
+        if problems: raise TransitionRefused("Your turn gate refused %s: %s" % (row["directory"], "; ".join(problems)))
     steps, directory_url = check_id_check_fields(verify_type, steps, directory_url)
     if verify_type: note = verification_note(verify_type)
 
@@ -486,6 +494,12 @@ def main(argv=None):
     a.add_argument("--verify-type", default=None, choices=VERIFY_TYPES, help="needs-human only: stopped at a phone call, SMS or postcard; writes the portal verification queue")
     a.add_argument("--step", action="append", default=None, help="id-check only: one plain instruction for the client (repeat per step)")
     a.add_argument("--directory-url", default=None, help="id-check only: the https page where the owner does the check")
+    a.add_argument("--observed-type", default=None, help="Your turn gate: the verify type the agent SAW on the live verify step")
+    a.add_argument("--screenshot", default=None, help="Your turn gate: path of the screenshot of that verify step")
+    a.add_argument("--price-seen", default=None, help="Your turn gate: price shown on the verify step ('none' if no price)")
+    a.add_argument("--observed-at", default=None, help="Your turn gate: YYYY-MM-DD the step was opened (this cycle: 7 days)")
+    a.add_argument("--observed-url", default=None, help="Your turn gate: https URL of the verify step")
+    a.add_argument("--final-url", default=None, help="Your turn gate: URL after redirects (a different domain = dead/redirect)")
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)
@@ -501,7 +515,8 @@ def main(argv=None):
         print("%d live rows without complete Proof" % len(miss)); return 1 if miss else 0
     if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason)
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason,
+                                observation=({"observed_type": n.observed_type, "screenshot": n.screenshot, "price_seen": n.price_seen, "observed_at": n.observed_at, "url": n.observed_url, "final_url": n.final_url} if n.verify_type else None))
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1

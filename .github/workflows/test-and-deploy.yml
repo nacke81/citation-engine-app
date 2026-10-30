@@ -119,6 +119,8 @@ jobs:
         run: python tests/batch16_test.py
       - name: Batch 17 (acompio has-account branch, --only opens first, late-street reader, post-fail evidence, re-send result, owner-read specs, mail-only rows)
         run: python tests/batch17_test.py
+      - name: Your turn gate (t_e2db63f0)
+        run: python tests/your_turn_gate_test.py
       - name: Batch 18 (owner specs on the live login paths, us-info final URL, public-read backoff)
         run: python tests/batch18_test.py
       - name: Batch 19 (reset specs, reset-link reader, vault set-password, modal evidence, dry-run backoff)
