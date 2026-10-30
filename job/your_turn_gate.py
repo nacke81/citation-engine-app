@@ -55,4 +55,8 @@ def check_your_turn(directory, verify_type, observation, dir_row=None, today=Non
     if isinstance(dir_row, dict):
         if dir_row.get("dead"): bad.append("Directory DB marks %s dead (%s)" % (directory, dir_row.get("dead_reason") or "no reason"))
         if dir_row.get("cost") == "paid": bad.append("Directory DB marks %s paid" % directory)
+        vm = dir_row.get("verification_methods")
+        if isinstance(vm, str): vm = [x for x in re.split(r"[\s,{}\[\]\"']+", vm) if x]
+        em = [m for m in (vm or []) if str(m).strip().lower() in EMAIL_TYPES]
+        if em: bad.append("email-verifiable (Directory DB lists %s for %s): an agent job through listings@, even if the site also offers sms or phone" % (",".join(map(str, em)), directory))
     return bad

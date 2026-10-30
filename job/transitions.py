@@ -367,7 +367,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if verify_type:   # t_e2db63f0: the Your turn gate. Refused BEFORE any write unless an agent saw the live verify step this cycle.
         dir_row = None
         if directories is not None or D.enabled():
-            try: dir_row = ((directories or D.DirDB()).call("GET", "ce_directories?domain=eq.%s&select=dead,dead_reason,cost" % row["directory"], None, "return=representation") or [None])[0]
+            try: dir_row = ((directories or D.DirDB()).call("GET", "ce_directories?domain=eq.%s&select=dead,dead_reason,cost,verification_methods" % row["directory"], None, "return=representation") or [None])[0]
             except Exception as e: raise TransitionRefused("Your turn gate: could not read the Directory DB row for %s (%s); fail closed" % (row["directory"], type(e).__name__))
         problems = YT.check_your_turn(row["directory"], verify_type, observation, dir_row, day)
         if problems: raise TransitionRefused("Your turn gate refused %s: %s" % (row["directory"], "; ".join(problems)))

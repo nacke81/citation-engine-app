@@ -62,6 +62,25 @@ fp2 = Recorder(); refused = False
 try: T.record_transition("SCC", r0["id"], "needs-human", None, None, queue_path=QP, today=DAY, portal=fp2, verification=fp2, directories=fp2, verify_type="phone-call")
 except T.TransitionRefused as e: refused = "no live observation" in str(e)
 check("record_transition: verify_type without observation refused, nothing written", refused and open(QP, "rb").read() == before and not [c for c in fp2.calls if c[0] != "GET"])
+# review round 1: Directory DB verification_methods with any email method refuses, even when the site also offers sms
+p = G.check_your_turn("ezlocal.com", "sms", obs("sms", DAY), {"dead": False, "cost": "free", "verification_methods": ["email", "sms"]}, DAY)
+check("refuse: parked sms + observed sms but Directory DB methods [email, sms]", has(p, "email-verifiable") and has(p, "Directory DB"), p)
+check("refuse: each email method name (email-link, email-code, mailbox-link)", all(G.check_your_turn("a.com", "sms", obs("sms", DAY), {"verification_methods": [m, "sms"]}, DAY) != [] for m in ("email-link", "email-code", "mailbox-link")))
+check("accept: Directory DB methods [sms, phone-call] only", G.check_your_turn("a.com", "sms", obs("sms", DAY), {"dead": False, "cost": "free", "verification_methods": ["sms", "phone-call"]}, DAY) == [])
+class BoomDirs(Recorder):
+    def call(s, method, path, body=None, prefer=None):
+        s.calls.append((method, path, body)); raise RuntimeError("db down")
+fp4 = BoomDirs(); refused = False
+try: T.record_transition("SCC", r0["id"], "needs-human", None, None, queue_path=QP, today=DAY, portal=fp4, verification=fp4, directories=fp4, verify_type="phone-call", observation=obs("phone-call", DAY))
+except T.TransitionRefused as e: refused = "fail closed" in str(e)
+check("record_transition: Directory DB read error refused (fail closed); queue untouched; no write call", refused and open(QP, "rb").read() == before and not [c for c in fp4.calls if c[0] != "GET"])
+class EmailDirs(Recorder):
+    def call(s, method, path, body=None, prefer=None):
+        s.calls.append((method, path, body)); return [{"dead": False, "cost": "free", "verification_methods": ["email", "sms"]}] if method == "GET" else None
+fp5 = EmailDirs(); refused = False
+try: T.record_transition("SCC", r0["id"], "needs-human", None, None, queue_path=QP, today=DAY, portal=fp5, verification=fp5, directories=fp5, verify_type="sms", observation=obs("sms", DAY))
+except T.TransitionRefused as e: refused = "email-verifiable" in str(e)
+check("record_transition: ezlocal shape (sms parked+observed, DB [email,sms]) refused, nothing written; GET selects verification_methods", refused and open(QP, "rb").read() == before and not [c for c in fp5.calls if c[0] != "GET"] and any("verification_methods" in str(c[1]) for c in fp5.calls))
 class OkDirs(Recorder):
     def call(s, method, path, body=None, prefer=None):
         s.calls.append((method, path, body)); return [{"dead": False, "dead_reason": None, "cost": "free"}] if method == "GET" else None
