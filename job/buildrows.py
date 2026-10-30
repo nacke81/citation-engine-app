@@ -172,7 +172,7 @@ def load_db_inputs(db):
     runs = db.call("GET", "ce_runs?select=id&order=started_at.desc&limit=1", None, "return=representation") or []
     checks = []
     if runs:
-        checks = db.call("GET", "ce_checks?biz=eq.SCC&run_id=eq.%s&select=directory,result,url,match,diffs" % runs[0]["id"], None, "return=representation") or []
+        checks = db.call("GET", "ce_checks?biz=eq.SCC&run_id=eq.%s&select=directory,result,url,match,diffs,note" % runs[0]["id"], None, "return=representation") or []
     return dirs, status, checks
 
 

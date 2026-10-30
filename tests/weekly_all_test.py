@@ -103,6 +103,25 @@ except Exception as e:
     _ok2 = False; _rep2 = repr(e)
 check("W18 buildrows: a real couldnt_check (not no-method) is still taken as a check", _ok2, _rep2)
 
+class _FakeDB:
+    def __init__(self): self.urls = []
+    def call(self, m, path, body=None, prefer=None):
+        self.urls.append(path)
+        if path.startswith("ce_directories"): return [dict(_d, name="BOTW")]
+        if path.startswith("ce_directory_status"): return [_st]
+        if path.startswith("ce_runs"): return [{"id": 7}]
+        if path.startswith("ce_checks"): return [dict(_nm, match=None, diffs=None)]
+        return []
+try:
+    _fdb = _FakeDB()
+    _dd, _ss, _cc = BR.load_db_inputs(_fdb)
+    _sel = [u for u in _fdb.urls if u.startswith("ce_checks")][0]
+    _new, _rep3 = BR.build_rows(_q, _dd, _ss, _cc, "2026-11-01")
+    _ok3 = ",note" in _sel and _rep3.get("create", 0) == 0 and _rep3.get("none", 0) == 1
+except Exception as e:
+    _ok3 = False; _rep3 = repr(e)
+check("W19 load_db_inputs selects note; CLI path with no-method check gives none, not create", _ok3, _rep3)
+
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 TEMP.cleanup()
 sys.exit(0 if all(ok) else 1)
