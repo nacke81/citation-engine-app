@@ -80,7 +80,11 @@ check('no --write: no PATCH', tbl.calls == [])
 tbl = S.StubTable()
 st = S.issue('SCC', 'nextdoor.com', 'document-upload', write=True, table=tbl, runner=runner_ok, env=ENV, log=L, flag='1')
 pc = [c for c in tbl.calls if c[0] == 'PATCH']
-check('write + flag: one PATCH of exactly the two columns', len(pc) == 1 and set(pc[0][2]) == {'signin_send_url', 'signin_send_expires_at'})
+check('write + flag: one PATCH of exactly the two columns', len(pc) == 1 and set(pc[0][2]) == {'signin_send_url', 'signin_send_expires_at', 'signin_viewed_at'})
+check('reissue PATCH body includes "signin_viewed_at": null', 'signin_viewed_at' in pc[0][2] and pc[0][2]['signin_viewed_at'] is None)
+def runner_wronghost(cmd, **kw):
+    return types.SimpleNamespace(returncode=0, stdout=json.dumps({'url': 'https://evil.example.com/#/send/a/b', 'expires_at': EXP}) + '\n', stderr='')
+check('Send URL off the vault host is refused (portal DB check prefix)', S.make_signin_send('SCC', 'nextdoor.com', 'document-upload', runner=runner_wronghost, env=ENV, log=L) is None)
 check('PATCH only touches a requires_verification row of this directory', 'directory=eq.nextdoor.com' in pc[0][1] and 'state=eq.requires_verification' in pc[0][1])
 check('status string carries no URL or key', URL not in st and 'KEYMATERIAL' not in st)
 
@@ -183,7 +187,7 @@ vcalls_n = [0]
 def counting(cmd, **kw): vcalls_n[0] += 1; return runner_ok(cmd, **kw)
 out, fp = park('id-check', '1', counting)
 pa = [c for c in fp.calls if c[0] == 'PATCH' and c[2] and 'signin_send_url' in c[2]]
-check('(a) id-check + flag: vault runs once, one PATCH of the two columns', vcalls_n[0] == 1 and len(pa) == 1 and set(pa[0][2]) == {'signin_send_url', 'signin_send_expires_at'} and out['verification_written'] and not out['errors'])
+check('(a) id-check + flag: vault runs once, one PATCH of the two columns', vcalls_n[0] == 1 and len(pa) == 1 and set(pa[0][2]) == {'signin_send_url', 'signin_send_expires_at', 'signin_viewed_at'} and out['verification_written'] and not out['errors'])
 check('(a) result string carries no URL/key', URL not in repr(out) and 'KEYMATERIAL' not in repr(out))
 vcalls_n[0] = 0
 out, fp = park('phone-call', '1', counting)

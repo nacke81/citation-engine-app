@@ -74,10 +74,13 @@ def make_signin_send(client, directory, verify_type, *, runner=None, env=None, l
     try:
         out = json.loads((getattr(r, "stdout", "") or "").strip().splitlines()[-1])
         url, exp = out["url"], out["expires_at"]
-        assert str(url).startswith("https://") and exp
+        assert str(url).startswith(SEND_URL_PREFIX) and exp
     except Exception:
         _log("skip %s: vault returned no usable Send" % directory, log); return None
     return {"signin_send_url": url, "signin_send_expires_at": exp}
+
+
+SEND_URL_PREFIX = "https://bitwardenrs.mikenacke.com/"   # portal DB check accepts only this prefix
 
 
 def row_exists(client_id, directory, table):
@@ -87,14 +90,16 @@ def row_exists(client_id, directory, table):
 
 
 def write_send(client_id, directory, fields, table, write=False, flag=None):
-    """PATCH the two columns. Returns (method, path, body, status): written | dry-run | no-row (0 rows matched). Live only when write AND CE_SIGNIN_SEND_WRITE=1."""
+    """PATCH three columns (url, expires_at, signin_viewed_at=null so a re-issued link on a viewed row can be opened). Returns (method, path, body, status): written | dry-run | no-row (0 rows matched). Live only when write AND CE_SIGNIN_SEND_WRITE=1."""
     path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, directory)
     live = bool(write) and (flag if flag is not None else os.environ.get(FLAG)) in ("1", 1, True)
     status = "dry-run"
+    body = dict(fields)
+    body["signin_viewed_at"] = None
     if live:
-        rows = table.call("PATCH", path, dict(fields), prefer="return=representation")
+        rows = table.call("PATCH", path, body, prefer="return=representation")
         status = "written" if isinstance(rows, list) and len(rows) > 0 else "no-row"
-    return ("PATCH", path, dict(fields), status)
+    return ("PATCH", path, body, status)
 
 
 def issue(client, directory, verify_type, *, write=False, table=None, runner=None, env=None, log=None, flag=None):
