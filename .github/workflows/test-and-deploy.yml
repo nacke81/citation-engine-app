@@ -131,6 +131,8 @@ jobs:
         run: python tests/batch22_test.py
       - name: No live row without Proof (one live writer, fail closed, guard, backfill)
         run: python tests/proof_gap_test.py
+      - name: Sign-in Send (gate, fail closed, no secret in output, flag-gated write)
+        run: python tests/signin_send_test.py
       - name: Activity channel_label (SEO & Local SEO on every listing activity)
         run: python tests/channel_label_test.py
       - name: CapSolver count (per-row solve log, balance delta, cap)
