@@ -9,6 +9,7 @@ os.environ["CE_RUNS"] = tempfile.mkdtemp(prefix="ce-runs-")
 os.environ["CE_ACTIVITIES_WRITE"] = "0"
 os.environ["CE_DIRECTORIES_WRITE"] = "0"
 for k in ("LISTINGS_IMAP_HOST", "LISTINGS_IMAP_PORT", "LISTINGS_IMAP_USER", "LISTINGS_IMAP_PASSWORD"): os.environ.pop(k, None)
+sys.path.insert(0, HERE)
 JOB = os.path.join(HERE, "..", "job")
 sys.path.insert(0, JOB); sys.path.insert(0, os.path.join(JOB, "playbooks"))
 def _no_net(*a, **k): raise AssertionError("network call attempted")
@@ -371,7 +372,7 @@ class VerPortal(FakePortal):
     def __init__(s): super().__init__(); s.calls = []
     def call(s, method, path, body=None, prefer=None): s.calls.append((method, path, body, prefer))
 vp = VerPortal()
-r = T.record_transition("SCC", "create-showmelocal", "needs-human", None, None, queue_path=QP, today="2026-10-27", portal=vp, verify_type="client-email", verification=vp, directories=FakeDirs())
+r = T.record_transition("SCC", "create-showmelocal", "needs-human", None, None, queue_path=QP, today="2026-10-27", portal=vp, verify_type="client-email", verification=vp, directories=FakeDirs(), observation=__import__("yt_obs").obs("client-email", "2026-10-27"))
 b = [c for c in vp.calls if c[1].startswith("citation_verification")][0][2][0]
 check("7 needs-human + client-email writes a portal verification row of type client-email", b["verification_type"] == "client-email" and b["state"] == "requires_verification" and "deadline" not in b and r["verification_written"])
 hrow = json.load(open(QP))["create_rows"][0]; he = hrow["history"][-1]
@@ -381,7 +382,7 @@ check("7 internal state: no Activities row (client news) for a needs-human park"
 m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "live", "https://x.example/a", None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="client-email", dry_run=True, proof={"proof_url": "https://x.example/a", "proof_nap": "NAP", "proof_at": "2026-10-28T00:00:00Z", "proof_nap_match": True, "build_action": "new"}), T.TransitionRefused)
 check("7 client-email only applies to needs-human", m and "needs-human" in m, str(m))
 write_q([row("create-showmelocal", "showmelocal.com", "created-unlisted")])
-m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "needs-human", None, None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="client-email", steps=["x"], dry_run=True), T.TransitionRefused)
+m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "needs-human", None, None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="client-email", steps=["x"], observation=__import__("yt_obs").obs("client-email", "2026-10-28"), dry_run=True), T.TransitionRefused)
 check("7 steps / directory_url are for id-check only (refused on client-email)", m and "id-check" in m, str(m))
 write_q([row("create-showmelocal", "showmelocal.com", "created-unlisted")])
 m = raises(lambda: T.record_transition("SCC", "create-showmelocal", "needs-human", None, None, queue_path=QP, today="2026-10-28", portal=FakePortal(), verify_type="listings-email", dry_run=True), T.TransitionRefused)
@@ -389,7 +390,7 @@ check("7 an unknown verify type is still refused", m and "client-email" in m, st
 buf = io.StringIO()
 write_q([row("create-showmelocal", "showmelocal.com", "created-unlisted")])
 with contextlib.redirect_stdout(buf):
-    code = T.main(["--row", "create-showmelocal", "--to", "needs-human", "--verify-type", "client-email", "--queue", QP, "--dry-run"])
+    code = T.main(["--row", "create-showmelocal", "--to", "needs-human", "--verify-type", "client-email", "--queue", QP, "--dry-run", "--today", "2026-10-28", "--observed-type", "client-email", "--screenshot", __import__("yt_obs")._SHOT, "--price-seen", "none", "--observed-at", "2026-10-28", "--observed-url", "https://a.example/v"])
 check("7 transitions CLI accepts --verify-type client-email", code == 0 and "client-email" in buf.getvalue())
 mig = open(os.path.join(HERE, "..", "docs", "portal-client-email-verification.md"), encoding="utf-8").read()
 check("7 the portal migration needed first is written down (the portal repo, additive CHECK widening)", "client-email" in mig and "citation_verification_verification_type_check" in mig)

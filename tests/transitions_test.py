@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import buildqueue as Q
 import portal as P
 import transitions as T
+sys.path.insert(0, HERE); import yt_obs as YO
 
 ok = []
 def check(n, c, d=""):
@@ -40,6 +41,7 @@ def portal_with(domain):
 PF = {"proof_url": "https://a.example/listing/1", "proof_nap": "Alder Care | 1 Main St | 502-555-0101", "proof_at": "2026-10-20T00:00:00Z", "proof_nap_match": True, "build_action": "fix"}
 
 def rec(path, rid, new, ev="https://a.example/listing/1", fp=None, note="n", **kw):
+    if kw.get("verify_type") and "observation" not in kw: kw["observation"] = YO.obs(kw["verify_type"], DAY)   # t_e2db63f0: Your turn gate
     if new == "live" and "proof" not in kw and not kw.get("refresh_url"): kw["proof"] = dict(PF)   # t_d660babc: live needs Proof (see proof_gap_test.py for the refusals)
     return T.record_transition("SCC", rid, new, ev, note, queue_path=path, today=DAY, portal=fp or portal_with("a.example"), **kw)
 
