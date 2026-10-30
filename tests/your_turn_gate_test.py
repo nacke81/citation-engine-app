@@ -3,7 +3,7 @@ Run: python tests/your_turn_gate_test.py (CI)."""
 import os, sys, json, shutil, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
-os.environ["CE_ACTIVITIES_WRITE"] = "0"
+os.environ["CE_ACTIVITIES_WRITE"] = "0"; os.environ["CE_DIRECTORIES_WRITE"] = "0"
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))
 def _no_net(*a, **k): raise AssertionError("network call attempted")
 urllib.request.urlopen = _no_net
