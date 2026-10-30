@@ -80,7 +80,7 @@ check('no --write: no PATCH', tbl.calls == [])
 tbl = S.StubTable()
 st = S.issue('SCC', 'nextdoor.com', 'document-upload', write=True, table=tbl, runner=runner_ok, env=ENV, log=L, flag='1')
 pc = [c for c in tbl.calls if c[0] == 'PATCH']
-check('write + flag: one PATCH of exactly the two columns', len(pc) == 1 and set(pc[0][2]) == {'signin_send_url', 'signin_send_expires_at', 'signin_viewed_at'})
+check('write + flag: one PATCH of exactly the three columns', len(pc) == 1 and set(pc[0][2]) == {'signin_send_url', 'signin_send_expires_at', 'signin_viewed_at'})
 check('reissue PATCH body includes "signin_viewed_at": null', 'signin_viewed_at' in pc[0][2] and pc[0][2]['signin_viewed_at'] is None)
 def runner_wronghost(cmd, **kw):
     return types.SimpleNamespace(returncode=0, stdout=json.dumps({'url': 'https://evil.example.com/#/send/a/b', 'expires_at': EXP}) + '\n', stderr='')
@@ -178,7 +178,7 @@ def park(vt, flag, runner, steps=None):
     fp = FP()
     try:
         kw = {'steps': steps or ['Open the site', 'Upload the document'], 'directory_url': 'https://' + r0['directory'] + '/login'} if vt == 'id-check' else {}
-        out = T.record_transition('SCC', r0['id'], 'needs-human', None, 'n', queue_path=qp, today='2026-10-30', portal=fp, verify_type=vt, verification=fp, directories=None, **kw)
+        out = T.record_transition('SCC', r0['id'], 'needs-human', None, 'n', queue_path=qp, today='2026-10-30', portal=fp, verify_type=vt, verification=fp, directories=None, observation=__import__('yt_obs').obs(vt, '2026-10-30'), **kw)
     finally:
         S.subprocess.run = real_run; os.environ.pop(S.FLAG, None)
         for k in ENV: os.environ.pop(k, None)
