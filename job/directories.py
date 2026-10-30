@@ -62,6 +62,7 @@ def check_rows(db, checks, day):
     out = []
     for c in checks:
         if c.get("biz") not in BIZS: continue
+        if c.get("note") == "no-method": continue   # nothing was tried: keep an earlier verdict (create-discovery, hand check)
         cl = c.get("_claim") or {}
         found = c.get("result") == "found"
         ev = cl.get("claim_evidence") or {}
