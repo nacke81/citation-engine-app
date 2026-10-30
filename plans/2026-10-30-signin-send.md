@@ -2,7 +2,7 @@
 
 Latest lesson read: docs/lessons/2026-10-28-a-second-writer-skips-the-first-writers-rule.md (put the rule in the one writer; guard test over every caller).
 
-Base: origin/main 9260aa1 (holds 509eb60), fresh worktree. Pairs with nacke-platform t_02193c0e (columns `signin_send_url`, `signin_send_expires_at` on `citation_verification`).
+Base: origin/main 9260aa1 (holds 509eb60), fresh worktree. Pairs with portal card t_02193c0e (columns `signin_send_url`, `signin_send_expires_at` on `citation_verification`).
 
 ## Change
 1. `job/vault_send.cjs`: runs inside `withVault` (existing per-seat unlock/lock helper). Reads ONE item by id, builds a text Send (maxAccessCount 1, expiration + deletion = now + 7 days, hidden false, no password), pipes the JSON to `bw send create` on STDIN (never argv). Prints only `{url, expires_at}`. Exports `buildSend` / `createSend(bw, ...)` for tests with a stub bw.
