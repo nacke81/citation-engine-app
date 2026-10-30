@@ -5,6 +5,7 @@
 // stderr/exit carry only a short reason code. Exit 3 = item missing/ambiguous (fail closed), 1 = anything else.
 const path = require('node:path');
 const DAYS = 7;
+const REASONS = ['item-missing', 'send-no-url', 'missing-options'];
 
 function buildSend(item, directory, now) {
   const due = new Date(now.getTime() + DAYS * 86400000).toISOString();
@@ -50,11 +51,13 @@ async function main() {
   });
 }
 
-module.exports = { buildSend, pickItem, createSend, DAYS };
+module.exports = { buildSend, pickItem, createSend, DAYS, REASONS };
 
 if (require.main === module) {
   main().then(r => console.log(JSON.stringify(r))).catch(error => {
-    const reason = error && error.message ? String(error.message).replace(/[^a-z0-9 _-]/gi, '').slice(0, 60) : 'operation-failed';
+    // Never forward error.message: JSON.parse errors quote the bad input (which can be the password or Send key).
+    const msg = error && error.message ? String(error.message) : '';
+    const reason = REASONS.includes(msg) ? msg : 'operation-failed';
     console.error(`send=failed reason=${reason}`);
     process.exitCode = error && error.code === 3 ? 3 : 1;
   });

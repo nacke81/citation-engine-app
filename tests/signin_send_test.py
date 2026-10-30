@@ -48,7 +48,7 @@ logs.clear(); calls.clear()
 tbl = S.StubTable()
 st = S.issue('SCC', 'nextdoor.com', 'id-check', write=True, table=tbl, runner=runner_missing, env=ENV, log=L, flag='1')
 check('missing item: no-send', st == 'no-send')
-check('missing item: no row write', tbl.calls == [])
+check('missing item: no row write', [c for c in tbl.calls if c[0] != 'GET'] == [])
 check('missing item: exactly one log line', len(logs) == 1 and 'missing' in logs[0])
 
 # creds missing -> skip, vault not called
@@ -79,8 +79,9 @@ st = S.issue('SCC', 'nextdoor.com', 'document-upload', write=False, table=tbl, r
 check('no --write: no PATCH', tbl.calls == [])
 tbl = S.StubTable()
 st = S.issue('SCC', 'nextdoor.com', 'document-upload', write=True, table=tbl, runner=runner_ok, env=ENV, log=L, flag='1')
-check('write + flag: one PATCH of exactly the two columns', len(tbl.calls) == 1 and tbl.calls[0][0] == 'PATCH' and set(tbl.calls[0][2]) == {'signin_send_url', 'signin_send_expires_at'})
-check('PATCH only touches a requires_verification row of this directory', 'directory=eq.nextdoor.com' in tbl.calls[0][1] and 'state=eq.requires_verification' in tbl.calls[0][1])
+pc = [c for c in tbl.calls if c[0] == 'PATCH']
+check('write + flag: one PATCH of exactly the two columns', len(pc) == 1 and set(pc[0][2]) == {'signin_send_url', 'signin_send_expires_at'})
+check('PATCH only touches a requires_verification row of this directory', 'directory=eq.nextdoor.com' in pc[0][1] and 'state=eq.requires_verification' in pc[0][1])
 check('status string carries no URL or key', URL not in st and 'KEYMATERIAL' not in st)
 
 # real dry run (no runner injected, flag off): no vault, no network
@@ -110,6 +111,94 @@ check('no portal seed / snapshot / directories call in module', not any(w in src
 check('the Send body goes on stdin, not argv', "['send', 'create']" in js and 'base64' in js and 'password' not in "['send', 'create']")
 check('module never prints url', 'print(url' not in src and 'print(fields' not in src)
 check('Send settings in builder', all(s in js for s in ('maxAccessCount: 1', 'hidden: false', 'password: null', 'DAYS = 7')))
+
+# (3) no matching row: no Send is minted, reissue says no-row (exit 1), nothing written
+calls.clear(); logs.clear()
+tbl = S.StubTable(rows=0)
+st = S.issue('SCC', 'nextdoor.com', 'id-check', write=True, table=tbl, runner=runner_ok, env=ENV, log=L, flag='1')
+check('no row: no-row, vault never called, no PATCH', st == 'no-row' and calls == [] and not [c for c in tbl.calls if c[0] == 'PATCH'])
+class RowVanishes(S.StubTable):
+    def call(self, method, path, body=None, prefer=None):
+        self.calls.append((method, path, body)); return [{'a': 1}] if method == 'GET' else []
+st = S.issue('SCC', 'nextdoor.com', 'id-check', write=True, table=RowVanishes(), runner=runner_ok, env=ENV, log=L, flag='1')
+check('PATCH matching 0 rows is no-row, never "written"', st == 'no-row')
+check('real PATCH asks for return=representation', 'return=representation' in open(os.path.join(HERE, '..', 'job', 'signin_send.py'), encoding='utf-8').read())
+buf = io.StringIO(); real_issue = S.issue
+S.issue = lambda *a, **k: 'no-row'
+with contextlib.redirect_stdout(buf): rc = S.main(['--reissue', '--directory', 'nextdoor.com', '--verify-type', 'id-check'])
+S.issue = real_issue
+check('reissue with no row exits 1 and does not say written', rc == 1 and 'written' not in buf.getvalue())
+
+# (1) leak: a vault error reason is allowlisted in Python; raw stderr with secret text never reaches the log
+logs.clear()
+rn = lambda cmd, **kw: types.SimpleNamespace(returncode=1, stdout='', stderr='send=failed reason=unexpected token h ' + SECRET.lower())
+check('unknown reason: None', S.make_signin_send('SCC', 'nextdoor.com', 'id-check', runner=rn, env=ENV, log=L) is None)
+check('unknown reason is logged as operation-failed, secret not logged', len(logs) == 1 and 'operation-failed' in logs[0] and SECRET.lower() not in logs[0].lower() and 'unexpected' not in logs[0])
+logs.clear()
+rn = lambda cmd, **kw: types.SimpleNamespace(returncode=1, stdout='', stderr='send=failed reason=send-no-url')
+S.make_signin_send('SCC', 'nextdoor.com', 'id-check', runner=rn, env=ENV, log=L)
+check('allowlisted reason is kept', len(logs) == 1 and 'send-no-url' in logs[0])
+
+# (1) leak end to end: real vault_send.cjs against a fake fill helper whose bw returns non-JSON holding the secret
+import subprocess, tempfile
+FAKE = os.path.join(HERE, 'fixtures', 'fake_fill.cjs')
+for mode in ('get-item', 'send-create'):
+    env2 = dict(os.environ, FAKE_BW_MODE=mode, FAKE_SECRET=SECRET)
+    pr = subprocess.run(['node', os.path.join(HERE, '..', 'job', 'vault_send.cjs'), '--organization', 'o', '--collection', 'c', '--fill-js', FAKE, '--directory', 'nextdoor.com'],
+                        capture_output=True, text=True, env=env2, timeout=60)
+    check('%s non-JSON: exits nonzero, secret not in stdout/stderr' % mode, pr.returncode == 1 and SECRET not in pr.stdout + pr.stderr and SECRET.lower() not in (pr.stdout + pr.stderr).lower() and 'reason=operation-failed' in pr.stderr)
+    logs.clear()
+    rn = lambda cmd, **kw: pr
+    S.make_signin_send('SCC', 'nextdoor.com', 'id-check', runner=rn, env=ENV, log=L)
+    check('%s: Python log has no secret' % mode, len(logs) == 1 and SECRET.lower() not in logs[0].lower() and 'hunter' not in logs[0].lower())
+
+# (2) record_transition behavior with stub portal, verification and runner
+import copy, tempfile, shutil, json as _json
+os.environ['CE_DIRECTORIES_WRITE'] = '0'   # Directory sink off: this suite never touches it
+import transitions as T, portal as P
+SRCQ = os.path.join(HERE, 'fixtures', 'test_queue.json')
+class FP:
+    def __init__(self): self.calls = []
+    def latest_snapshot(self, cid): return {'payload': {'found': 1, 'directories': []}}
+    def upsert_snapshot(self, cid, day, payload): self.calls.append(('snap', '', None))
+    def call(self, method, path, body=None, prefer=None):
+        self.calls.append((method, path, body))
+        return [{'a': 1}] if method in ('GET', 'PATCH') else None
+def park(vt, flag, runner, steps=None):
+    d = tempfile.mkdtemp(); qp = os.path.join(d, 'q.json'); shutil.copy(SRCQ, qp)
+    q = _json.load(open(qp)); r0 = q['fix_queue'][0]; r0['state'] = 'submitted'; _json.dump(q, open(qp, 'w'))
+    if flag is None: os.environ.pop(S.FLAG, None)
+    else: os.environ[S.FLAG] = flag
+    for k, v in ENV.items(): os.environ[k] = v
+    real_run = S.subprocess.run; S.subprocess.run = runner
+    fp = FP()
+    try:
+        kw = {'steps': steps or ['Open the site', 'Upload the document'], 'directory_url': 'https://' + r0['directory'] + '/login'} if vt == 'id-check' else {}
+        out = T.record_transition('SCC', r0['id'], 'needs-human', None, 'n', queue_path=qp, today='2026-10-30', portal=fp, verify_type=vt, verification=fp, directories=None, **kw)
+    finally:
+        S.subprocess.run = real_run; os.environ.pop(S.FLAG, None)
+        for k in ENV: os.environ.pop(k, None)
+    return out, fp
+vcalls_n = [0]
+def counting(cmd, **kw): vcalls_n[0] += 1; return runner_ok(cmd, **kw)
+out, fp = park('id-check', '1', counting)
+pa = [c for c in fp.calls if c[0] == 'PATCH' and c[2] and 'signin_send_url' in c[2]]
+check('(a) id-check + flag: vault runs once, one PATCH of the two columns', vcalls_n[0] == 1 and len(pa) == 1 and set(pa[0][2]) == {'signin_send_url', 'signin_send_expires_at'} and out['verification_written'] and not out['errors'])
+check('(a) result string carries no URL/key', URL not in repr(out) and 'KEYMATERIAL' not in repr(out))
+vcalls_n[0] = 0
+out, fp = park('phone-call', '1', counting)
+check('(b) phone-call + flag: vault never called, no signin PATCH', vcalls_n[0] == 0 and not [c for c in fp.calls if c[2] and 'signin_send_url' in str(c[2])] and out['verification_written'])
+out, fp = park('id-check', None, counting)
+check('(c) id-check, flag off: no Send, no vault call', vcalls_n[0] == 0 and 'signin_send' not in out and out['verification_written'])
+def boom(cmd, **kw): raise RuntimeError(SECRET)
+out, fp = park('id-check', '1', boom)
+check('(d) issue raising: queue + verification writes still succeed', out['portal_written'] and out['verification_written'] and json.load(open(SRCQ)) is not None)
+check('(d) errors hold only a type name, no secret', all(SECRET not in e for e in out['errors']) and not [c for c in fp.calls if c[2] and 'signin_send_url' in str(c[2])])
+def boom2(*a, **k): raise KeyError(SECRET)
+real_issue = S.issue; S.issue = boom2
+out, fp = park('id-check', '1', counting)
+S.issue = real_issue
+check('(d) issue() itself raising: writes succeed, errors == type name only', out['portal_written'] and out['verification_written'] and out['errors'] == ['signin_send: KeyError'])
 
 # transitions.py: id-check park with flag on calls issue; phone park does not
 import transitions as T

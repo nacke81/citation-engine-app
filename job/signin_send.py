@@ -18,6 +18,7 @@ SEND_TYPES = ("id-check", "document-upload")
 FLAG = "CE_SIGNIN_SEND_WRITE"
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEND_JS = os.path.join(HERE, "vault_send.cjs")
+REASONS = ("item-missing", "send-no-url", "missing-options", "operation-failed")   # the only vault error text ever logged
 CRED_KEYS = ("BW_CLIENTID", "BW_CLIENTSECRET", "BW_PASSWORD")
 
 
@@ -43,8 +44,10 @@ def _run_node(directory, runner=None, env=None, timeout=240):
 
 class StubTable:
     """Dry-run / test sink standing in for citation_verification. Records PATCHes only."""
-    def __init__(self): self.calls = []
-    def call(self, method, path, body=None, prefer=None): self.calls.append((method, path, body)); return None
+    def __init__(self, rows=1): self.calls, self.rows = [], rows
+    def call(self, method, path, body=None, prefer=None):
+        self.calls.append((method, path, body))
+        return [{"client_id": "x"}] * self.rows if method in ("GET", "PATCH") else None
 
 
 def make_signin_send(client, directory, verify_type, *, runner=None, env=None, log=None):
@@ -65,8 +68,9 @@ def make_signin_send(client, directory, verify_type, *, runner=None, env=None, l
     if rc == 3:
         _log("skip %s: item 'SCC - %s' missing or not unique; no Send made" % (directory, directory), log); return None
     if rc != 0:
-        reason = re.search(r"reason=([a-z0-9 _-]{1,60})", (getattr(r, "stderr", "") or "").lower())
-        _log("skip %s: vault error (%s)" % (directory, reason.group(1) if reason else "unknown"), log); return None
+        m = re.search(r"reason=([a-z-]+)", getattr(r, "stderr", "") or "")
+        reason = m.group(1) if m and m.group(1) in REASONS else "operation-failed"   # allowlist: raw stderr can quote secret text
+        _log("skip %s: vault error (%s)" % (directory, reason), log); return None
     try:
         out = json.loads((getattr(r, "stdout", "") or "").strip().splitlines()[-1])
         url, exp = out["url"], out["expires_at"]
@@ -76,25 +80,39 @@ def make_signin_send(client, directory, verify_type, *, runner=None, env=None, l
     return {"signin_send_url": url, "signin_send_expires_at": exp}
 
 
+def row_exists(client_id, directory, table):
+    path = "citation_verification?select=directory&client_id=eq.%s&directory=eq.%s&state=eq.requires_verification&limit=1" % (client_id, directory)
+    rows = table.call("GET", path)
+    return isinstance(rows, list) and len(rows) > 0
+
+
 def write_send(client_id, directory, fields, table, write=False, flag=None):
-    """PATCH the two columns. Returns the (method, path, body) it did or would send. Live only when write AND CE_SIGNIN_SEND_WRITE=1."""
+    """PATCH the two columns. Returns (method, path, body, status): written | dry-run | no-row (0 rows matched). Live only when write AND CE_SIGNIN_SEND_WRITE=1."""
     path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, directory)
     live = bool(write) and (flag if flag is not None else os.environ.get(FLAG)) in ("1", 1, True)
-    if live: table.call("PATCH", path, dict(fields), prefer="return=minimal")
-    return ("PATCH", path, dict(fields), "written" if live else "dry-run")
+    status = "dry-run"
+    if live:
+        rows = table.call("PATCH", path, dict(fields), prefer="return=representation")
+        status = "written" if isinstance(rows, list) and len(rows) > 0 else "no-row"
+    return ("PATCH", path, dict(fields), status)
 
 
 def issue(client, directory, verify_type, *, write=False, table=None, runner=None, env=None, log=None, flag=None):
-    """Make a Send and attach it to the row. -> status string (never the URL)."""
+    """Make a Send and attach it to the row. -> status string (never the URL). 'no-row' when no requires_verification row holds it."""
     import portal as P
     live = bool(write) and (flag if flag is not None else os.environ.get(FLAG)) in ("1", 1, True)
     if not live and runner is None:   # real dry run: a Send in the vault with no row to carry it would be an orphan, so make none
         return "dry-run: would mint a Send" if verify_type in SEND_TYPES else "no-send"
-    fields = make_signin_send(client, directory, verify_type, runner=runner, env=env, log=log)
-    if not fields: return "no-send"
+    if verify_type not in SEND_TYPES: return "no-send"
     client_id = P.client_for(client)
     tbl = table if table is not None else (P.Portal(*P.load_portal_env()) if live else StubTable())
+    if live and not row_exists(client_id, directory, tbl):   # check before minting so no Send is made that nothing holds
+        _log("skip %s: no requires_verification row; no Send made" % directory, log); return "no-row"
+    fields = make_signin_send(client, directory, verify_type, runner=runner, env=env, log=log)
+    if not fields: return "no-send"
     res = write_send(client_id, directory, fields, tbl, write=write, flag=flag)
+    if res[3] == "no-row":
+        _log("row vanished for %s before the link was saved" % directory, log); return "no-row"
     return "%s expires=%s" % (res[3], fields["signin_send_expires_at"])
 
 
@@ -109,7 +127,7 @@ def main(argv=None):
     n = a.parse_args(argv)
     st = issue(n.client, n.directory, n.verify_type, write=n.write)
     print("%s %s" % (n.directory, st))
-    return 0 if st != "no-send" else 1
+    return 0 if st not in ("no-send", "no-row") else 1
 
 
 if __name__ == "__main__":
