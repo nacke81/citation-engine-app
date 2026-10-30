@@ -65,7 +65,7 @@ export function notFoundCards(checks) {
   return sortChecks(checks).filter((k) => statusOf(k) === "not_found").map((k) => ({ directory: k.directory }));
 }
 
-const REASONS = ["blocked", "error", "unsearchable", "no usable result"];
+const REASONS = ["blocked", "error", "unsearchable", "no usable result", "no-method"];
 export function reasonOf(check) {
   if (statusOf(check) === "unsearchable") return "unsearchable";
   return REASONS.includes(check?.note) ? check.note : "no usable result";
