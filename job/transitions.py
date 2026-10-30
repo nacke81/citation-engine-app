@@ -456,6 +456,13 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             out["verification_written"] = True
         except Exception as e:
             out["errors"].append("verification: %s" % e)
+        # 3c t_79c39f75: client-facing id-check parks get a one-time sign-in Send. Flag-gated (CE_SIGNIN_SEND_WRITE=1), fails closed, never blocks the writes above.
+        if ver_rec and out["verification_written"] and os.environ.get("CE_SIGNIN_SEND_WRITE") == "1":
+            try:
+                import signin_send as S
+                out["signin_send"] = S.issue(client, row["directory"], verify_type, write=True, table=verification or portal)
+            except Exception as e:
+                out["errors"].append("signin_send: %s" % type(e).__name__)
 
     # 4 Directory database (ce_directory_status + needs-human blocker on ce_directories). Never blocks the queue write above.
     out["directories_written"] = False
