@@ -38,7 +38,7 @@ BASE = {"business": "Test Biz", "canonical": {"name": "Test Biz", "address": "1 
 
 def dirs():
     return [dict(domain=r["domain"], name=r["name"], priority=r["priority"], da=r["da"], cost=r["cost"], build_route=r["build_route"],
-                 signup_url=r["signup_url"], claim_url=r["claim_url"]) for r in SEED]
+                 signup_url=r["signup_url"], claim_url=r["claim_url"], build_eligible=r.get("build_eligible", True)) for r in SEED]
 DIRS = dirs()
 by = {d["domain"]: d for d in DIRS}
 
@@ -57,14 +57,14 @@ ids = [r["id"] for r in rows]
 dom = [r["directory"] for r in rows]
 
 # B1
-check("B1 every seed Directory has exactly one row, except found-correct", set(dom) == {d["domain"] for d in DIRS} - {FOUND_OK} and len(dom) == len(set(dom)), (len(dom), len(set(dom))))
+check("B1 every build-eligible seed Directory has exactly one row, except found-correct", set(dom) == {d["domain"] for d in DIRS if d["build_eligible"]} - {FOUND_OK} and len(dom) == len(set(dom)), (len(dom), len(set(dom))))
 check("B1 no duplicate row id", len(ids) == len(set(ids)))
-check("B1 report adds up to 86", rep["existing"] + rep["none"] + rep["added"] == 86, rep)
+check("B1 report adds up to 148 (86 v1 + 62 catalog-only)", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 148 and rep["ineligible"] == 62, rep)
 # B2
 check("B2 found + NAP correct + permalink gets no row", FOUND_OK not in dom and rep["none"] == 1)
 fx = [r for r in rows if r["directory"] == FOUND_ERR][0]
 check("B2 found with NAP errors -> fix row, listing_url = the permalink", fx["kind"] == "fix" and fx["state"] == "queued" and fx["listing_url"] == checks[1]["url"] and fx["wrong_field"] == "phone" and fx["right_value"] == "222")
-for d, why in ((ABSENT, "absent"), (CC, "couldnt"), (UNS, "unsearchable"), ("healthgrades.com" if "healthgrades.com" in by else DIRS[-1]["domain"], "never checked")):
+for d, why in ((ABSENT, "absent"), (CC, "couldnt"), (UNS, "unsearchable"), ([d for d in DIRS if d["build_eligible"]][-1]["domain"], "never checked")):
     r = [x for x in rows if x["directory"] == d][0]
     check("B2 %s -> create row, queued" % why, r["kind"] == "create" and (r["state"] == "queued" or by[d]["cost"] == "paid" or by[d]["build_route"] == "none"))
 fnc = B.build_rows(BASE, DIRS, [], [dict(directory=FOUND_OK, result="found", url="https://www.yelp.com/search?find_desc=x", match=True, diffs=None)], DAY)[0]
@@ -77,6 +77,18 @@ r2 = {r["directory"]: r for r in B.counts(n2)[0]}
 a, b = r2[nr[5]["domain"]], r2[nr[6]["domain"]]
 check("B3 build_route none -> needs-human, reason no-route", a["state"] == "needs-human" and a["history"][-1]["note"].startswith("no-route") and a["history"][-1]["to"] == "needs-human")
 check("B3 paid -> needs-human, reason paid-tier", b["state"] == "needs-human" and b["history"][-1]["note"].startswith("paid-tier"))
+# B3b catalog-only hunt rows (t_ab039aed): build_eligible false -> no queue row at all, not even needs-human
+HUNT = [d for d in DIRS if d["build_eligible"] is False]
+hq, hrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, HUNT, [], [], DAY)
+check("B3b 62 hunt rows on an empty queue -> added 0, nothing queued, nothing needs-human", len(HUNT) == 62 and hrep["added"] == 0 and hrep["ineligible"] == 62
+      and hrep["create"] == 0 and hrep["fix"] == 0 and hrep["needs-human"] == 0 and B.counts(hq)[0] == [] and "build_order" not in hq, hrep)
+mix, mrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, DIRS, [], [], DAY)
+check("B3b mixed v1 + hunt: only v1 Directories get rows, every hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 86 and mrep["ineligible"] == 62, mrep)
+legacy = [dict(d) for d in DIRS if d["build_eligible"]]
+for d in legacy: d.pop("build_eligible")
+lq, lrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, legacy, [], [], DAY)
+check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 86 and lrep["ineligible"] == 0, lrep)
+check("B3b the load query reads build_eligible", "build_eligible" in open(os.path.join(ROOT, "job", "buildrows.py"), encoding="utf-8").read().split("def load_db_inputs")[1].split("status =")[0])
 # B4
 p = os.path.join(TMP, "queue.json"); json.dump(BASE, open(p, "w", encoding="utf-8"), indent=1)
 r1, bak1 = B.apply_file(p, DIRS, [], checks, DAY)
