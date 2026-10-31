@@ -1,21 +1,7 @@
--- Hunt catalog rows (kanban t_ab039aed). GENERATED: edit db/008_hunt_catalog.sql.tpl and run python db/gen_directories_seed.py --hunt, never the .sql by hand.
--- ADDITIVE and idempotent. Apply BEFORE merging/running the app change that reads build_eligible (portal PR #54 lesson).
--- 1. build_eligible: the weekly buildrows step skips a Directory whose build_eligible is false, so a catalog-only row never gets an SCC queue row.
---    Existing rows default to true (behavior unchanged). Every hunt row below is inserted false.
--- 2. vertical / weekly_checkable / source: the 2026-10-30 Catalog bar split (Intelligence/decisions/2026-10-30-citation-catalog-bar-split.md).
---    NULLABLE, no default: unknown stays unknown, nothing is backfilled on the 86 older rows.
--- 3. category CHECK widened (not squashed) with the hunt verticals.
--- Seed: the hunt rows (cycle 1 + cycle 2). ON CONFLICT DO NOTHING: a re-apply never touches a row that already exists, so live state and
--- any later build_eligible change are kept.
-alter table public.ce_directories add column if not exists build_eligible boolean not null default true;
-alter table public.ce_directories add column if not exists vertical text;
-alter table public.ce_directories add column if not exists weekly_checkable text;
-alter table public.ce_directories add column if not exists source text;
-
-alter table public.ce_directories drop constraint if exists ce_directories_category_check;
-alter table public.ce_directories add constraint ce_directories_category_check
-  check (category in ('general', 'aggregator', 'niche-senior', 'niche-other', 'local', 'health-senior-care', 'home-services', 'legal', 'local-regional', 'restaurant'));
-
+-- Hunt catalog rows (kanban t_ab039aed). GENERATED: edit db/009_hunt_catalog_seed.sql.tpl and run python db/gen_directories_seed.py --hunt, never the .sql by hand.
+-- Rows only, no DDL. REQUIRES 008_hunt_catalog.sql applied first. APPLY ONLY AFTER the app change is merged and the weekly PC has pulled it:
+-- main's buildrows does not know build_eligible and would queue these rows.
+-- Every row is inserted build_eligible=false (catalog-only). ON CONFLICT DO NOTHING: a re-apply never touches an existing row.
 insert into public.ce_directories (domain, name, cut, priority, da, category, checked_weekly, weekly_scope, search_method, search_url_template,
   zero_marker_known, zero_marker_text, claim_markers_verified, claim_markers, signup_url, claim_url, help_url, cost, cost_note, account_needed,
   account_note, verification_methods, build_route, build_route_note, agent_access, agent_blocker, agent_blocker_seen_on, agent_blocker_source, notes,

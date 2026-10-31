@@ -1,7 +1,7 @@
 """Regenerate db/directories_seed.json and db/002_directories.sql from the v1 Catalog plus this repo's job facts.
 
   python db/gen_directories_seed.py --catalog <v1-catalog.json>
-  python db/gen_directories_seed.py --hunt      (keeps the 86 v1 rows already in the seed; rewrites the seed JSON + 008_hunt_catalog.sql from db/directories_hunt_seed.json)
+  python db/gen_directories_seed.py --hunt      (keeps the 86 v1 rows already in the seed; rewrites the seed JSON + 009_hunt_catalog_seed.sql from db/directories_hunt_seed.json)
 
 <v1-catalog.json> is V1_CATALOG from nacke81/citation-engine src/catalog.ts, dumped with JSON.stringify (86 rows).
 Reads job/cfg.py (the weekly 25), job/create_discovery.py (the 10 create-queue Directories) and job/claim_rules.py facts.
@@ -21,8 +21,8 @@ import create_discovery as CD  # noqa: E402
 SEED_JSON = os.path.join(HERE, "directories_seed.json")
 MIGRATION = os.path.join(HERE, "002_directories.sql")
 HUNT_SEED = os.path.join(HERE, "directories_hunt_seed.json")
-HUNT_TEMPLATE = os.path.join(HERE, "008_hunt_catalog.sql.tpl")
-HUNT_MIGRATION = os.path.join(HERE, "008_hunt_catalog.sql")
+HUNT_TEMPLATE = os.path.join(HERE, "009_hunt_catalog_seed.sql.tpl")
+HUNT_MIGRATION = os.path.join(HERE, "009_hunt_catalog_seed.sql")
 TOTAL_ROWS = 148   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed)
 TEMPLATE = os.path.join(HERE, "002_directories.sql.tpl")
 

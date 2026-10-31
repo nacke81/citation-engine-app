@@ -213,18 +213,28 @@ check("D8 vertical equals category on every hunt row, source is kept", all(r["ve
 check("D8 null signup_url stays null (23 walled rows incl. opentable and linkedin), none invented", sum(r["signup_url"] is None for r in HUNT) == 23 and by["opentable.com"]["signup_url"] is None and by["linkedin.com"]["signup_url"] is None
       and by["smartcustomer.com"]["signup_url"] == "https://biz.smartcustomer.com/register")
 sql8 = open(os.path.join(ROOT, "db", "008_hunt_catalog.sql"), encoding="utf-8").read()
-m8 = re.search(r"\$seed\$(.*?)\$seed\$", sql8, re.S)
-check("D8 migration 008 seed equals the hunt rows of directories_seed.json", m8 and json.loads(m8.group(1)) == HUNT)
-check("D8 committed 008_hunt_catalog.sql equals template + hunt seed, byte for byte", sql8.replace("\r\n", "\n") == G.build_hunt_sql(HUNT).replace("\r\n", "\n"))
+sql9 = open(os.path.join(ROOT, "db", "009_hunt_catalog_seed.sql"), encoding="utf-8").read()
+m9 = re.search(r"\$seed\$(.*?)\$seed\$", sql9, re.S)
+CRLF, LF = chr(13) + chr(10), chr(10)
+INS = r"insert\s+into\s+public\.ce_directories"
+check("D8 migration 009 seed equals the hunt rows of directories_seed.json", m9 and json.loads(m9.group(1)) == HUNT)
+check("D8 committed 009_hunt_catalog_seed.sql equals template + hunt seed, byte for byte", sql9.replace(CRLF, LF) == G.build_hunt_sql(HUNT).replace(CRLF, LF))
+check("D8 split: 008 has NO rows (no insert, no $seed$) and 009 has NO DDL (no alter, create, drop)",
+      not re.search(INS, sql8, re.I) and "$seed$" not in sql8 and not re.search(r"^\s*(alter|create|drop)\s", sql9, re.I | re.M))
+check("D8 hazard gone: with only 008 applied the table gains 0 rows (008 has no insert, 009 is the only row source and every row is build_eligible false)",
+      len(re.findall(INS, sql8, re.I)) == 0 and len(re.findall(INS, sql9, re.I)) == 1 and len(json.loads(m9.group(1))) == 62
+      and all(r["build_eligible"] is False for r in json.loads(m9.group(1))))
+check("D8 order is written in the files: 009 requires 008 and the merge first, 008 names step 3", "REQUIRES 008" in sql9 and "AFTER the app change is merged" in sql9 and "(3) apply 009" in sql8)
 check("D8 hunt seed file equals the hunt rows in directories_seed.json", json.load(open(os.path.join(ROOT, "db", "directories_hunt_seed.json"), encoding="utf-8")) == HUNT)
-check("D8 008 is additive and idempotent: columns if not exists, build_eligible default true, on conflict do nothing, no drop table, no delete",
-      "add column if not exists build_eligible boolean not null default true" in sql8 and "on conflict (domain) do nothing" in sql8
+check("D8 008 is additive and idempotent: columns if not exists, build_eligible default true, no drop table, no delete",
+      "add column if not exists build_eligible boolean not null default true" in sql8
       and not re.search(r"drop table|delete from|truncate|do update", sql8, re.I) and all("add column if not exists %s" % c in sql8 for c in ("vertical", "weekly_checkable", "source")))
+check("D8 009 is idempotent: on conflict do nothing, no delete, no update", "on conflict (domain) do nothing" in sql9 and not re.search(r"drop table|delete from|truncate|do update", sql9, re.I))
 check("D8 008 widens the category CHECK with every hunt category and keeps the old five", all("'%s'" % c in sql8.split("check (category in")[1].split(")")[0] for c in CATS))
 check("D8 hunt categories exist in the 008 CHECK", {r["category"] for r in HUNT} <= set(CATS))
-check("D8 no secret in 008", not re.search("sb_" + "secret|service" + "_role|e" + "yJ[A-Za-z0-9_-]{30,}", sql8))
+check("D8 no secret in 008 or 009", not re.search("sb_" + "secret|service" + "_role|e" + "yJ[A-Za-z0-9_-]{30,}", sql8 + sql9))
 cols_dir |= set(re.findall(r"add column if not exists (\w+)", sql8))
-check("D8 every seed key the 008 insert reads is a column", {k for r in HUNT for k in r} <= cols_dir, sorted({k for r in HUNT for k in r} - cols_dir))
+check("D8 every seed key the 009 insert reads is a column", {k for r in HUNT for k in r} <= cols_dir, sorted({k for r in HUNT for k in r} - cols_dir))
 
 src = open(os.path.join(ROOT, "job", "directories.py"), encoding="utf-8").read()
 check("D6 directories.py makes no Directory request (only the Supabase REST host)", src.count("urlopen") == 1 and "/rest/v1/" in src)
