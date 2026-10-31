@@ -92,12 +92,14 @@ def build_rows(queue, dirs, status, checks, day):
         if not cur or (c.get("result") == "found" and cur.get("result") != "found"):
             cm[c["directory"]] = c
     canon = q.get("canonical")
-    added, rep = [], {"existing": 0, "none": 0, "fix": 0, "create": 0, "needs-human": 0}
+    added, rep = [], {"existing": 0, "none": 0, "fix": 0, "create": 0, "needs-human": 0, "ineligible": 0}
     taken = {r.get("id") for k in ("fix_queue", "create_rows") for r in q.get(k) or []} | {r.get("id") for r in (q.get("create_queue") or {}).get("rows", [])}
     for d in dirs:
         dom = d["domain"]
         if dom in have:
             rep["existing"] += 1; continue
+        if d.get("build_eligible") is False:   # catalog-only Directory (db/008): no queue row at all, not even needs-human
+            rep["ineligible"] += 1; continue
         action, why, url, diffs = decide(d, sm.get(dom), cm.get(dom))
         if action == "none":
             rep["none"] += 1; continue
@@ -166,7 +168,7 @@ def apply_file(path, dirs, status, checks, day, write=True):
 
 
 def load_db_inputs(db):
-    dirs = db.call("GET", "ce_directories?select=domain,name,priority,da,cost,build_route,signup_url,claim_url&order=priority.asc,da.desc.nullslast", None, "return=representation") or []
+    dirs = db.call("GET", "ce_directories?select=domain,name,priority,da,cost,build_route,signup_url,claim_url,build_eligible&order=priority.asc,da.desc.nullslast", None, "return=representation") or []
     status = db.call("GET", "ce_directory_status?biz=eq.SCC&select=directory,last_result,last_url,last_match,claim_status,queue_state", None, "return=representation") or []
     runs = db.call("GET", "ce_runs?select=id&order=started_at.desc&limit=1", None, "return=representation") or []
     checks = []

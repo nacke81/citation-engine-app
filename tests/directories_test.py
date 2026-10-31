@@ -1,7 +1,7 @@
 """Directory database tests. Run: python tests/directories_test.py (CI). No network: the database is an in-memory fake.
 
-  D1 seed: exactly 86 unique Directories, the weekly 25 all inside, the four 10/21 blockers, Bing = agency account, no client NAP
-  D2 migration: generated SQL carries the same 86 rows, RLS + force RLS, view is security_invoker, no secret
+  D1 seed: exactly 148 unique Directories (86 v1 + 62 hunt, t_ab039aed), the weekly 25 all inside, the four 10/21 blockers, Bing = agency account, no client NAP
+  D2 migration: generated SQL carries the 86 v1 rows, RLS + force RLS, view is security_invoker, no secret
   D3 weekly sync: check results, claim_status, queue state, create-discovery verdicts land as status rows (SCC + NM)
   D4 transitions: a transition writes queue state; needs-human marks the Directory agent-blocked with the note
   D5 the create-row bug: transitions.py finds rows under create_queue.rows and create_rows as well as fix_queue
@@ -39,13 +39,16 @@ class FakeDB:
 
 SEED = json.load(open(os.path.join(ROOT, "db", "directories_seed.json"), encoding="utf-8"))
 by = {r["domain"]: r for r in SEED}
+HUNT = [r for r in SEED if str(r["cut"]).startswith(("cycle1-", "cycle2-"))]
+V1 = [r for r in SEED if r not in HUNT]
 
 # D1 seed
-check("D1 seed count is 86", len(SEED) == 86 and len(by) == 86, len(SEED))
+check("D1 seed count is 148 unique domains (86 v1 + 59 cycle 1 + 3 cycle 2)", len(SEED) == 148 and len(by) == 148 and len(V1) == 86 and len(HUNT) == 62
+      and sum(r["cut"].startswith("cycle1-") for r in HUNT) == 59 and sum(r["cut"].startswith("cycle2-") for r in HUNT) == 3, (len(SEED), len(by)))
 check("D1 every weekly-25 domain is in the seed and checked weekly", all(d in by and by[d]["checked_weekly"] for d in cfg.DIRS))
 import create_discovery as CD
 check("D1 the 10 create-discovery domains are in the seed and checked weekly", all(d in by and by[d]["checked_weekly"] for d in CD.CREATE_DIRS))
-check("D1 checked weekly = 25 + 10", sum(r["checked_weekly"] for r in SEED) == 35)
+check("D1 checked weekly = 25 + 10 (no hunt row is checked weekly)", sum(r["checked_weekly"] for r in SEED) == 35 and not any(r["checked_weekly"] for r in HUNT))
 check("D1 acompio zero-result marker known, others not", by["acompio.us"]["zero_marker_known"] and not by["citysquares.com"]["zero_marker_known"])
 for d, word in (("yellowpages.com", "Cloudflare"), ("superpages.com", "403"), ("acompio.us", "Turnstile"), ("bing.com", "anti-abuse")):
     check("D1 %s seeded agent-blocked (%s)" % (d, word), by[d]["agent_access"] == "blocked" and word in by[d]["agent_blocker"] and by[d]["agent_blocker_seen_on"] == "2026-10-21")
@@ -53,7 +56,8 @@ check("D1 Bing build route is the agency account with GBP sync", by["bing.com"][
       and "gbp-sync" in by["bing.com"]["verification_methods"])
 check("D1 aggregators route to aggregator", all(by[d]["build_route"] == "aggregator" for d in ("data-axle.com", "neustarlocaleze.biz", "foursquare.com")))
 check("D1 claim markers verified for the six claim_rules Directories", {d for d, r in by.items() if r["claim_markers_verified"]} == set(__import__("claim_rules").RULES))
-check("D1 enums are valid", all(r["category"] in ("general", "aggregator", "niche-senior", "niche-other", "local") and r["cost"] in ("free", "paid", "unknown")
+CATS = ("general", "aggregator", "niche-senior", "niche-other", "local", "health-senior-care", "home-services", "legal", "local-regional", "restaurant")
+check("D1 enums are valid", all(r["category"] in CATS and r["cost"] in ("free", "paid", "unknown")
       and r["build_route"] in ("agent", "agency-account", "aggregator", "none") and r["agent_access"] in ("ok", "blocked", "unknown") for r in SEED))
 blob = json.dumps(SEED)
 ident = json.load(open(os.environ["CE_IDENTITY"]))
@@ -64,7 +68,7 @@ check("D1 search templates are placeholders", "{name}" in by["yelp.com"]["search
 # D2 migration
 sql = open(os.path.join(ROOT, "db", "002_directories.sql"), encoding="utf-8").read()
 m = re.search(r"\$seed\$(.*?)\$seed\$", sql, re.S)
-check("D2 migration seed equals directories_seed.json", m and json.loads(m.group(1)) == SEED)
+check("D2 migration 002 seed equals the 86 v1 rows of directories_seed.json (hunt rows ship in 008)", m and json.loads(m.group(1)) == V1)
 check("D2 RLS enabled and forced on both tables, anon revoked", "enable row level security" in sql and "force row level security" in sql and "revoke all on public.%I from anon" in sql
       and "'ce_directories', 'ce_directory_status'" in sql)
 check("D2 status policy is owner-scoped, directory policy is read-only", 'on public.ce_directory_status for select to authenticated using (owner = auth.uid())' in sql
@@ -167,7 +171,7 @@ check("D5 before the fix this id was unreachable (old lookup keys only)", all(CR
 # D7 drift: the committed migration must be what the generator makes, and every column the job writes must exist in it
 sys.path.insert(0, os.path.join(ROOT, "db"))
 import gen_directories_seed as G
-gen_sql = G.build_sql(SEED)
+gen_sql = G.build_sql(V1)
 check("D7 committed 002_directories.sql equals template + committed seed, byte for byte", open(os.path.join(ROOT, "db", "002_directories.sql"), encoding="utf-8", newline="").read().replace("\r\n", "\n") == gen_sql.replace("\r\n", "\n"))
 check("D7 every seed row carries agent_blocker_source", all("agent_blocker_source" in r for r in SEED))
 def table_cols(name):
@@ -193,6 +197,34 @@ for c in db.calls + db2.calls + fdb7.calls + fdb7t.calls:
 check("D7 job reads and PATCHes only ce_directories columns that the migration creates", seen_dir and "agent_blocker_source" in seen_dir and seen_dir <= cols_dir, sorted(seen_dir - cols_dir))
 check("D7 job upserts only ce_directory_status columns that the migration creates", seen_stat and seen_stat <= cols_stat, sorted(seen_stat - cols_stat))
 check("D7 migration adds agent_blocker_source for older tables", "add column if not exists agent_blocker_source" in sql)
+
+# D8 hunt catalog rows (t_ab039aed): 148 unique domains, catalog-only, unknown stays unknown, migration 008 carries the same rows
+HUNT_ENUM = dict(agent_access=("blocked", "unknown"), build_route=("none",), weekly_scope=("none",))
+check("D8 148 unique domains load from the seed and no hunt domain is in the 86", len({r["domain"] for r in SEED}) == 148 and not ({r["domain"] for r in HUNT} & {r["domain"] for r in V1}))
+check("D8 every hunt row is catalog-only: build_eligible false, route none, priority 4, scope none, not checked weekly",
+      all(r["build_eligible"] is False and r["build_route"] == "none" and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
+check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1))
+check("D8 hunt agent_access is mapped to the enum: 403/429 walls blocked (21), everything else unknown, probe text kept",
+      all(r["agent_access"] in ("blocked", "unknown") for r in HUNT) and sum(r["agent_access"] == "blocked" for r in HUNT) == 21
+      and all(("Hunt probe access:" in r["notes"]) if r["agent_access"] == "unknown" else r["agent_blocker"] for r in HUNT))
+check("D8 unknown stays unknown: cost, account_needed and weekly_checkable are not defaulted", all(r["account_needed"] == "unknown" and r["weekly_checkable"] == "unknown" for r in HUNT)
+      and sum(r["cost"] == "unknown" for r in HUNT) == 58 and {r["cost"] for r in HUNT} <= {"free", "paid", "unknown"})
+check("D8 vertical equals category on every hunt row, source is kept", all(r["vertical"] == r["category"] and r["source"] for r in HUNT))
+check("D8 null signup_url stays null (23 walled rows incl. opentable and linkedin), none invented", sum(r["signup_url"] is None for r in HUNT) == 23 and by["opentable.com"]["signup_url"] is None and by["linkedin.com"]["signup_url"] is None
+      and by["smartcustomer.com"]["signup_url"] == "https://biz.smartcustomer.com/register")
+sql8 = open(os.path.join(ROOT, "db", "008_hunt_catalog.sql"), encoding="utf-8").read()
+m8 = re.search(r"\$seed\$(.*?)\$seed\$", sql8, re.S)
+check("D8 migration 008 seed equals the hunt rows of directories_seed.json", m8 and json.loads(m8.group(1)) == HUNT)
+check("D8 committed 008_hunt_catalog.sql equals template + hunt seed, byte for byte", sql8.replace("\r\n", "\n") == G.build_hunt_sql(HUNT).replace("\r\n", "\n"))
+check("D8 hunt seed file equals the hunt rows in directories_seed.json", json.load(open(os.path.join(ROOT, "db", "directories_hunt_seed.json"), encoding="utf-8")) == HUNT)
+check("D8 008 is additive and idempotent: columns if not exists, build_eligible default true, on conflict do nothing, no drop table, no delete",
+      "add column if not exists build_eligible boolean not null default true" in sql8 and "on conflict (domain) do nothing" in sql8
+      and not re.search(r"drop table|delete from|truncate|do update", sql8, re.I) and all("add column if not exists %s" % c in sql8 for c in ("vertical", "weekly_checkable", "source")))
+check("D8 008 widens the category CHECK with every hunt category and keeps the old five", all("'%s'" % c in sql8.split("check (category in")[1].split(")")[0] for c in CATS))
+check("D8 hunt categories exist in the 008 CHECK", {r["category"] for r in HUNT} <= set(CATS))
+check("D8 no secret in 008", not re.search("sb_" + "secret|service" + "_role|e" + "yJ[A-Za-z0-9_-]{30,}", sql8))
+cols_dir |= set(re.findall(r"add column if not exists (\w+)", sql8))
+check("D8 every seed key the 008 insert reads is a column", {k for r in HUNT for k in r} <= cols_dir, sorted({k for r in HUNT for k in r} - cols_dir))
 
 src = open(os.path.join(ROOT, "job", "directories.py"), encoding="utf-8").read()
 check("D6 directories.py makes no Directory request (only the Supabase REST host)", src.count("urlopen") == 1 and "/rest/v1/" in src)

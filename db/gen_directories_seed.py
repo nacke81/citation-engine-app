@@ -1,6 +1,7 @@
 """Regenerate db/directories_seed.json and db/002_directories.sql from the v1 Catalog plus this repo's job facts.
 
   python db/gen_directories_seed.py --catalog <v1-catalog.json>
+  python db/gen_directories_seed.py --hunt      (keeps the 86 v1 rows already in the seed; rewrites the seed JSON + 008_hunt_catalog.sql from db/directories_hunt_seed.json)
 
 <v1-catalog.json> is V1_CATALOG from nacke81/citation-engine src/catalog.ts, dumped with JSON.stringify (86 rows).
 Reads job/cfg.py (the weekly 25), job/create_discovery.py (the 10 create-queue Directories) and job/claim_rules.py facts.
@@ -19,6 +20,10 @@ import create_discovery as CD  # noqa: E402
 
 SEED_JSON = os.path.join(HERE, "directories_seed.json")
 MIGRATION = os.path.join(HERE, "002_directories.sql")
+HUNT_SEED = os.path.join(HERE, "directories_hunt_seed.json")
+HUNT_TEMPLATE = os.path.join(HERE, "008_hunt_catalog.sql.tpl")
+HUNT_MIGRATION = os.path.join(HERE, "008_hunt_catalog.sql")
+TOTAL_ROWS = 148   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed)
 TEMPLATE = os.path.join(HERE, "002_directories.sql.tpl")
 
 CATEGORY_NICHE_SENIOR = {"caring.com"}
@@ -62,7 +67,31 @@ def template(url):
     return url.replace("%7B", "{").replace("%7D", "}") if url else None
 
 
+def is_hunt(r):
+    return str(r.get("cut") or "").startswith(("cycle1-", "cycle2-"))
+
+
+def main_hunt():
+    """Hunt-only regenerate: the v1 rows are read back from the committed seed (002_directories.sql is not touched)."""
+    rows = [r for r in json.load(open(SEED_JSON, encoding="utf-8")) if not is_hunt(r)]
+    hunt = json.load(open(HUNT_SEED, encoding="utf-8"))
+    write_seed(rows, hunt)
+
+
+def write_seed(rows, hunt):
+    assert len(rows) == 86 and len({r["domain"] for r in rows}) == 86, "v1 catalog must be 86 unique Directories"
+    everything = rows + hunt
+    assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
+    assert all(r["build_eligible"] is False for r in hunt), "hunt rows are catalog-only: build_eligible false"
+    with open(SEED_JSON, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(everything, f, indent=1, ensure_ascii=False); f.write("\n")
+    write_hunt_sql(hunt)
+    print("wrote", len(everything), "rows (%d v1 + %d hunt)" % (len(rows), len(hunt)))
+
+
 def main():
+    if "--hunt" in sys.argv:
+        return main_hunt()
     cat = json.load(open(sys.argv[sys.argv.index("--catalog") + 1], encoding="utf-8"))
     weekly = list(cfg.DIRS)
     # facts that need the placeholder identity (pattern URLs need a real state) are computed BEFORE tokens go in
@@ -141,12 +170,11 @@ def main():
             agent_access=access, agent_blocker=BLOCKED.get(d), agent_blocker_seen_on=BLOCKED_ON if d in BLOCKED else None,
             agent_blocker_source="manual" if d in BLOCKED else None,
             notes=" ".join(notes) or None, last_verified=last))
-    assert len(rows) == 86 and len({r["domain"] for r in rows}) == 86, "catalog must be 86 unique Directories"
+    hunt = json.load(open(HUNT_SEED, encoding="utf-8"))
     assert all(d in {r["domain"] for r in rows} for d in weekly), "every weekly-25 domain must be in the Catalog"
-    with open(SEED_JSON, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(rows, f, indent=1, ensure_ascii=False); f.write("\n")
+    write_seed(rows, hunt)
     write_sql(rows)
-    print("wrote", len(rows), "rows;", sum(r["checked_weekly"] for r in rows), "checked weekly;", sum(r["agent_access"] == "blocked" for r in rows), "blocked")
+    print(sum(r["checked_weekly"] for r in rows), "checked weekly;", sum(r["agent_access"] == "blocked" for r in rows), "blocked")
 
 
 def build_sql(rows):
@@ -154,6 +182,18 @@ def build_sql(rows):
     blob = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
     assert "$seed$" not in blob
     return tpl.replace("@@SEED_JSON@@", blob)
+
+
+def build_hunt_sql(hunt):
+    tpl = open(HUNT_TEMPLATE, encoding="utf-8").read()
+    blob = json.dumps(hunt, separators=(",", ":"), ensure_ascii=False)
+    assert "$seed$" not in blob
+    return tpl.replace("@@SEED_JSON@@", blob)
+
+
+def write_hunt_sql(hunt):
+    with open(HUNT_MIGRATION, "w", encoding="utf-8", newline="\n") as f:
+        f.write(build_hunt_sql(hunt))
 
 
 def write_sql(rows):
