@@ -3,7 +3,7 @@
   python db/normalize_hunt.py <hunt-cycle-1-seed.json> <hunt-cycle-2-seed.json> ...
 
 Rulings (Nate, 2026-10-30): agent_access 403/429 -> blocked, every other value -> unknown with the probe text kept in notes;
-build_route none, priority 4, weekly_scope none, build_eligible false (the weekly buildrows step skips these rows).
+build_route none (the 8 promoted rows get agent in gen_directories_seed.py), priority 4, weekly_scope none, build_eligible false (the weekly buildrows step skips these rows).
 Unknown stays unknown: cost, account_needed and weekly_checkable are copied as the hunt graded them, never defaulted; an empty
 verification_methods becomes ["unknown"] (the 86 rows' convention). signup_url stays null where the hunt found the site walled. No network.
 """
