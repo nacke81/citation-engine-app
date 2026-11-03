@@ -466,7 +466,8 @@ def compare(text, canonical, html_=None):
             if missing: gaps.append("address")   # a street alone is not the full canonical NAP
             else:
                 if len(cparts) >= 2 and F._tok(sa["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", sa["city"]))
-                if cst and sa["state"].upper() != cst.group(1).upper(): wrong.append(("state", sa["state"]))
+                sst = US_STATES.get(sa["state"].strip().lower(), sa["state"]).upper()   # JSON-LD addressRegion may be the full name ("Kentucky")
+                if cst and sst != cst.group(1).upper(): wrong.append(("state", sa["state"]))
                 if cst and cst.group(2) and sa["zip"][:5] != cst.group(2): wrong.append(("zip", sa["zip"]))
             sa_used = True
             got = (sa["street"] + ((", %s, %s %s" % (sa["city"], sa["state"], sa["zip"])) if not missing else ""), p, sa.get("zip") if not missing else None)
@@ -477,7 +478,11 @@ def compare(text, canonical, html_=None):
         # exact street: number, name, type (Drive/Dr only) and unit via street_equal; "street + city on one line" must continue with the city, not extra words
         ccity = F._tok(canonical["address"].split(",")[1])[:1] if canonical["address"].count(",") >= 1 else []
         rest = street_txt_norm[len(want_norm):].split() if street_txt_norm.startswith(want_norm + " ") or street_txt_norm == want_norm else None
-        same = F.street_equal(got[1], cstreet) or (rest is not None and (not rest or rest[:1] == ccity))   # one line: street + city
+        if rest is None:   # "100 Example Dr 40000 Exampleton Kentucky": the street is spelled Dr / Drive; compare the first words as a street
+            _w = street_txt_norm.split(); _n = len(want_norm.split())
+            _p = F.parse_street(" ".join(_w[:_n])) if len(_w) > _n else None
+            if _p and F.street_equal(_p, cstreet) and re.fullmatch(r"\d{5}", _w[_n]): rest = _w[_n:]
+        same = F.street_equal(got[1], cstreet) or (rest is not None and (not rest or rest[:1] == ccity or bool(re.fullmatch(r"\d{5}", rest[0]))))   # one line: street + city (or street + zip + city)
         if same and rest is None and cstreet.get("type") and got[1].get("type") != cstreet["type"]: same = False   # exact: Drive == Dr only; a dropped type is a different street
         if not same or (got[2] and czip and got[2] != czip.group(1)):
             wrong.append(("address", got[0] if (got[2] or "") in got[0] else got[0] + ((" " + got[2]) if got[2] else "")))
@@ -489,7 +494,8 @@ def compare(text, canonical, html_=None):
             segs = [x for x in segs if x]
             _ft = re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")[0].split()
             _wn = len(want_norm.split())
-            if len(_ft) > _wn and F._tok(" ".join(_ft[:_wn])) == want_norm.split() and not F.parse_street(" ".join(_ft[_wn:])):
+            _pp = F.parse_street(" ".join(_ft[:_wn])) if len(_ft) > _wn else None
+            if len(_ft) > _wn and (F._tok(" ".join(_ft[:_wn])) == want_norm.split() or (_pp and F.street_equal(_pp, cstreet))) and (re.match(r"\d{5}(-\d{4})?\s+[A-Za-z]", " ".join(_ft[_wn:])) or not F.parse_street(" ".join(_ft[_wn:]))):   # "100 Example Dr 40000 Exampleton Kentucky": zip before the city, no commas
                 segs = [" ".join(_ft[_wn:])] + segs   # no comma after the street: "100 Example Drive Exampleton, KY 40000"
             zip_only = lambda x: re.fullmatch(r"\d{5}(-\d{4})?", x)
             zfirst = None
@@ -500,12 +506,18 @@ def compare(text, canonical, html_=None):
             i0 = next((i for i, l in enumerate(block) if l and got[0].startswith(l) and F.parse_street(l)), None)
             if no_city(segs) and i0 is not None:
                 j = i0 + 1 + (0 if got[0] == block[i0] else 1)   # a unit on its own line was appended to the shown street
-                n1 = block[j] if j < len(block) else ""
-                n2 = block[j + 1] if j + 1 < len(block) else ""
+                _sn = re.compile(r"(?i)(?<=[\s,])(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(?=\s+\d{5}\b|\s*$)")
+                _ab = lambda x: _sn.sub(lambda m: US_STATES[m.group(1).lower()], x) if re.search(r"[,\s]", x) and "," in x else x   # "Exampleton, Ohio 40000" -> "Exampleton, OH 40000"
+                n1 = _ab(block[j]) if j < len(block) else ""
+                n2 = _ab(block[j + 1]) if j + 1 < len(block) else ""
                 ok_ln = lambda x: bool(x) and len(x) <= 60 and not phones_in([x])
                 szr = lambda x: ok_ln(x) and bool(F.STATE_ZIP_RE.search(x)) and not F.parse_street(x)
                 alpha = lambda x: ok_ln(x) and bool(re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", x)) and len(x.split()) <= 4
-                if szr(n1) and not zip_only(n1.strip()): segs = [x.strip() for x in n1.split(",") if x.strip()]   # "City, ST zip"
+                n3 = block[j + 2] if j + 2 < len(block) else ""
+                st_line = lambda x: ok_ln(x) and (x.lower().strip(" .") in US_STATES or bool(re.fullmatch(r"[A-Z]{2}\.?", x)))
+                if zip_only(n1.strip()) and alpha(n2) and st_line(n3) and not segs:   # street / zip / city / state, one per line (a live listing shape)
+                    zfirst, segs = n1.strip()[:5], [n2.strip(), n3.strip()]
+                elif szr(n1) and not zip_only(n1.strip()): segs = [x.strip() for x in n1.split(",") if x.strip()]   # "City, ST zip"
                 elif alpha(n1) and szr(n2) and not alpha(n2):
                     s2 = [x.strip() for x in n2.split(",") if x.strip()]
                     segs = ([n1.strip()] + s2) if no_city(s2) else s2   # "City" / "ST zip"; "Website" / "City, ST zip" (a UI label above the city line is skipped)

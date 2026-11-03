@@ -260,11 +260,40 @@ for label, addr, want in [("zip only same line", "100 Example Drive, 40000", "na
                           ("zip before city, wrong zip", "100 Example Drive, 40001 Exampleton", "mismatch"),
                           ("UI label under street", "100 Example Drive\nGet Directions", "nap-incomplete"),
                           ("UI label above city line", "100 Example Drive\nWebsite\nExampleton, KY 40000", "match"),
-                          ("UI label above wrong city line", "100 Example Drive\nWebsite\nOtherville, KY 40000", "mismatch")]:
+                          ("UI label above wrong city line", "100 Example Drive\nWebsite\nOtherville, KY 40000", "mismatch"),
+                          ("acompio: no commas, zip before city, state name", "100 Example Dr 40000 Exampleton Kentucky", "match"),
+                          ("acompio shape, wrong city", "100 Example Dr 40000 Otherville Kentucky", "mismatch"),
+                          ("acompio shape, wrong zip", "100 Example Dr 40001 Exampleton Kentucky", "mismatch"),
+                          ("acompio shape, wrong state", "100 Example Dr 40000 Exampleton Ohio", "mismatch")]:
     r = R.compare(_dot(addr), MCAN)
     check("C4 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 r = R.compare(_dot("100 Example Drive, Otherville, KY 40000"), MCAN)
 check("C3 comma wrong city names the city field", any(f == "city" for f, _ in r["wrong"]), str(r))
+
+def _ld(street, city, st, z):
+    return '<script type="application/ld+json">' + json.dumps({"@context": "http://schema.org", "@type": "LocalBusiness", "name": "Alder Care Consulting & Solutions",
+            "address": {"@type": "PostalAddress", "postalCode": z, "addressLocality": city, "addressRegion": st, "streetAddress": street, "extendedAddress": "", "addressCountry": "US"}}) + '</script>'
+for label, h, want in [("JSON-LD full state name Kentucky", _ld("100 Example Dr", "Exampleton", "Kentucky", "40000"), "match"),
+                       ("JSON-LD abbreviation KY", _ld("100 Example Dr", "Exampleton", "KY", "40000"), "match"),
+                       ("JSON-LD wrong state name Ohio", _ld("100 Example Dr", "Exampleton", "Ohio", "40000"), "mismatch"),
+                       ("JSON-LD wrong city", _ld("100 Example Dr", "Otherville", "Kentucky", "40000"), "mismatch")]:
+    r = R.compare(_dot("x"), MCAN, h)
+    check("C5 %s -> %s" % (label, want), r["verdict"] == want, str(r))
+
+for label, addr, want in [("acompio 4 lines street/zip/city/state name, right", "100 Example Dr\n40000\nExampleton\nKentucky", "match"),
+                          ("acompio 4 lines, wrong city", "100 Example Dr\n40000\nOtherville\nKentucky", "mismatch"),
+                          ("acompio 4 lines, wrong zip", "100 Example Dr\n40001\nExampleton\nKentucky", "mismatch"),
+                          ("acompio 4 lines, wrong state", "100 Example Dr\n40000\nExampleton\nOhio", "mismatch"),
+                          ("acompio 4 lines, state abbreviation", "100 Example Dr\n40000\nExampleton\nKY", "match")]:
+    r = R.compare(_dot(addr), MCAN)
+    check("C6 %s -> %s" % (label, want), r["verdict"] == want, str(r))
+
+for label, addr, want in [("two-line full state name, right", "100 Example Drive\nExampleton, Kentucky 40000", "match"),
+                          ("two-line full state name, wrong state", "100 Example Drive\nExampleton, Ohio 40000", "mismatch"),
+                          ("two-line full state name, wrong city", "100 Example Drive\nOtherville, Kentucky 40000", "mismatch"),
+                          ("two-line full state name, wrong zip", "100 Example Drive\nExampleton, Kentucky 40001", "mismatch")]:
+    r = R.compare(_dot(addr), MCAN)
+    check("C7 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
