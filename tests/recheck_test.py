@@ -228,5 +228,23 @@ check("M3 dotted line, wrong zip -> mismatch", r["verdict"] == "mismatch", str(r
 r = R.compare(_dot("100 Example Court \u00b7 Exampleton, KY 40000"), MCAN)
 check("M4 dotted line, wrong street type -> mismatch", r["verdict"] == "mismatch", str(r))
 
+# t_11f5b2b0: comma one-line must check city / state / zip like the other separators do
+SEPS = (", ", " \u00b7 ", " | ", " \u2022 ")
+CASES = [("right full NAP", "100 Example Drive{S}Exampleton, KY 40000", "match"),
+         ("wrong city", "100 Example Drive{S}Otherville, KY 40000", "mismatch"),
+         ("wrong state", "100 Example Drive{S}Exampleton, OH 40000", "mismatch"),
+         ("wrong zip", "100 Example Drive{S}Exampleton, KY 40001", "mismatch"),
+         ("city, no state/zip", "100 Example Drive{S}Exampleton", "nap-incomplete"),
+         ("city + state, no zip", "100 Example Drive{S}Exampleton, KY", "nap-incomplete")]
+for label, tpl, want in CASES:
+    got_v = {}
+    for sep in SEPS:
+        got_v[sep] = R.compare(_dot(tpl.replace("{S}", sep)), MCAN)["verdict"]
+    check("C1 %s -> %s on comma, middot, pipe, bullet (same verdict)" % (label, want), set(got_v.values()) == {want}, str(got_v))
+r = R.compare(_dot("100 Example Drive"), MCAN)
+check("C2 street only, nothing else -> nap-incomplete", r["verdict"] == "nap-incomplete", str(r))
+r = R.compare(_dot("100 Example Drive, Otherville, KY 40000"), MCAN)
+check("C3 comma wrong city names the city field", any(f == "city" for f, _ in r["wrong"]), str(r))
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
