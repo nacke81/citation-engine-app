@@ -229,7 +229,7 @@ r = R.compare(_dot("100 Example Court \u00b7 Exampleton, KY 40000"), MCAN)
 check("M4 dotted line, wrong street type -> mismatch", r["verdict"] == "mismatch", str(r))
 
 # t_11f5b2b0: comma one-line must check city / state / zip like the other separators do
-SEPS = (", ", " \u00b7 ", " | ", " \u2022 ")
+SEPS = (", ", " \u00b7 ", " | ", " \u2022 ", "\n")
 CASES = [("right full NAP", "100 Example Drive{S}Exampleton, KY 40000", "match"),
          ("wrong city", "100 Example Drive{S}Otherville, KY 40000", "mismatch"),
          ("wrong state", "100 Example Drive{S}Exampleton, OH 40000", "mismatch"),
@@ -243,6 +243,20 @@ for label, tpl, want in CASES:
     check("C1 %s -> %s on comma, middot, pipe, bullet (same verdict)" % (label, want), set(got_v.values()) == {want}, str(got_v))
 r = R.compare(_dot("100 Example Drive"), MCAN)
 check("C2 street only, nothing else -> nap-incomplete", r["verdict"] == "nap-incomplete", str(r))
+for label, addr, want in [("zip only same line", "100 Example Drive, 40000", "nap-incomplete"), ("zip only next line", "100 Example Drive\n40000", "nap-incomplete"),
+                          ("state+zip, no city", "100 Example Drive\nKY 40000", "nap-incomplete"), ("state+zip same line, no city", "100 Example Drive, KY 40000", "nap-incomplete"),
+                          ("city / state+zip on 3 lines, right", "100 Example Drive\nExampleton\nKY 40000", "match"),
+                          ("city / state+zip on 3 lines, wrong city", "100 Example Drive\nOtherville\nKY 40000", "mismatch"),
+                          ("two-line wrong state", "100 Example Drive\nExampleton, OH 40000", "mismatch"),
+                          ("two-line city only", "100 Example Drive\nExampleton", "nap-incomplete"),
+                          ("zip same line, wrong city next line", "100 Example Drive, 40000\nOtherville", "mismatch"),
+                          ("zip same line, right city next line", "100 Example Drive, 40000\nExampleton", "match"),
+                          ("no comma after street, right NAP (bizapedia shape)", "100 Example Drive Exampleton, KY 40000", "match"),
+                          ("no comma after street, wrong city", "100 Example Drive Otherville, KY 40000", "mismatch"),
+                          ("no comma after street, wrong state", "100 Example Drive Exampleton, OH 40000", "mismatch"),
+                          ("no comma after street, wrong zip", "100 Example Drive Exampleton, KY 40001", "mismatch")]:
+    r = R.compare(_dot(addr), MCAN)
+    check("C4 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 r = R.compare(_dot("100 Example Drive, Otherville, KY 40000"), MCAN)
 check("C3 comma wrong city names the city field", any(f == "city" for f, _ in r["wrong"]), str(r))
 

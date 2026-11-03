@@ -484,25 +484,44 @@ def compare(text, canonical, html_=None):
         elif not sa_used and canonical["address"].count(",") >= 1:
             # t_11f5b2b0: the street matched. When the SAME line continues "street, City[, ST zip]" the city, state and zip must be the canonical ones too
             # (as the structured_address path does): wrong city -> mismatch, city without state/zip -> nap-incomplete.
-            seg = [x.strip() for x in re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")]
-            if len(seg) < 2 or not seg[1]:
-                if not got[2]: gaps.append("address")   # street alone, no city/state/zip anywhere near it
-            elif re.fullmatch(r"\d{5}(-\d{4})?", seg[1]):
-                pass   # "street, 40000": no city shown; the zip was already compared above
+            # The city / state / zip may also sit on the 1-2 lines UNDER the street ("100 Example Drive\nCity, ST zip", "...\nCity\nST zip", "..., 40000\nCity").
+            segs = [x.strip() for x in re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")][1:]
+            segs = [x for x in segs if x]
+            _ft = re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")[0].split()
+            _wn = len(want_norm.split())
+            if len(_ft) > _wn and F._tok(" ".join(_ft[:_wn])) == want_norm.split() and not F.parse_street(" ".join(_ft[_wn:])):
+                segs = [" ".join(_ft[_wn:])] + segs   # no comma after the street: "100 Example Drive Exampleton, KY 40000"
+            zip_only = lambda x: re.fullmatch(r"\d{5}(-\d{4})?", x)
+            st_only = lambda x: re.fullmatch(r"[A-Za-z]{2}\.?(\s+\d{5}(-\d{4})?)?", x)
+            no_city = lambda ss: not ss or bool(zip_only(ss[0]) or st_only(ss[0]))
+            i0 = next((i for i, l in enumerate(block) if l and got[0].startswith(l) and F.parse_street(l)), None)
+            if no_city(segs) and i0 is not None:
+                j = i0 + 1 + (0 if got[0] == block[i0] else 1)   # a unit on its own line was appended to the shown street
+                n1 = block[j] if j < len(block) else ""
+                n2 = block[j + 1] if j + 1 < len(block) else ""
+                ok_ln = lambda x: bool(x) and len(x) <= 60 and not phones_in([x])
+                szr = lambda x: ok_ln(x) and bool(F.STATE_ZIP_RE.search(x)) and not F.parse_street(x)
+                alpha = lambda x: ok_ln(x) and bool(re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", x)) and len(x.split()) <= 4
+                if szr(n1) and not zip_only(n1.strip()): segs = [x.strip() for x in n1.split(",") if x.strip()]   # "City, ST zip"
+                elif alpha(n1) and szr(n2) and not alpha(n2): segs = [n1.strip()] + [x.strip() for x in n2.split(",") if x.strip()]   # "City" / "ST zip"
+                elif alpha(n1) and segs and zip_only(segs[0]): segs = [n1.strip()] + segs   # "street, 40000" / "City"
+                elif alpha(n1) and not segs: segs = [n1.strip()]   # city alone under the street: no state / zip
+            if no_city(segs):
+                gaps.append("address")   # street alone, or street + zip / state with no city anywhere near it
             else:
                 cst2 = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?\s*$", canonical["address"].strip())
-                city_tok = F._tok(seg[1])
-                tail = " ".join(seg[1:])
+                city_tok = F._tok(segs[0])
+                tail = " ".join(segs)
                 sm = re.search(r"(?<![A-Za-z])([A-Za-z]{2})\.?,?\s+\d{5}\b", tail) or re.search(r"(?<![A-Za-z])([A-Z]{2})\s*$", tail)
                 state = sm.group(1) if sm and sm.lastindex else None
                 if not state:   # full state name: "Exampleton, Kentucky - 40000"
-                    fm = re.search(r"(?i)\b(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")\b", tail[len(seg[1]):] if seg[1] in tail else tail)
+                    fm = re.search(r"(?i)\b(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")\b", " ".join(segs[1:]))
                     state = US_STATES[fm.group(1).lower()] if fm else None
                     if state is None and len(city_tok) > 1 and city_tok[-1] in US_STATES: state = US_STATES[city_tok[-1]]   # "Exampleton Kentucky" with no comma
-                if city_tok[:1] != ccity: wrong.append(("city", seg[1]))
+                if city_tok[:1] != ccity: wrong.append(("city", segs[0]))
                 else:
                     if cst2 and state and state.upper() != cst2.group(1).upper(): wrong.append(("state", state))
-                    if cst2 and (not state or (cst2.group(2) and not got[2])) and not wrong: gaps.append("address")
+                    if cst2 and ((not state and not got[2]) or (cst2.group(2) and not got[2])) and not wrong: gaps.append("address")   # a shown, equal zip stands in for the state ("100 Example Drive, 40000" / "Exampleton")
     elif not got:
         gaps.append("address")
     street_txt = got[0] if got else None
