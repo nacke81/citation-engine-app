@@ -59,7 +59,7 @@ dom = [r["directory"] for r in rows]
 # B1
 check("B1 every build-eligible seed Directory has exactly one row, except found-correct", set(dom) == {d["domain"] for d in DIRS if d["build_eligible"]} - {FOUND_OK} and len(dom) == len(set(dom)), (len(dom), len(set(dom))))
 check("B1 no duplicate row id", len(ids) == len(set(ids)))
-check("B1 report adds up to 148 (86 v1 + 62 catalog-only)", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 148 and rep["ineligible"] == 62, rep)
+check("B1 report adds up to 148 (86 v1 + 8 promoted hunt + 54 catalog-only)", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 148 and rep["ineligible"] == 54, rep)
 # B2
 check("B2 found + NAP correct + permalink gets no row", FOUND_OK not in dom and rep["none"] == 1)
 fx = [r for r in rows if r["directory"] == FOUND_ERR][0]
@@ -80,14 +80,14 @@ check("B3 paid -> needs-human, reason paid-tier", b["state"] == "needs-human" an
 # B3b catalog-only hunt rows (t_ab039aed): build_eligible false -> no queue row at all, not even needs-human
 HUNT = [d for d in DIRS if d["build_eligible"] is False]
 hq, hrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, HUNT, [], [], DAY)
-check("B3b 62 hunt rows on an empty queue -> added 0, nothing queued, nothing needs-human", len(HUNT) == 62 and hrep["added"] == 0 and hrep["ineligible"] == 62
+check("B3b 54 catalog-only hunt rows on an empty queue -> added 0, nothing queued, nothing needs-human", len(HUNT) == 54 and hrep["added"] == 0 and hrep["ineligible"] == 54
       and hrep["create"] == 0 and hrep["fix"] == 0 and hrep["needs-human"] == 0 and B.counts(hq)[0] == [] and "build_order" not in hq, hrep)
 mix, mrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, DIRS, [], [], DAY)
-check("B3b mixed v1 + hunt: only v1 Directories get rows, every hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 86 and mrep["ineligible"] == 62, mrep)
+check("B3b mixed v1 + hunt: only v1 + the 8 promoted get rows, every catalog-only hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 94 and mrep["ineligible"] == 54, mrep)
 legacy = [dict(d) for d in DIRS if d["build_eligible"]]
 for d in legacy: d.pop("build_eligible")
 lq, lrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, legacy, [], [], DAY)
-check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 86 and lrep["ineligible"] == 0, lrep)
+check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 94 and lrep["ineligible"] == 0, lrep)
 check("B3b the load query reads build_eligible", "build_eligible" in open(os.path.join(ROOT, "job", "buildrows.py"), encoding="utf-8").read().split("def load_db_inputs")[1].split("status =")[0])
 # B4
 p = os.path.join(TMP, "queue.json"); json.dump(BASE, open(p, "w", encoding="utf-8"), indent=1)
@@ -108,7 +108,7 @@ check("B5 queue input is not mutated", BASE["fix_queue"][0]["mike_approval"]["no
 # B6
 stamped = [r for r in rows if r["directory"] not in ("mapquest.com", "acompio.us")]
 check("B6 every new row carries the blanket approval verbatim, row_id = id",
-      all(r["mike_approval"] == {"approved_by": "mike", "at": "2026-10-25T17:45:00+00:00", "row_id": r["id"], "scope": "blanket-2026-10-25", "note": RULING_NOTE} for r in stamped) and len(stamped) == rep["added"] == 83)
+      all(r["mike_approval"] == {"approved_by": "mike", "at": "2026-10-25T17:45:00+00:00", "row_id": r["id"], "scope": "blanket-2026-10-25", "note": RULING_NOTE} for r in stamped) and len(stamped) == rep["added"] == 91)
 check("B6 buildqueue.approval_ok accepts the new rows", all(Q.approval_ok(r) for r in stamped))
 import transitions as T
 os.environ["CE_QUEUE"] = p
