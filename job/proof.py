@@ -59,7 +59,21 @@ def _waiting_rows(queue):
     return out
 
 
-def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None):
+def recheck_verdict(url, canonical, reader=None):
+    """t_5871cdf9: the ONE comparator. Re-read proof_url signed out through recheck.read_listing and return recheck.compare's result
+    ({verdict: match|mismatch|nap-incomplete|not-public|unreadable, nap, ...}). `match` needs the full canonical NAP: name, street, city, zip, phone.
+    `reader(url, canonical)` is injectable for tests; the default is a clean signed-out Chrome (GET/read only)."""
+    if reader is not None: return reader(url, canonical)
+    import recheck as RC
+    own = RC.SignedOutReader(); own.canonical = canonical
+    try:
+        _page, _how, cmp_ = RC.read_listing(url, None, own, canonical)
+        return cmp_
+    finally:
+        own.close()
+
+
+def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None, reader=None):
     """Returns {moved:[{row, directory, proof_url, build_action}], mismatched:[...], untouched:[...], errors:[...]}. Never raises per-row."""
     out = {"moved": [], "mismatched": [], "untouched": [], "errors": []}
     path = queue_path or Q.QUEUE_PATH
@@ -87,6 +101,13 @@ def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None):
             except Exception as e:
                 out["errors"].append("%s: %s" % (d, str(e)[:200] or type(e).__name__))
             continue
+        try:   # t_5871cdf9: verdict() is only a pre-filter; recheck's comparator on the same proof_url page decides. Not `match` -> write nothing.
+            cmp_ = recheck_verdict(c["url"], queue.get("canonical"), reader)
+        except Exception as e:
+            out["untouched"].append(d); out["errors"].append("%s: comparator read failed: %s" % (d, str(e)[:160] or type(e).__name__)); continue
+        if (cmp_ or {}).get("verdict") != "match":
+            out["untouched"].append(d); continue
+        c = dict(c, nap_shown=cmp_.get("nap") or c.get("nap_shown"))
         for kind, row in waiting[d]:   # every waiting row on this Directory moves, not just the first
             try:
                 action = build_action(kind, row, (c.get("_claim") or {}).get("claim_status"))

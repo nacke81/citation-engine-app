@@ -99,7 +99,7 @@ check("P1 live->live refresh-url needs no new Proof and keeps the stored one", q
 def chk(url=U1):
     return dict(biz="SCC", directory="a.example", result="found", url=url, nap_shown="Alder Care | 100 Example | 502-555-0101", name_match=True, street_match=True, phone_match=True, match=True, diffs=[], note=None)
 p = make_queue([row(state="submitted")], key="create_rows"); db, fp = FakeDB(), FakePortal()
-res = PR.proof_step([chk()], DAY, queue_path=p, db=db, record=rec_for(db, fp))
+res = PR.proof_step([chk()], DAY, queue_path=p, db=db, record=rec_for(db, fp), reader=lambda u, c: {"verdict": "match", "nap": "Alder Care | 100 Example, Exampleton KY 40000 | (502) 555-0101"})
 q = json.load(open(p)); s = status_live_rows(db)
 check("P2 weekly proof_step: row live with all 5 Proof fields (build_action new for a create row), one status upsert", q["create_rows"][0]["state"] == "live" and len(res["moved"]) == 1 and len(s) == 1 and full(s[0]) and s[0]["build_action"] == "new" and not res["errors"], str(res))
 check("P2 and the guard sees no live row without Proof", T.live_rows_missing_proof(q) == [])
