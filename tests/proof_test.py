@@ -47,10 +47,11 @@ def chk(result="found", url=LISTING, match=True, diffs=None, claim=None, biz="SC
     if claim: c["_claim"] = {"claim_status": claim}
     return c
 
-def run(path, checks):
+MATCH = lambda u, c: {"verdict": "match", "nap": None}   # comparator says match; the check's own nap_shown is quoted
+def run(path, checks, reader=None):
     db, fp = FakeDB(), FakePortal()
     def record(*a, **k): return T.record_transition(*a, portal=fp, activities=fp, verification=fp, directories=db, **k)
-    res = PR.proof_step(checks, DAY, queue_path=path, db=db, record=record)
+    res = PR.proof_step(checks, DAY, queue_path=path, db=db, record=record, reader=reader or MATCH)
     return res, db, fp
 
 def counts_as_result(s):
@@ -117,7 +118,7 @@ check("fix row with wrong field -> fix", res["moved"] and res["moved"][0]["build
 # transition failure leaves the row waiting and reports it
 p, rid = fresh("submitted"); db = FakeDB()
 def boom(*a, **k): raise T.TransitionRefused("no")
-res = PR.proof_step([chk()], DAY, queue_path=p, db=db, record=boom)
+res = PR.proof_step([chk()], DAY, queue_path=p, db=db, record=boom, reader=MATCH)
 check("transition failure: waiting, error reported, not moved", qstate(p) == "submitted" and res["errors"] and not res["moved"])
 
 # R2-1 a match with no NAP text shown writes nothing (no live row without proof_nap)
