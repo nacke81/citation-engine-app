@@ -454,7 +454,6 @@ def compare(text, canonical, html_=None):
             else: gaps.append("phone")
     cstreet = F.parse_street(canonical["address"].split(",")[0])
     got = F.street_in(block) or prose_street(block, canonical)
-    text_street = bool(got)
     if not got:
         sa = structured_address(html_)   # t_5871cdf9: the address is in the page's own markup (JSON-LD / *-selector fields), not in the text block
         p = F.parse_street(sa["street"]) if sa and sa.get("street") else None
@@ -481,13 +480,6 @@ def compare(text, canonical, html_=None):
             wrong.append(("address", got[0] if (got[2] or "") in got[0] else got[0] + ((" " + got[2]) if got[2] else "")))
     elif not got:
         gaps.append("address")
-    if got and text_street and "address" not in gaps and not any(f == "address" for f, _ in wrong):   # t_57178c17: a street read from the page text still needs the city AND the zip in the block; street alone is not the full NAP (state is not required in text: real pages omit it, a wrong state is caught above)
-        cp = [x.strip() for x in canonical["address"].split(",")]
-        cc = F._tok(re.sub(r"\b[A-Za-z]{2}\b\s*\d{0,5}\s*$", "", cp[1]))[:1] if len(cp) >= 2 else []
-        czp = re.search(r"\b(\d{5})\b", canonical["address"])
-        btxt = " ".join(block)
-        if cc and cc[0] not in F._tok(btxt): gaps.append("address")
-        elif czp and czp.group(1) not in btxt and not got[2]: gaps.append("address")
     street_txt = got[0] if got else None
     nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else masked_txt) if x)
     if ADDR_NOT_LISTED_RE.search("\n".join(block)) and "address" not in gaps and not got: gaps.append("address")
