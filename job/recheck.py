@@ -492,6 +492,9 @@ def compare(text, canonical, html_=None):
             if len(_ft) > _wn and F._tok(" ".join(_ft[:_wn])) == want_norm.split() and not F.parse_street(" ".join(_ft[_wn:])):
                 segs = [" ".join(_ft[_wn:])] + segs   # no comma after the street: "100 Example Drive Exampleton, KY 40000"
             zip_only = lambda x: re.fullmatch(r"\d{5}(-\d{4})?", x)
+            zfirst = None
+            zc = re.fullmatch(r"(\d{5})(?:-\d{4})?\s+([A-Za-z].*)", segs[0]) if segs else None
+            if zc: zfirst, segs = zc.group(1), [zc.group(2)] + segs[1:]   # "100 Example Drive,  40000 Exampleton": zip before the city (a live listing shape)
             st_only = lambda x: re.fullmatch(r"[A-Za-z]{2}\.?(\s+\d{5}(-\d{4})?)?", x)
             no_city = lambda ss: not ss or bool(zip_only(ss[0]) or st_only(ss[0]))
             i0 = next((i for i, l in enumerate(block) if l and got[0].startswith(l) and F.parse_street(l)), None)
@@ -503,9 +506,11 @@ def compare(text, canonical, html_=None):
                 szr = lambda x: ok_ln(x) and bool(F.STATE_ZIP_RE.search(x)) and not F.parse_street(x)
                 alpha = lambda x: ok_ln(x) and bool(re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", x)) and len(x.split()) <= 4
                 if szr(n1) and not zip_only(n1.strip()): segs = [x.strip() for x in n1.split(",") if x.strip()]   # "City, ST zip"
-                elif alpha(n1) and szr(n2) and not alpha(n2): segs = [n1.strip()] + [x.strip() for x in n2.split(",") if x.strip()]   # "City" / "ST zip"
-                elif alpha(n1) and segs and zip_only(segs[0]): segs = [n1.strip()] + segs   # "street, 40000" / "City"
-                elif alpha(n1) and not segs: segs = [n1.strip()]   # city alone under the street: no state / zip
+                elif alpha(n1) and szr(n2) and not alpha(n2):
+                    s2 = [x.strip() for x in n2.split(",") if x.strip()]
+                    segs = ([n1.strip()] + s2) if no_city(s2) else s2   # "City" / "ST zip"; "Website" / "City, ST zip" (a UI label above the city line is skipped)
+                elif alpha(n1) and segs and zip_only(segs[0]): segs = [n1.strip()] + segs   # "street, 40000" / "City" (only the canonical city: another letters-only line may be a UI label)
+                elif alpha(n1) and not segs and F._tok(n1)[:1] == ccity: segs = [n1.strip()]   # canonical city alone under the street: no state / zip
             if no_city(segs):
                 gaps.append("address")   # street alone, or street + zip / state with no city anywhere near it
             else:
@@ -521,7 +526,8 @@ def compare(text, canonical, html_=None):
                 if city_tok[:1] != ccity: wrong.append(("city", segs[0]))
                 else:
                     if cst2 and state and state.upper() != cst2.group(1).upper(): wrong.append(("state", state))
-                    if cst2 and ((not state and not got[2]) or (cst2.group(2) and not got[2])) and not wrong: gaps.append("address")   # a shown, equal zip stands in for the state ("100 Example Drive, 40000" / "Exampleton")
+                    if zfirst and cst2 and cst2.group(2) and zfirst != cst2.group(2): wrong.append(("zip", zfirst))
+                    if cst2 and ((not state and not got[2] and not zfirst) or (cst2.group(2) and not got[2] and not zfirst)) and not wrong: gaps.append("address")   # a shown, equal zip stands in for the state ("100 Example Drive, 40000" / "Exampleton")
     elif not got:
         gaps.append("address")
     street_txt = got[0] if got else None
