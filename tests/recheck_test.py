@@ -250,7 +250,11 @@ for label, addr, want in [("zip only same line", "100 Example Drive, 40000", "na
                           ("two-line wrong state", "100 Example Drive\nExampleton, OH 40000", "mismatch"),
                           ("two-line city only", "100 Example Drive\nExampleton", "nap-incomplete"),
                           ("zip same line, wrong city next line", "100 Example Drive, 40000\nOtherville", "mismatch"),
-                          ("zip same line, right city next line", "100 Example Drive, 40000\nExampleton", "match")]:
+                          ("zip same line, right city next line", "100 Example Drive, 40000\nExampleton", "match"),
+                          ("no comma after street, right NAP (bizapedia shape)", "100 Example Drive Exampleton, KY 40000", "match"),
+                          ("no comma after street, wrong city", "100 Example Drive Otherville, KY 40000", "mismatch"),
+                          ("no comma after street, wrong state", "100 Example Drive Exampleton, OH 40000", "mismatch"),
+                          ("no comma after street, wrong zip", "100 Example Drive Exampleton, KY 40001", "mismatch")]:
     r = R.compare(_dot(addr), MCAN)
     check("C4 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 r = R.compare(_dot("100 Example Drive, Otherville, KY 40000"), MCAN)

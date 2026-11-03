@@ -487,6 +487,10 @@ def compare(text, canonical, html_=None):
             # The city / state / zip may also sit on the 1-2 lines UNDER the street ("100 Example Drive\nCity, ST zip", "...\nCity\nST zip", "..., 40000\nCity").
             segs = [x.strip() for x in re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")][1:]
             segs = [x for x in segs if x]
+            _ft = re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")[0].split()
+            _wn = len(want_norm.split())
+            if len(_ft) > _wn and F._tok(" ".join(_ft[:_wn])) == want_norm.split() and not F.parse_street(" ".join(_ft[_wn:])):
+                segs = [" ".join(_ft[_wn:])] + segs   # no comma after the street: "100 Example Drive Exampleton, KY 40000"
             zip_only = lambda x: re.fullmatch(r"\d{5}(-\d{4})?", x)
             st_only = lambda x: re.fullmatch(r"[A-Za-z]{2}\.?(\s+\d{5}(-\d{4})?)?", x)
             no_city = lambda ss: not ss or bool(zip_only(ss[0]) or st_only(ss[0]))
