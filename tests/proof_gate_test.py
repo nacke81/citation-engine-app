@@ -85,5 +85,27 @@ check("G5 comparator read fails: nothing written, error reported", not res["move
 src = open(os.path.join(HERE, "..", "job", "proof.py"), encoding="utf-8").read()
 check("G6 proof.py uses recheck.read_listing", "RC.read_listing(" in src)
 
+# structured-address reader (t_5871cdf9 round 2): the nextdoor page shape (sanitized to the test identity) (fixture, saved 11/03) carries the address in its own markup, not in the text block
+import claim
+ND = open(os.path.join(HERE, "fixtures", "nextdoor-scc-20261103.html"), encoding="utf-8").read()
+ND_CANON = {"name": CANON["name"], "address": "100 Example, Exampleton, KY 40000", "phone": "(502) 555-0101"}
+c = R.compare(claim.html_to_text(ND), ND_CANON, ND)
+check("N1 nextdoor page shape (sanitized to the test identity) gives match with full NAP", c["verdict"] == "match" and "Exampleton, KY 40000" in c["nap"], c)
+check("N2 same text without the html (no markup) stays nap-incomplete", R.compare(claim.html_to_text(ND), ND_CANON)["verdict"] == "nap-incomplete")
+for label, canon in (("wrong zip", dict(ND_CANON, address="100 Example, Exampleton, KY 40001")), ("wrong city", dict(ND_CANON, address="100 Example, Otherville, KY 40000")),
+                     ("wrong state", dict(ND_CANON, address="100 Example, Exampleton, TN 40000")), ("wrong street", dict(ND_CANON, address="102 Example, Exampleton, KY 40000"))):
+    check("N3 %s -> mismatch, never match" % label, R.compare(claim.html_to_text(ND), canon, ND)["verdict"] == "mismatch", R.compare(claim.html_to_text(ND), canon, ND))
+nostate = ND.replace('<div class="state-selector">KY</div>', "").replace('<div class="zip-code-selector">40000</div>', "")
+check("N4 street + city only in markup (no state/zip) -> nap-incomplete", R.compare(claim.html_to_text(nostate), ND_CANON, nostate)["verdict"] == "nap-incomplete", R.compare(claim.html_to_text(nostate), ND_CANON, nostate))
+ldj = '<script type="application/ld+json">{"@type":"LocalBusiness","name":"X","address":{"@type":"PostalAddress","streetAddress":"100 Example","addressLocality":"Exampleton","addressRegion":"KY","postalCode":"40000"}}</script>'
+check("N5 generic JSON-LD PostalAddress parsed", R.structured_address(ldj) == {"street": "100 Example", "city": "Exampleton", "state": "KY", "zip": "40000"}, R.structured_address(ldj))
+q2 = os.path.join(TMP, "nd.json")
+json.dump({"canonical": ND_CANON, "create_rows": [{"id": "create-nd", "directory": "nextdoor.com", "state": "needs-human", "mike_approval": None, "evidence_url": None, "history": []}]}, open(q2, "w"))
+db2, fp2 = FakeDB(), FakePortal()
+rec2 = lambda *a, **k: T.record_transition(*a, portal=fp2, activities=fp2, verification=fp2, directories=db2, **k)
+ch2 = dict(chk(), directory="nextdoor.com", url="https://nextdoor.com/pages/x/", nap_shown="Alder Care Consulting & Solutions | 100 Example | (502) 555-0101")
+r2 = PR.proof_step([ch2], DAY, queue_path=q2, db=db2, record=rec2, reader=lambda u, cn: R.compare(claim.html_to_text(ND), cn, ND))
+check("N6 proof_step moves the nextdoor page shape (sanitized to the test identity) live", len(r2["moved"]) == 1 and json.load(open(q2))["create_rows"][0]["state"] == "live", r2)
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

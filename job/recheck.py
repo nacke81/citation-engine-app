@@ -279,6 +279,31 @@ def structured_phones(html_):
     return [html.unescape(x) for x in dict.fromkeys(out) if re.search(r"\d", x)]
 
 
+def structured_address(html_):
+    """The listing's postal address from its own markup -> {street, city, state, zip} (missing parts absent) or None. Generic, no per-Directory code:
+    schema.org JSON-LD `address` (PostalAddress) on a LocalBusiness-like node first, then the *-selector fields (street-address-selector, city-selector, ...)."""
+    if not html_: return None
+    def walk(o):
+        if isinstance(o, dict):
+            a = o.get("address")
+            if isinstance(a, dict) and a.get("streetAddress"): yield a
+            for v in o.values(): yield from walk(v)
+        elif isinstance(o, list):
+            for v in o: yield from walk(v)
+    for m in re.finditer(r'(?is)<script[^>]*ld\+json[^>]*>(.*?)</script>', html_):
+        try: data = json.loads(html.unescape(m.group(1)).strip())
+        except Exception: continue
+        for a in walk(data):
+            out = {k: str(a.get(f) or "").strip() for k, f in (("street", "streetAddress"), ("city", "addressLocality"), ("state", "addressRegion"), ("zip", "postalCode"))}
+            return {k: v for k, v in out.items() if v}
+    def sel(cls):
+        m = re.search(r'(?is)<[a-z0-9]+[^>]*class="[^"]*\b%s-selector\b[^"]*"[^>]*>(.*?)</[a-z0-9]+>' % cls, html_)
+        return " ".join(html.unescape(re.sub(r"(?s)<!--.*?-->|<[^>]+>", " ", m.group(1))).split()) if m else ""
+    out = {"street": sel("street-address"), "city": sel("city"), "state": sel("state"), "zip": sel("zip-code")}
+    out = {k: v for k, v in out.items() if v}
+    return out if out.get("street") else None
+
+
 def masked_match(shown, want10):
     """True/False: do the visible leading and trailing digits of a masked phone agree with the canonical phone. None when not masked."""
     m = MASKED_NUM_RE.search(shown or "")
@@ -429,6 +454,19 @@ def compare(text, canonical, html_=None):
             else: gaps.append("phone")
     cstreet = F.parse_street(canonical["address"].split(",")[0])
     got = F.street_in(block) or prose_street(block, canonical)
+    if not got:
+        sa = structured_address(html_)   # t_5871cdf9: the address is in the page's own markup (JSON-LD / *-selector fields), not in the text block
+        p = F.parse_street(sa["street"]) if sa and sa.get("street") else None
+        if p:
+            cparts = [x.strip() for x in canonical["address"].split(",")]
+            cst = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?", cparts[-1]) if len(cparts) >= 3 else None
+            missing = [k for k in ("city", "state", "zip") if not sa.get(k)]
+            if missing: gaps.append("address")   # a street alone is not the full canonical NAP
+            else:
+                if len(cparts) >= 2 and F._tok(sa["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", sa["city"]))
+                if cst and sa["state"].upper() != cst.group(1).upper(): wrong.append(("state", sa["state"]))
+                if cst and cst.group(2) and sa["zip"][:5] != cst.group(2): wrong.append(("zip", sa["zip"]))
+            got = (sa["street"] + ((", %s, %s %s" % (sa["city"], sa["state"], sa["zip"])) if not missing else ""), p, sa.get("zip") if not missing else None)
     if got and cstreet:
         czip = re.search(r"\b(\d{5})\b", canonical["address"])
         street_txt_norm = " ".join(F._tok(got[0]))

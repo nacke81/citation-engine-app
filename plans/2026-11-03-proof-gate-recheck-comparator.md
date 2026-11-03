@@ -10,3 +10,8 @@ Cites latest lesson: docs/lessons/2026-10-30-park-on-a-human-only-after-an-agent
 - Proof columns use the comparator's NAP. Default reader: signed-out Chrome via recheck.SignedOutReader, closed after the step. GET only.
 - Tests: partial NAP (no city/state/zip) moves nothing; full match moves; PROOF and RECHECK share the comparator so cannot disagree. Existing suite stays green (inject reader).
 - Ops (after merge, separate from code): back up queue .bak-proofgate, demote create-nextdoor via record_transition, clear Proof columns, read-only fix-bing check.
+
+## Round 2 addendum (Nate changes_requested, lesson 2026-11-03-two-comparators-looser-wins)
+The page shows the full NAP server-side (JSON-LD + *-selector fields); recheck's reader only looked at text lines. Fix the reader, not the gate:
+`recheck.structured_address(html)` (generic JSON-LD PostalAddress, then *-selector fields) feeds `compare()` when the text block has no street. Street-only markup stays nap-incomplete; wrong city/state/zip/street is mismatch.
+Tests: sanitized nextdoor-shape fixture (test identity; leak_check bans the real one) -> match; partial still moves nothing. Then re-promote create-nextdoor through record_transition from a real read.
