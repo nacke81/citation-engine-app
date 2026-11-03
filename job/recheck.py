@@ -23,6 +23,7 @@ import listing as L
 import walls as W
 import mail_scan as MS
 
+US_STATES = {n.lower(): a for n, a in (("Alabama", "AL"), ("Alaska", "AK"), ("Arizona", "AZ"), ("Arkansas", "AR"), ("California", "CA"), ("Colorado", "CO"), ("Connecticut", "CT"), ("Delaware", "DE"), ("Florida", "FL"), ("Georgia", "GA"), ("Hawaii", "HI"), ("Idaho", "ID"), ("Illinois", "IL"), ("Indiana", "IN"), ("Iowa", "IA"), ("Kansas", "KS"), ("Kentucky", "KY"), ("Louisiana", "LA"), ("Maine", "ME"), ("Maryland", "MD"), ("Massachusetts", "MA"), ("Michigan", "MI"), ("Minnesota", "MN"), ("Mississippi", "MS"), ("Missouri", "MO"), ("Montana", "MT"), ("Nebraska", "NE"), ("Nevada", "NV"), ("New Hampshire", "NH"), ("New Jersey", "NJ"), ("New Mexico", "NM"), ("New York", "NY"), ("North Carolina", "NC"), ("North Dakota", "ND"), ("Ohio", "OH"), ("Oklahoma", "OK"), ("Oregon", "OR"), ("Pennsylvania", "PA"), ("Rhode Island", "RI"), ("South Carolina", "SC"), ("South Dakota", "SD"), ("Tennessee", "TN"), ("Texas", "TX"), ("Utah", "UT"), ("Vermont", "VT"), ("Virginia", "VA"), ("Washington", "WA"), ("West Virginia", "WV"), ("Wisconsin", "WI"), ("Wyoming", "WY"))}   # t_11f5b2b0: full state names on listing pages
 STABLE_READS = 3   # a Chrome-route match must hold on this many fresh signed-out reads (t_ac8b1bdd)
 WAITING = ("submitted", "pending-verify", "found", "created-unlisted")
 CDP_URL = "http://127.0.0.1:9333"
@@ -454,6 +455,7 @@ def compare(text, canonical, html_=None):
             else: gaps.append("phone")
     cstreet = F.parse_street(canonical["address"].split(",")[0])
     got = F.street_in(block) or prose_street(block, canonical)
+    sa_used = False
     if not got:
         sa = structured_address(html_)   # t_5871cdf9: the address is in the page's own markup (JSON-LD / *-selector fields), not in the text block
         p = F.parse_street(sa["street"]) if sa and sa.get("street") else None
@@ -466,6 +468,7 @@ def compare(text, canonical, html_=None):
                 if len(cparts) >= 2 and F._tok(sa["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", sa["city"]))
                 if cst and sa["state"].upper() != cst.group(1).upper(): wrong.append(("state", sa["state"]))
                 if cst and cst.group(2) and sa["zip"][:5] != cst.group(2): wrong.append(("zip", sa["zip"]))
+            sa_used = True
             got = (sa["street"] + ((", %s, %s %s" % (sa["city"], sa["state"], sa["zip"])) if not missing else ""), p, sa.get("zip") if not missing else None)
     if got and cstreet:
         czip = re.search(r"\b(\d{5})\b", canonical["address"])
@@ -478,6 +481,28 @@ def compare(text, canonical, html_=None):
         if same and rest is None and cstreet.get("type") and got[1].get("type") != cstreet["type"]: same = False   # exact: Drive == Dr only; a dropped type is a different street
         if not same or (got[2] and czip and got[2] != czip.group(1)):
             wrong.append(("address", got[0] if (got[2] or "") in got[0] else got[0] + ((" " + got[2]) if got[2] else "")))
+        elif not sa_used and canonical["address"].count(",") >= 1:
+            # t_11f5b2b0: the street matched. When the SAME line continues "street, City[, ST zip]" the city, state and zip must be the canonical ones too
+            # (as the structured_address path does): wrong city -> mismatch, city without state/zip -> nap-incomplete.
+            seg = [x.strip() for x in re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0]).split(",")]
+            if len(seg) < 2 or not seg[1]:
+                if not got[2]: gaps.append("address")   # street alone, no city/state/zip anywhere near it
+            elif re.fullmatch(r"\d{5}(-\d{4})?", seg[1]):
+                pass   # "street, 40000": no city shown; the zip was already compared above
+            else:
+                cst2 = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?\s*$", canonical["address"].strip())
+                city_tok = F._tok(seg[1])
+                tail = " ".join(seg[1:])
+                sm = re.search(r"(?<![A-Za-z])([A-Za-z]{2})\.?,?\s+\d{5}\b", tail) or re.search(r"(?<![A-Za-z])([A-Z]{2})\s*$", tail)
+                state = sm.group(1) if sm and sm.lastindex else None
+                if not state:   # full state name: "Exampleton, Kentucky - 40000"
+                    fm = re.search(r"(?i)\b(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")\b", tail[len(seg[1]):] if seg[1] in tail else tail)
+                    state = US_STATES[fm.group(1).lower()] if fm else None
+                    if state is None and len(city_tok) > 1 and city_tok[-1] in US_STATES: state = US_STATES[city_tok[-1]]   # "Exampleton Kentucky" with no comma
+                if city_tok[:1] != ccity: wrong.append(("city", seg[1]))
+                else:
+                    if cst2 and state and state.upper() != cst2.group(1).upper(): wrong.append(("state", state))
+                    if cst2 and (not state or (cst2.group(2) and not got[2])) and not wrong: gaps.append("address")
     elif not got:
         gaps.append("address")
     street_txt = got[0] if got else None
