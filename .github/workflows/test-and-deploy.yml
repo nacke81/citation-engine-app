@@ -143,6 +143,8 @@ jobs:
         run: python tests/build_runner_test.py
       - name: Batch 9 fixes (exact-name recheck, entry pages + search, fit homepage flag, select/overlay/iframe, form specs, Chrome keepalive; all mocked)
         run: python tests/batch9_test.py
+      - name: Weekly finder covers every Directory (ce_directories list, seed fallback, no-method is never absent, payload shape)
+        run: python tests/weekly_all_test.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 

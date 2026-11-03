@@ -88,6 +88,7 @@ def build_rows(queue, dirs, status, checks, day):
     sm = {s["directory"]: s for s in status or []}
     cm = {}
     for c in checks or []:
+        if c.get("note") == "no-method": continue   # nothing was tried: the stored status decides (t_716fc9cd)
         cur = cm.get(c["directory"])
         if not cur or (c.get("result") == "found" and cur.get("result") != "found"):
             cm[c["directory"]] = c
@@ -171,7 +172,7 @@ def load_db_inputs(db):
     runs = db.call("GET", "ce_runs?select=id&order=started_at.desc&limit=1", None, "return=representation") or []
     checks = []
     if runs:
-        checks = db.call("GET", "ce_checks?biz=eq.SCC&run_id=eq.%s&select=directory,result,url,match,diffs" % runs[0]["id"], None, "return=representation") or []
+        checks = db.call("GET", "ce_checks?biz=eq.SCC&run_id=eq.%s&select=directory,result,url,match,diffs,note" % runs[0]["id"], None, "return=representation") or []
     return dirs, status, checks
 
 

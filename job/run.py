@@ -137,6 +137,7 @@ def load_rows(p): return [json.loads(l) for l in open(p, encoding="utf-8") if l.
 def cant_reason(rows, b, d):
     """Why a Directory is 'couldn't check': blocked (the site walled the visit), error (the visit failed), else no usable result."""
     rs = [r for r in rows if r.get("kind") in ("dir", "map") and r.get("biz") == b and r.get("dir") == d]
+    if not rs and d not in DIRS: return "no-method"   # no proven search method: nothing was tried, so it can never read as absent
     if any("blocked" in (r.get("log") or "") or r.get("blocked_on_purpose") for r in rs): return "blocked"
     if any(str(r.get("note") or "").startswith("error") for r in rs): return "error"
     return "no usable result"
@@ -186,10 +187,11 @@ def read_claim_pages(rows, texts, linkmap, fetcher):
                 linkmap[lurl] = r.links or []
 
 
-def build(rows, texts, linkmap=None):
+def build(rows, texts, linkmap=None, dirs=None):
+    """dirs: every Directory to report (dirlist.load_directories). Default = the proven-method set. A Directory with no discovery row is couldnt_check / no-method, never absent."""
     linkmap = linkmap or {}
     unsearch = set(IDENT.get("UNSEARCHABLE", []))
-    comb = judge.combine(rows, DIRS, unsearch)
+    comb = judge.combine(rows, dirs or DIRS, unsearch)
     out = []
     for (b, d), (res, src) in comb.items():
         if b == "FAKE": continue
@@ -256,7 +258,9 @@ def main():
         wc = dict(before=None, during=None, after=None, equal=None, owned_alive_after=[], seconds=0, error="offline recombine")
     else:
         wc, texts, linkmap = discover_live(); rows = load_rows(os.environ["CE_ROWS"])
-    comb, checks = build(rows, texts, linkmap)
+    all_dirs, dir_source = _load_dirs()
+    print("DIRECTORIES FOR THIS RUN", len(all_dirs), "from", dir_source, flush=True)
+    comb, checks = build(rows, texts, linkmap, all_dirs)
     unsearch = set(IDENT.get("UNSEARCHABLE", []))
     guards = dict(hard_negative=judge.hard_negative_ok(rows, IDENT["HARDNEG_ID"]), made_up_zero=judge.made_up_ok(comb), blocked_ok=judge.blocked_ok(comb, rows))
     truth = judge.load_truth(IDENT["TRUTH_MD"]) if os.path.exists(IDENT.get("TRUTH_MD", "")) else {}
@@ -295,6 +299,11 @@ def main():
     portal_publish(checks, datetime.now().date().isoformat())  # t_f6267312: second same-day snapshot write so the NAP results and any new live row land now (idempotent upsert); non-fatal
     postcard_step()  # client-sent postcard codes: consume, enter, record the result; code never logged; non-fatal
     return 0 if (ok_run and portal_ok) else 1
+
+
+def _load_dirs(db=None):
+    import dirlist
+    return dirlist.load_directories(db)
 
 
 def postcard_step(run=None):
