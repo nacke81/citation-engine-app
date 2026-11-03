@@ -199,10 +199,11 @@ check("D7 job upserts only ce_directory_status columns that the migration create
 check("D7 migration adds agent_blocker_source for older tables", "add column if not exists agent_blocker_source" in sql)
 
 # D8 hunt catalog rows (t_ab039aed): 148 unique domains, catalog-only, unknown stays unknown, migration 008 carries the same rows
+PROMOTED = {"yellowpagecity.com", "bizhwy.com", "expressbusinessdirectory.com", "smartcustomer.com", "usbizs.com", "usaypage.com", "trustpilot.com", "threebestrated.com"}
 HUNT_ENUM = dict(agent_access=("blocked", "unknown"), build_route=("none",), weekly_scope=("none",))
 check("D8 148 unique domains load from the seed and no hunt domain is in the 86", len({r["domain"] for r in SEED}) == 148 and not ({r["domain"] for r in HUNT} & {r["domain"] for r in V1}))
 check("D8 every hunt row is catalog-only: build_eligible false, route none, priority 4, scope none, not checked weekly",
-      all(r["build_eligible"] is False and r["build_route"] == "none" and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
+      all(r["build_eligible"] is (r["domain"] in PROMOTED) and r["build_route"] == "none" and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
 check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1))
 check("D8 hunt agent_access is mapped to the enum: 403/429 walls blocked (21), everything else unknown, probe text kept",
       all(r["agent_access"] in ("blocked", "unknown") for r in HUNT) and sum(r["agent_access"] == "blocked" for r in HUNT) == 21
@@ -223,7 +224,7 @@ check("D8 split: 008 has NO rows (no insert, no $seed$) and 009 has NO DDL (no a
       not re.search(INS, sql8, re.I) and "$seed$" not in sql8 and not re.search(r"^\s*(alter|create|drop)\s", sql9, re.I | re.M))
 check("D8 hazard gone: with only 008 applied the table gains 0 rows (008 has no insert, 009 is the only row source and every row is build_eligible false)",
       len(re.findall(INS, sql8, re.I)) == 0 and len(re.findall(INS, sql9, re.I)) == 1 and len(json.loads(m9.group(1))) == 62
-      and all(r["build_eligible"] is False for r in json.loads(m9.group(1))))
+      and all(r["build_eligible"] is (r["domain"] in PROMOTED) for r in json.loads(m9.group(1))))
 check("D8 order is written in the files: 009 requires 008 and the merge first, 008 names step 3", "REQUIRES 008" in sql9 and "AFTER the app change is merged" in sql9 and "(3) apply 009" in sql8)
 check("D8 hunt seed file equals the hunt rows in directories_seed.json", json.load(open(os.path.join(ROOT, "db", "directories_hunt_seed.json"), encoding="utf-8")) == HUNT)
 check("D8 008 is additive and idempotent: columns if not exists, build_eligible default true, no drop table, no delete",
@@ -238,5 +239,15 @@ check("D8 every seed key the 009 insert reads is a column", {k for r in HUNT for
 
 src = open(os.path.join(ROOT, "job", "directories.py"), encoding="utf-8").read()
 check("D6 directories.py makes no Directory request (only the Supabase REST host)", src.count("urlopen") == 1 and "/rest/v1/" in src)
+# D9 migration 010 (t_9675083c): promote the 8 approved hunt Directories, data only, idempotent
+sql10 = open(os.path.join(ROOT, "db", "010_promote_hunt_scc.sql"), encoding="utf-8").read()
+body10 = "\n".join(l for l in sql10.replace(CRLF, LF).split(LF) if not l.lstrip().startswith("--"))
+check("D9 010 is exactly one update of build_eligible = true, no other column, no insert/delete/DDL",
+      len(re.findall(r"\bupdate\b", body10, re.I)) == 1 and re.search(r"set\s+build_eligible\s*=\s*true\s+where\s+domain\s+in\s*\(", body10, re.I)
+      and body10.count("=") == 1 and not re.search(r"\b(insert|delete|truncate|drop|alter|create)\b", body10, re.I))
+dom10 = set(re.findall(r"'([^']+)'", body10.split("domain in", 1)[1]))
+check("D9 010 names exactly the 8 promoted domains, all hunt rows, same list as the generator", dom10 == PROMOTED == set(G.PROMOTED_SCC) and PROMOTED <= {r["domain"] for r in HUNT})
+check("D9 seed: build_eligible true on exactly the 8 hunt rows, the other 54 hunt rows false",
+      {r["domain"] for r in HUNT if r["build_eligible"] is True} == PROMOTED and sum(r["build_eligible"] is False for r in HUNT) == 54)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

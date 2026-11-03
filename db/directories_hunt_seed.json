@@ -529,7 +529,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "glassdoor.com",
@@ -1061,7 +1061,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "tripadvisor.com",
@@ -1137,7 +1137,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "vitals.com",
@@ -1327,7 +1327,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "usbizs.com",
@@ -1365,7 +1365,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "usaypage.com",
@@ -1403,7 +1403,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "bestplumbers.com",
@@ -1935,7 +1935,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "hopkinschamber.com",
@@ -2277,7 +2277,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "opentable.com",
