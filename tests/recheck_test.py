@@ -216,16 +216,16 @@ src = re.sub(r"REVEAL_JS = .*?% REVEAL_RE", "", src, flags=re.S)   # the one all
 check("R13 module has no Directory write verb, click/fill/type, or portal seed", not re.search(r"\.(post|put|patch|delete)\(|\.click\(|\.fill\(|\.type\(|\.check\(", src, re.I) and not re.search(r"import seed|portal_seed|seed_portal", src.lower()))
 
 # t_3f38d45e: "street · city" one-line separator (yellowpagecity shape)
-MCAN = {"name": "Senior Care Consulting & Solutions", "address": "93 Montrose Drive, Madisonville, KY 42431", "phone": "(270) 841-2550"}
-def _dot(addr): return "Home\nSenior Care Consulting & Solutions\n" + addr + "\n(270) 841-2550\n" + " Lorem ipsum dolor sit amet." * 12
+MCAN = {"name": "Alder Care Consulting & Solutions", "address": "100 Example Drive, Exampleton, KY 40000", "phone": "(502) 555-0101"}
+def _dot(addr): return "Home\nAlder Care Consulting & Solutions\n" + addr + "\n(502) 555-0101\n" + " Lorem ipsum dolor sit amet." * 12
 for sep in ("\u00b7", "|", "\u2022"):
-    r = R.compare(_dot("93 Montrose Drive %s Madisonville, KY 42431" % sep), MCAN)
+    r = R.compare(_dot("100 Example Drive %s Exampleton, KY 40000" % sep), MCAN)
     check("M1 street %s city, full right NAP -> match" % sep, r["verdict"] == "match", str(r))
-r = R.compare(_dot("93 Montrose Drive \u00b7 Evansville, KY 42431"), MCAN)
+r = R.compare(_dot("100 Example Drive \u00b7 Otherville, KY 40000"), MCAN)
 check("M2 dotted line, wrong city -> mismatch", r["verdict"] == "mismatch" and any(f == "address" for f, _ in r["wrong"]), str(r))
-r = R.compare(_dot("93 Montrose Drive \u00b7 Madisonville, KY 42430"), MCAN)
+r = R.compare(_dot("100 Example Drive \u00b7 Exampleton, KY 40001"), MCAN)
 check("M3 dotted line, wrong zip -> mismatch", r["verdict"] == "mismatch", str(r))
-r = R.compare(_dot("93 Montrose Court \u00b7 Madisonville, KY 42431"), MCAN)
+r = R.compare(_dot("100 Example Court \u00b7 Exampleton, KY 40000"), MCAN)
 check("M4 dotted line, wrong street type -> mismatch", r["verdict"] == "mismatch", str(r))
 
 shutil.rmtree(TMP, ignore_errors=True)
