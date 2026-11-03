@@ -280,23 +280,43 @@ def structured_phones(html_):
     return [html.unescape(x) for x in dict.fromkeys(out) if re.search(r"\d", x)]
 
 
-def structured_address(html_):
+ORG_LIKE_TYPES = {"organization", "corporation", "website", "webpage", "ngo", "person", "newsmediaorganization", "educationalorganization"}   # a site's own entity, not a local business
+
+
+def structured_address(html_, business_name=None):
     """The listing's postal address from its own markup -> {street, city, state, zip} (missing parts absent) or None. Generic, no per-Directory code:
-    schema.org JSON-LD `address` (PostalAddress) on a LocalBusiness-like node first, then the *-selector fields (street-address-selector, city-selector, ...)."""
+    schema.org JSON-LD `address` (PostalAddress) first, then the *-selector fields (street-address-selector, city-selector, ...).
+    t_ff6ed622: a page can carry several PostalAddress blocks (the directory's own sitewide Organization next to the listing's entity). With `business_name`:
+    the block whose enclosing entity name matches it wins; else a LocalBusiness-like entity (not Organization / WebSite); an Organization-like address is never
+    used (the *-selector fields are tried, else None and the caller falls back to the text block). Without `business_name` the first block wins, as before."""
     if not html_: return None
-    def walk(o):
+    def walk(o, ctx=("", "")):
         if isinstance(o, dict):
+            t, n = o.get("@type"), o.get("name")
+            if t or isinstance(n, str):
+                ts = [x for x in (t if isinstance(t, list) else [t]) if isinstance(x, str)]
+                ctx = (" ".join(ts) if t else ctx[0], n if isinstance(n, str) else ctx[1])
             a = o.get("address")
-            if isinstance(a, dict) and a.get("streetAddress"): yield a
-            for v in o.values(): yield from walk(v)
+            if isinstance(a, dict) and a.get("streetAddress"): yield a, ctx
+            for v in o.values(): yield from walk(v, ctx)
         elif isinstance(o, list):
-            for v in o: yield from walk(v)
+            for v in o: yield from walk(v, ctx)
+    found = []
     for m in re.finditer(r'(?is)<script[^>]*ld\+json[^>]*>(.*?)</script>', html_):
         try: data = json.loads(html.unescape(m.group(1)).strip())
         except Exception: continue
-        for a in walk(data):
-            out = {k: str(a.get(f) or "").strip() for k, f in (("street", "streetAddress"), ("city", "addressLocality"), ("state", "addressRegion"), ("zip", "postalCode"))}
-            return {k: v for k, v in out.items() if v}
+        found += list(walk(data))
+    chosen = None
+    if found and business_name:
+        want = F._norm_name(business_name)
+        is_org = lambda t: all(x.lower() in ORG_LIKE_TYPES for x in t.split())
+        chosen = (next((a for a, (t, n) in found if n and F._norm_name(n) == want), None)
+                  or next((a for a, (t, n) in found if t.strip() and not is_org(t)), None))
+    elif found:
+        chosen = found[0][0]
+    if chosen:
+        out = {k: str(chosen.get(f) or "").strip() for k, f in (("street", "streetAddress"), ("city", "addressLocality"), ("state", "addressRegion"), ("zip", "postalCode"))}
+        return {k: v for k, v in out.items() if v}
     def sel(cls):
         m = re.search(r'(?is)<[a-z0-9]+[^>]*class="[^"]*\b%s-selector\b[^"]*"[^>]*>(.*?)</[a-z0-9]+>' % cls, html_)
         return " ".join(html.unescape(re.sub(r"(?s)<!--.*?-->|<[^>]+>", " ", m.group(1))).split()) if m else ""
@@ -457,7 +477,7 @@ def compare(text, canonical, html_=None):
     got = F.street_in(block) or prose_street(block, canonical)
     sa_used = False
     if not got:
-        sa = structured_address(html_)   # t_5871cdf9: the address is in the page's own markup (JSON-LD / *-selector fields), not in the text block
+        sa = structured_address(html_, canonical["name"])   # t_5871cdf9: the address is in the page's own markup (JSON-LD / *-selector fields), not in the text block
         p = F.parse_street(sa["street"]) if sa and sa.get("street") else None
         if p:
             cparts = [x.strip() for x in canonical["address"].split(",")]
