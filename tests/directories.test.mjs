@@ -6,18 +6,20 @@ import { filterDirs, sortDirs, directoriesHtml, detailHtml, tabsHtml, DEFAULT_FI
 const SEED = JSON.parse(readFileSync(new URL("../db/directories_seed.json", import.meta.url), "utf8"));
 const by = Object.fromEntries(SEED.map((d) => [d.domain, d]));
 
-test("seed has 86 Directories and the list renders all 86", () => {
-  assert.equal(SEED.length, 86);
+test("seed has 148 Directories and the list renders all 148", () => {
+  assert.equal(SEED.length, 148);
+  assert.equal(new Set(SEED.map((d) => d.domain)).size, 148);
   const h = directoriesHtml(SEED, []);
-  assert.equal((h.match(/class="row dir/g) || []).length, 86);
-  assert.match(h, /86 of 86/);
+  assert.equal((h.match(/class="row dir/g) || []).length, 148);
+  assert.match(h, /148 of 148/);
 });
 test("filters: build route, agent access, cost, checked weekly", () => {
   assert.deepEqual(filterDirs(SEED, { ...DEFAULT_FILTERS, route: "agency-account" }).map((d) => d.domain), ["bing.com"]);
-  assert.deepEqual(filterDirs(SEED, { ...DEFAULT_FILTERS, access: "blocked" }).map((d) => d.domain).sort(), ["acompio.us", "bing.com", "superpages.com", "yellowpages.com"]);
+  assert.deepEqual(filterDirs(SEED, { ...DEFAULT_FILTERS, access: "blocked" }).map((d) => d.domain).filter((x) => !by[x].cut.startsWith("cycle")).sort(), ["acompio.us", "bing.com", "superpages.com", "yellowpages.com"]);
+  assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, access: "blocked" }).length, 25);
   assert.ok(filterDirs(SEED, { ...DEFAULT_FILTERS, cost: "paid" }).every((d) => d.cost === "paid"));
   assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, weekly: "y" }).length, 35);
-  assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, weekly: "n" }).length, 51);
+  assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, weekly: "n" }).length, 113);
   assert.deepEqual(filterDirs(SEED, { ...DEFAULT_FILTERS, q: "YELLOWBOT" }).map((d) => d.domain), ["yellowbot.com"]);
   assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, route: "agent", access: "blocked", weekly: "y" }).length, 3);
 });

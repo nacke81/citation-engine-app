@@ -5,7 +5,7 @@ import { esc, safeUrl } from './render.js';
 export const ROUTE = { agent: 'Agent', 'agency-account': 'Mike agency account', aggregator: 'Aggregator', none: 'None' };
 export const ACCESS = { ok: 'Agent ok', blocked: 'Agent blocked', unknown: 'Access unknown' };
 export const COST = { free: 'Free', paid: 'Paid', unknown: 'Cost unknown' };
-export const CATEGORY = { general: 'General', aggregator: 'Aggregator', 'niche-senior': 'Senior niche', 'niche-other': 'Other niche', local: 'Local' };
+export const CATEGORY = { general: 'General', aggregator: 'Aggregator', 'niche-senior': 'Senior niche', 'niche-other': 'Other niche', local: 'Local', 'health-senior-care': 'Health / senior care', 'home-services': 'Home services', legal: 'Legal', 'local-regional': 'Local / regional', restaurant: 'Restaurant' };
 export const SORTS = { priority: 'Priority', name: 'Name', access: 'Agent access', route: 'Build route', verified: 'Last verified' };
 export const DEFAULT_FILTERS = { route: '', access: '', cost: '', weekly: '', sort: 'priority', q: '' };
 
