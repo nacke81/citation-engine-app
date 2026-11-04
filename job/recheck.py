@@ -527,7 +527,9 @@ def compare(text, canonical, html_=None):
             if no_city(segs) and i0 is not None:
                 j = i0 + 1 + (0 if got[0] == block[i0] else 1)   # a unit on its own line was appended to the shown street
                 _sn = re.compile(r"(?i)(?<=[\s,])(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(?=\s+\d{5}\b|\s*$)")
-                _ab = lambda x: _sn.sub(lambda m: US_STATES[m.group(1).lower()], x) if re.search(r"[,\s]", x) and "," in x else x   # "Exampleton, Ohio 40000" -> "Exampleton, OH 40000"
+                _own = re.compile(r"(?i)(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(\s+\d{5}(?:-\d{4})?)?")
+                _own_ab = lambda x: (lambda m: US_STATES[m.group(1).lower()].upper() + (m.group(2) or "") if m else None)(_own.fullmatch(x.strip()))   # "Ohio 40000" alone on a line -> "OH 40000" (t_936ab977)
+                _ab = lambda x: _own_ab(x) or (_sn.sub(lambda m: US_STATES[m.group(1).lower()], x) if "," in x else x)   # "Exampleton, Ohio 40000" -> "Exampleton, OH 40000"
                 n1 = _ab(block[j]) if j < len(block) else ""
                 n2 = _ab(block[j + 1]) if j + 1 < len(block) else ""
                 ok_ln = lambda x: bool(x) and len(x) <= 60 and not phones_in([x])

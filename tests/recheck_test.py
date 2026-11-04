@@ -295,5 +295,11 @@ for label, addr, want in [("two-line full state name, right", "100 Example Drive
     r = R.compare(_dot(addr), MCAN)
     check("C7 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 
+for label, addr, want in [("state name on its own line, wrong (Ohio)", "100 Example Drive\nExampleton\nOhio 40000", "mismatch"),
+                          ("state name on its own line, right (Kentucky)", "100 Example Drive\nExampleton\nKentucky 40000", "match"),
+                          ("state abbreviation on its own line (KY)", "100 Example Drive\nExampleton\nKY 40000", "match")]:
+    r = R.compare(_dot(addr), MCAN)
+    check("C8 %s -> %s" % (label, want), r["verdict"] == want, str(r))
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
