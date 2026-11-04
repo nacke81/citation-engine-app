@@ -11,6 +11,8 @@ Usage:  python job/playbook_write.py <site>.md --from <file with the new markdow
 From code: playbook_write.write_playbook("acompio.com.md", text)
 """
 import os, sys, tempfile
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fsretry as FSR  # noqa: E402
 
 _VAULT = "C:/Obsidian/" + "Na" + "cke" + "Media_v2"   # assembled so the leak check's denylist does not trip on the vault folder name
 PLAYBOOK_DIR = os.environ.get("CE_PLAYBOOK_DIR") or (_VAULT + "/Projects/citation-engine/playbooks/build")
@@ -49,7 +51,7 @@ def write_playbook(name, text, base=None):
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text if text.endswith("\n") else text + "\n")
             f.flush(); os.fsync(f.fileno())
-        os.replace(tmp, target)
+        FSR.replace_retry(tmp, target)
     except Exception:
         if os.path.exists(tmp): os.unlink(tmp)
         raise
