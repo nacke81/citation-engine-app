@@ -1,7 +1,7 @@
 """Citation state transitions: one call records a state change in the SCC queue file, the SCC Local SEO portal snapshot, and (gated) Activities.
 
 record_transition(client, row_id, new_state, evidence_url, note) accepts only:
-  queued -> found, queued|found|needs-human -> created-unlisted (internal; live|needs-human|rejected from it), queued|found|needs-human -> submitted|pending-verify, found|submitted|pending-verify|needs-human -> live,
+  queued -> found, queued|found|needs-human|submitted -> created-unlisted (internal; live|needs-human|rejected from it), queued|found|needs-human -> submitted|pending-verify, found|submitted|pending-verify|needs-human -> live,
   any -> rejected, any -> needs-human. found (SCC already listed, claim not done) is internal: no client activity.
   found -> found and needs-human -> needs-human are accepted only with a note (note refresh on a parked row).
 Everything else is refused before anything is written. mike_approval is never read for writing and never changed.
@@ -33,7 +33,7 @@ STATES = ("queued", "found", "claimed-unverified", "created-unlisted") + Q.PORTA
 ALLOWED_FROM = {
     "found": {"queued"},  # internal: SCC already listed, claim not done; no client activity
     "claimed-unverified": {"queued", "found", "needs-human"},  # internal: listed + claimed, but edits are ID-gated (dnb, t_d13bd638); no client activity
-    "created-unlisted": {"queued", "found", "needs-human"},  # internal: the listing EXISTS on the Directory but is not public yet, or is public without full NAP (t_f707b644); In flight, no client activity
+    "created-unlisted": {"queued", "found", "needs-human", "submitted"},   # t_3f38d45e: submitted -> created-unlisted (smartcustomer: a page with name and website only)  # internal: the listing EXISTS on the Directory but is not public yet, or is public without full NAP (t_f707b644); In flight, no client activity
     "submitted": {"queued", "found", "needs-human"},
     "pending-verify": {"submitted", "found", "needs-human"},
     "live": {"found", "claimed-unverified", "created-unlisted", "submitted", "pending-verify", "needs-human"},  # needs-human: a row parked for phone/sms/postcard verification goes live once verified

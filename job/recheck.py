@@ -469,7 +469,7 @@ def compare(text, canonical, html_=None):
             got = (sa["street"] + ((", %s, %s %s" % (sa["city"], sa["state"], sa["zip"])) if not missing else ""), p, sa.get("zip") if not missing else None)
     if got and cstreet:
         czip = re.search(r"\b(\d{5})\b", canonical["address"])
-        street_txt_norm = " ".join(F._tok(got[0]))
+        street_txt_norm = " ".join(F._tok(re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0])))   # t_3f38d45e: "street · city" / "street | city" is a separator, only between street and city
         want_norm = " ".join(F._tok(canonical["address"].split(",")[0]))
         # exact street: number, name, type (Drive/Dr only) and unit via street_equal; "street + city on one line" must continue with the city, not extra words
         ccity = F._tok(canonical["address"].split(",")[1])[:1] if canonical["address"].count(",") >= 1 else []

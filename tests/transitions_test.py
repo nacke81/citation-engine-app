@@ -63,6 +63,7 @@ ALLOWED = [("queued", "submitted"), ("submitted", "pending-verify"), ("submitted
            ("queued", "claimed-unverified"), ("found", "claimed-unverified"), ("needs-human", "claimed-unverified"),
            ("claimed-unverified", "live"), ("claimed-unverified", "rejected"), ("claimed-unverified", "needs-human"),
            # t_f707b644: created-unlisted (listing exists, not public yet or no full NAP)
+           ("submitted", "created-unlisted"),  # t_3f38d45e
            ("queued", "created-unlisted"), ("found", "created-unlisted"), ("needs-human", "created-unlisted"),
            ("created-unlisted", "live"), ("created-unlisted", "rejected"), ("created-unlisted", "needs-human")]
 for old, new in ALLOWED:
