@@ -2,6 +2,10 @@
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); JOB = os.path.join(os.path.dirname(HERE), "job")
 sys.path.insert(0, JOB)
+import tempfile
+os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+_T = tempfile.TemporaryDirectory(prefix="weekly-fill-", dir=HERE)
+os.environ["CE_RUNS"] = _T.name; os.environ["CE_ROWS"] = os.path.join(_T.name, "rows.jsonl")
 import directories as D, run as R
 
 ok = []
