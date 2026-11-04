@@ -83,9 +83,8 @@ def queue_rows_to_status(db, queue, day):
             hist = r.get("history") or []
             last = hist[-1] if hist else {}
             note = last.get("note") if r["state"] == "needs-human" else None
-            extra = {} if r["state"] == "needs-human" else {"reason_code": None}   # t_93ae9b6b: a stored code belongs to a needs-human row only; the weekly re-assert of a parked row never sends the key
             out.append(_status_row(db, "SCC", r["directory"], day, queue_state=r["state"], queue_row_id=r.get("id"), queue_kind=kind,
-                                   queue_note=note, queue_state_at=last.get("at") or r.get("found_on") or day, **extra))
+                                   queue_note=note, queue_state_at=last.get("at") or r.get("found_on") or day))   # t_93ae9b6b: the weekly re-assert is not a move; it never sends reason_code (clearing lives in sync_transition only)
     return out
 
 

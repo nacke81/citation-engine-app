@@ -49,22 +49,36 @@ D.sync_transition("SCC", ROW, "needs-human", "other wall", "2026-11-03", kind="c
 c3 = mdb.row.get("reason_code")
 check("R11 captcha park -> queued -> park with no code ends with null", (c1, c2, c3) == ("captcha", None, None), str((c1, c2, c3)))
 
-# R12 weekly queue rows: a parked row keeps its stored code (key absent); queued/live rows send null
+# R12 weekly queue rows: the weekly re-assert is not a move, so no row, in any state, ever carries reason_code
 q = {"fix_queue": [{"id": "f1", "directory": "a.example", "state": "needs-human", "history": [{"at": "2026-10-20", "note": "x"}]},
                    {"id": "f2", "directory": "b.example", "state": "queued", "history": []},
-                   {"id": "f3", "directory": "c.example", "state": "live", "history": []}]}
+                   {"id": "f3", "directory": "c.example", "state": "live", "history": []},
+                   {"id": "f4", "directory": "d.example", "state": "rejected", "history": []},
+                   {"id": "f5", "directory": "e.example", "state": "submitted", "history": []}]}
 wk = {r["directory"]: r for r in D.queue_rows_to_status(MergeDB(), q, "2026-11-08")}
-check("R12 weekly: needs-human row never sends reason_code", "reason_code" not in wk["a.example"])
-check("R12 weekly: queued and live rows send null", wk["b.example"].get("reason_code", 1) is None and wk["c.example"].get("reason_code", 1) is None)
+check("R12 weekly: no row in any state sends the reason_code key", len(wk) == 5 and all("reason_code" not in r for r in wk.values()), str(sorted(wk)))
 class StoreDB(DB):
     def __init__(s, store): DB.__init__(s); s.owner = "o1"; s.store = store
     def call(s, method, path, body=None, prefer=None):
         if method == "POST" and "ce_directory_status" in path:
             for r in body: s.store.setdefault(r["directory"], {}).update(r)
         return None
-store = {"a.example": {"reason_code": "paid"}, "b.example": {"reason_code": "captcha"}, "c.example": {"reason_code": "captcha"}}
+store = {"a.example": {"reason_code": "paid"}, "b.example": {"reason_code": "captcha"}, "c.example": {"reason_code": "captcha"},
+         "d.example": {"reason_code": "id_check"}, "e.example": {"reason_code": "contact_name"}}
 D.sync_run([], "2026-11-08", queue=q, db=StoreDB(store))
-check("R13 weekly sync_run: parked row keeps its backfilled code; queued/live rows are cleared", (store["a.example"]["reason_code"], store["b.example"]["reason_code"], store["c.example"]["reason_code"]) == ("paid", None, None), str(store))
+check("R13 weekly sync_run: needs-human, rejected and submitted rows keep their stored codes", (store["a.example"]["reason_code"], store["d.example"]["reason_code"], store["e.example"]["reason_code"]) == ("paid", "id_check", "contact_name"), str(store))
+check("R13b weekly sync_run does not touch codes on queued/live rows (only sync_transition clears)", (store["b.example"]["reason_code"], store["c.example"]["reason_code"]) == ("captcha", "captcha"))
+check("R13c weekly sync_run still writes the queue state", all(store[k]["queue_state"] == v for k, v in {"a.example": "needs-human", "b.example": "queued", "c.example": "live", "d.example": "rejected", "e.example": "submitted"}.items()))
+
+# R14 real prod shape: the 4 coded non-needs-human rows (yellowbook, facebook, localstack rejected; bbb.org submitted)
+q4 = {"fix_queue": [{"id": "p1", "directory": "yellowbook.com", "state": "rejected", "history": []},
+                    {"id": "p2", "directory": "facebook.com", "state": "rejected", "history": []},
+                    {"id": "p3", "directory": "localstack.com", "state": "rejected", "history": []},
+                    {"id": "p4", "directory": "bbb.org", "state": "submitted", "history": []}]}
+want = {"yellowbook.com": "no_search", "facebook.com": "id_check", "localstack.com": "bad_catalog", "bbb.org": "contact_name"}
+store4 = {k: {"reason_code": v} for k, v in want.items()}
+D.sync_run([], "2026-11-08", queue=q4, db=StoreDB(store4))
+check("R14 real 4-row shape: codes unchanged after a weekly sync_run", {k: v["reason_code"] for k, v in store4.items()} == want, str(store4))
 
 js = open(os.path.join(ROOT, "site", "reasons.js"), encoding="utf-8").read()
 js_codes = set(re.findall(r"^  (\w+): \{ label:", js, re.M))
