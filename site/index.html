@@ -42,6 +42,8 @@
   .biz .stats { grid-template-columns:repeat(3,minmax(0,1fr)); } .bhead { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#555; margin:12px 0 0; }
   a.stat { display:block; color:inherit; text-decoration:none; } a.bizlink { color:inherit; text-decoration:none; } .grp { font-size:1.05rem; } .row.hl { outline:2px solid #0b57d0; } .chip.act { background:#0b57d0; } .q-proof { background:#b06000; } a.seescc { margin-right:10px; } .flight .bhead { margin:6px 0 0; }
   @media (max-width:420px) { .stat small { font-size:.62rem; white-space:nowrap; } .biz .stat span { font-size:.68rem; } .biz .stat { padding:8px 3px; } }
+  .coll .sec { margin:14px 0 6px; } .tog { all:unset; box-sizing:border-box; display:flex; align-items:center; gap:8px; width:100%; min-height:44px; cursor:pointer; font:inherit; font-weight:700; } .tog:focus-visible { outline:2px solid #0b57d0; outline-offset:2px; }
+  .chev { width:0; height:0; border-left:7px solid #333; border-top:5px solid transparent; border-bottom:5px solid transparent; transition:transform .15s; } .tog[aria-expanded="true"] .chev { transform:rotate(90deg); } .cbody[hidden] { display:none; } .coltools { margin:8px 0; display:flex; gap:8px; }
 </style>
 </head>
 <body>

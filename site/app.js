@@ -29,13 +29,26 @@ async function load() {
 
 function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks, data); }
 
+// Section open/closed state, remembered per business. Storage can be blocked; then the defaults apply.
+const secKey = (b) => 'ce-sec:' + b;
+function loadSec(b) { try { const v = JSON.parse(localStorage.getItem(secKey(b)) || '{}'); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } }
+function saveSec(b, map) { try { localStorage.setItem(secKey(b), JSON.stringify(map)); } catch { /* storage blocked: keep going */ } }
+function setSec(sec, open) { sec.querySelector('.tog').setAttribute('aria-expanded', String(open)); sec.querySelector('.cbody').hidden = !open; }
+function wireSections(b) {
+  const secs = [...app.querySelectorAll('section.coll')];
+  const persist = () => saveSec(b, Object.fromEntries(secs.map((s) => [s.dataset.sec, s.querySelector('.tog').getAttribute('aria-expanded') === 'true'])));
+  secs.forEach((s) => s.querySelector('.tog').addEventListener('click', () => { setSec(s, s.querySelector('.tog').getAttribute('aria-expanded') !== 'true'); persist(); }));
+  app.querySelectorAll('[data-expand]').forEach((el) => el.addEventListener('click', () => { secs.forEach((s) => setSec(s, el.dataset.expand === 'all')); persist(); }));
+}
+
 function bizView(b, target) {
-  const h = bizHtml(data.runs, data.checks, b, data);
+  const h = bizHtml(data.runs, data.checks, b, data, loadSec(b));
   if (h === null) { home(); return; }
   app.innerHTML = tabsHtml(b, data.runs) + h;
+  wireSections(b);
   // #SCC/<group> scrolls to the group; #SCC/<domain> scrolls to that Directory's row.
   const el = target && (document.getElementById('grp-' + target) || [...app.querySelectorAll('[data-dir]')].find((x) => x.dataset.dir === target));
-  if (el) { el.scrollIntoView(); el.classList.add('hl'); } else window.scrollTo(0, 0);
+  if (el) { const sec = el.closest('section.coll'); if (sec && sec.querySelector('.cbody').hidden) setSec(sec, true); el.scrollIntoView(); el.classList.add('hl'); } else window.scrollTo(0, 0);
 }
 
 // Directories tab: filter, sort and the open row live in memory (the list is 86 rows; no query per tap).

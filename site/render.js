@@ -65,23 +65,32 @@ export const GROUPS = [
   ['tobuild', 'To build', (r) => r.state === 'toBuild'], ['waiting', 'Waiting on directory', (r) => r.state === 'waiting'], ['needsperson', 'Needs a person', (r) => r.state === 'needsPerson'],
   ['newlive', 'New listings live', (r) => r.state === 'result' && r.action === 'new'], ['claimed', 'Claimed', (r) => r.state === 'result' && r.action === 'claim'], ['fixed', 'Fixed', (r) => r.state === 'result' && r.action === 'fix'],
 ];
-function groupHtml([id, title, pick], rows) {
+function groupHtml([id, title, pick], rows, open) {
   const m = rows.filter(pick), none = '<div class="note">None.</div>';
   let body = m.length ? m.map(flightRow).join('') : none;
   if (id === 'tobuild' && m.length) body = ['new', 'claim', 'fix'].map((a) => { const x = m.filter((r) => r.action === a); return x.length ? `<div class="bhead" data-testid="sub-${a}">${fmtAction(a)} <span class="n">${x.length}</span></div>${x.map(flightRow).join('')}` : ''; }).join('') + m.filter((r) => !['new', 'claim', 'fix'].includes(r.action)).map(flightRow).join('');
-  return `<h3 class="sec grp" id="grp-${id}" data-testid="grp-${id}">${esc(title)} <span class="n" data-testid="grp-${id}-n">${m.length}</span></h3>${body}`;
+  return section(id, ` id="grp-${id}" data-testid="grp-${id}"`, title, `<span data-testid="grp-${id}-n">${m.length}</span>`, body, open, 'h3', 'sec grp');
 }
 
-export function bizHtml(runs, checks, b, dbs = {}) {
+// Collapsible sections. Pure: the caller passes the saved open/closed map ({id: bool}); no map entry -> only "Needs a person" starts open.
+export const secOpen = (open, id) => (open && typeof open[id] === 'boolean' ? open[id] : id === 'needsperson');
+function section(id, titleAttrs, title, count, body, open, tag = 'h2', cls = 'sec') {
+  const o = secOpen(open, id);
+  return `<section class="coll" data-sec="${id}"><${tag} class="${cls}"${titleAttrs}><button type="button" class="tog" aria-expanded="${o}" aria-controls="body-${id}"><span class="chev" aria-hidden="true"></span>${esc(title)} <span class="n">${count}</span></button></${tag}><div class="cbody" id="body-${id}"${o ? '' : ' hidden'}>${body}</div></section>`;
+}
+export function bizHtml(runs, checks, b, dbs = {}, open = {}) {
   const { run, checks: cs } = latestFor(runs, checks, b);
   if (!run || !BIZ[b]) return null;
   const found = foundCards(cs), nf = notFoundCards(cs), cc = cantCheckCards(cs);
   const rows = builderRows(cs, (dbs.dirStatus || []).filter((r) => r.biz === b), dbs.dirs);
   const none = (id) => `<div class="note" data-testid="${id}">None.</div>`;
-  return `<a class="back" href="#">&larr; Both businesses</a><h2>${esc(bizLabel(run, b))}</h2>
-    <h2 class="sec" data-testid="inflight-title">In flight</h2>${GROUPS.slice(0, 3).map((g) => groupHtml(g, rows)).join('')}
-    <h2 class="sec" data-testid="results-title">Results</h2>${GROUPS.slice(3).map((g) => groupHtml(g, rows)).join('')}
-    <h2 class="sec" id="grp-found" data-testid="found-title">Found <span class="n">${found.length}</span></h2>${found.length ? found.map(foundCard).join('') : none('found-empty')}
-    <h2 class="sec" id="grp-notfound" data-testid="notfound-title">Not found <span class="n">${nf.length}</span></h2>${nf.length ? nf.map((x) => `<div class="row" data-testid="notfound-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip not_found">${esc(LABEL.not_found)}</span></h3></div>`).join('') : none('notfound-empty')}
-    <h2 class="sec" id="grp-cant" data-testid="cant-title">Couldn't check <span class="n">${cc.length}</span></h2>${cc.length ? cc.map((x) => `<div class="row" data-testid="cant-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip couldnt_check">${esc(x.reason)}</span></h3></div>`).join('') : none('cant-empty')}`;
+  const tools = '<div class="coltools"><button type="button" class="btn" data-expand="all" data-testid="expand-all">Expand all</button> <button type="button" class="btn" data-expand="none" data-testid="collapse-all">Collapse all</button></div>';
+  const nfBody = nf.length ? nf.map((x) => `<div class="row" data-testid="notfound-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip not_found">${esc(LABEL.not_found)}</span></h3></div>`).join('') : none('notfound-empty');
+  const ccBody = cc.length ? cc.map((x) => `<div class="row" data-testid="cant-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip couldnt_check">${esc(x.reason)}</span></h3></div>`).join('') : none('cant-empty');
+  return `<a class="back" href="#">&larr; Both businesses</a><h2>${esc(bizLabel(run, b))}</h2>${tools}
+    <h2 class="sec" data-testid="inflight-title">In flight</h2>${GROUPS.slice(0, 3).map((g) => groupHtml(g, rows, open)).join('')}
+    <h2 class="sec" data-testid="results-title">Results</h2>${GROUPS.slice(3).map((g) => groupHtml(g, rows, open)).join('')}
+    ${section('found', ' id="grp-found" data-testid="found-title"', 'Found', found.length, found.length ? found.map(foundCard).join('') : none('found-empty'), open)}
+    ${section('notfound', ' id="grp-notfound" data-testid="notfound-title"', 'Not found', nf.length, nfBody, open)}
+    ${section('cant', ' id="grp-cant" data-testid="cant-title"', "Couldn't check", cc.length, ccBody, open)}`;
 }
