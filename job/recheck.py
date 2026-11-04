@@ -529,9 +529,10 @@ def compare(text, canonical, html_=None):
                 _sn = re.compile(r"(?i)(?<=[\s,])(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(?=\s+\d{5}\b|\s*$)")
                 _own = re.compile(r"(?i)(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(\s+\d{5}(?:-\d{4})?)?")
                 _own_ab = lambda x: (lambda m: US_STATES[m.group(1).lower()].upper() + (m.group(2) or "") if m else None)(_own.fullmatch(x.strip()))   # "Ohio 40000" alone on a line -> "OH 40000" (t_936ab977)
-                _ab = lambda x: _own_ab(x) or (_sn.sub(lambda m: US_STATES[m.group(1).lower()], x) if "," in x else x)   # "Exampleton, Ohio 40000" -> "Exampleton, OH 40000"
+                _ab = lambda x: _sn.sub(lambda m: US_STATES[m.group(1).lower()], x) if "," in x else x   # "Exampleton, Ohio 40000" -> "Exampleton, OH 40000"
                 n1 = _ab(block[j]) if j < len(block) else ""
                 n2 = _ab(block[j + 1]) if j + 1 < len(block) else ""
+                n2s = _own_ab(n2) or n2   # only the "ST zip" slot after the city line may hold a bare full state name; never n1 (a city can be New York / Indiana)
                 ok_ln = lambda x: bool(x) and len(x) <= 60 and not phones_in([x])
                 szr = lambda x: ok_ln(x) and bool(F.STATE_ZIP_RE.search(x)) and not F.parse_street(x)
                 alpha = lambda x: ok_ln(x) and bool(re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", x)) and len(x.split()) <= 4
@@ -540,8 +541,8 @@ def compare(text, canonical, html_=None):
                 if zip_only(n1.strip()) and alpha(n2) and st_line(n3) and not segs:   # street / zip / city / state, one per line (a live listing shape)
                     zfirst, segs = n1.strip()[:5], [n2.strip(), n3.strip()]
                 elif szr(n1) and not zip_only(n1.strip()): segs = [x.strip() for x in n1.split(",") if x.strip()]   # "City, ST zip"
-                elif alpha(n1) and szr(n2) and not alpha(n2):
-                    s2 = [x.strip() for x in n2.split(",") if x.strip()]
+                elif alpha(n1) and szr(n2s) and not alpha(n2s):
+                    s2 = [x.strip() for x in n2s.split(",") if x.strip()]
                     segs = ([n1.strip()] + s2) if no_city(s2) else s2   # "City" / "ST zip"; "Website" / "City, ST zip" (a UI label above the city line is skipped)
                 elif alpha(n1) and segs and zip_only(segs[0]): segs = [n1.strip()] + segs   # "street, 40000" / "City" (only the canonical city: another letters-only line may be a UI label)
                 elif alpha(n1) and not segs and F._tok(n1)[:1] == ccity: segs = [n1.strip()]   # canonical city alone under the street: no state / zip
