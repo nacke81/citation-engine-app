@@ -67,6 +67,14 @@ def template(url):
     return url.replace("%7B", "{").replace("%7D", "}") if url else None
 
 
+# Hunt Directories Nate approved for SCC builds (t_ff170c85); db/010_promote_hunt_scc.sql flips the same 8 in prod.
+PROMOTED_SCC = frozenset({"yellowpagecity.com", "bizhwy.com", "expressbusinessdirectory.com", "smartcustomer.com",
+                          "usbizs.com", "usaypage.com", "trustpilot.com", "threebestrated.com"})
+
+
+PROMOTED_NOTE = 'Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.'
+
+
 def is_hunt(r):
     return str(r.get("cut") or "").startswith(("cycle1-", "cycle2-"))
 
@@ -80,9 +88,14 @@ def main_hunt():
 
 def write_seed(rows, hunt):
     assert len(rows) == 86 and len({r["domain"] for r in rows}) == 86, "v1 catalog must be 86 unique Directories"
+    assert PROMOTED_SCC <= {r["domain"] for r in hunt}, "every promoted domain must be a hunt row"
+    hunt = [dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_NOTE) if r["domain"] in PROMOTED_SCC
+            else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
     everything = rows + hunt
     assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
-    assert all(r["build_eligible"] is False for r in hunt), "hunt rows are catalog-only: build_eligible false"
+    assert all(r["build_eligible"] is (r["domain"] in PROMOTED_SCC) and (r["build_route"] == "agent") is (r["domain"] in PROMOTED_SCC) for r in hunt), "hunt rows are catalog-only (build_eligible false, route none) except the promoted list"
+    with open(HUNT_SEED, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(hunt, f, indent=1, ensure_ascii=False); f.write("\n")
     with open(SEED_JSON, "w", encoding="utf-8", newline="\n") as f:
         json.dump(everything, f, indent=1, ensure_ascii=False); f.write("\n")
     write_hunt_sql(hunt)

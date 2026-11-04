@@ -1,7 +1,7 @@
 -- Hunt catalog rows (kanban t_ab039aed). GENERATED: edit db/009_hunt_catalog_seed.sql.tpl and run python db/gen_directories_seed.py --hunt, never the .sql by hand.
 -- Rows only, no DDL. REQUIRES 008_hunt_catalog.sql applied first. APPLY ONLY AFTER the app change is merged and the weekly PC has pulled it:
 -- main's buildrows does not know build_eligible and would queue these rows.
--- Every row is inserted build_eligible=false (catalog-only). ON CONFLICT DO NOTHING: a re-apply never touches an existing row.
+-- Every row is inserted build_eligible=false (catalog-only), except the 8 promoted in 010 (t_9675083c), which the seed now carries true. ON CONFLICT DO NOTHING: a re-apply never touches an existing row.
 insert into public.ce_directories (domain, name, cut, priority, da, category, checked_weekly, weekly_scope, search_method, search_url_template,
   zero_marker_known, zero_marker_text, claim_markers_verified, claim_markers, signup_url, claim_url, help_url, cost, cost_note, account_needed,
   account_note, verification_methods, build_route, build_route_note, agent_access, agent_blocker, agent_blocker_seen_on, agent_blocker_source, notes,

@@ -3452,8 +3452,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -3463,7 +3463,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "glassdoor.com",
@@ -3984,8 +3984,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -3995,7 +3995,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "tripadvisor.com",
@@ -4060,8 +4060,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "blocked",
   "agent_blocker": "bot wall (HTTP 403)",
   "agent_blocker_seen_on": "2026-10-30",
@@ -4071,7 +4071,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "vitals.com",
@@ -4250,8 +4250,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -4261,7 +4261,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "usbizs.com",
@@ -4288,8 +4288,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -4299,7 +4299,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "usaypage.com",
@@ -4326,8 +4326,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -4337,7 +4337,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "bestplumbers.com",
@@ -4858,8 +4858,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -4869,7 +4869,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "hopkinschamber.com",
@@ -5200,8 +5200,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -5211,7 +5211,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "opentable.com",

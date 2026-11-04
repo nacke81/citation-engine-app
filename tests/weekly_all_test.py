@@ -24,7 +24,7 @@ class FakeDB:
         return self.rows
 
 seed = dirlist.seed_domains()
-check("W1 seed has 86 unique Directories and contains the 25 proven ones", len(seed) >= 86 and len(set(seed)) == len(seed) and set(DIRS) <= set(seed), len(seed))
+check("W1 seed has 148 unique Directories and contains the 25 proven ones", len(seed) == 148 and len(set(seed)) == len(seed) and set(DIRS) <= set(seed), len(seed))
 
 db = FakeDB([{"domain": d} for d in seed])
 doms, src = dirlist.load_directories(db, log=lambda m: None)
@@ -69,7 +69,7 @@ check("W12 portal payload shape unchanged (same top keys, same per-Directory key
       (len(P87["directories"]), len(P25["directories"])))
 nm = [d for d in P87["directories"] if d["domain"] in extra]
 check("W13 payload: no-method rows are couldnt_check, status unavailable, reason no-method", all(d["state"] == "couldnt_check" and d["reason"] == "no-method" and d["status"] == "unavailable" for d in nm) and len(nm) == len(seed) + 1 - len(DIRS))
-check("W14 summary: same live count as the 25-only run; 62 more rows are couldnt_check, none absent",
+check("W14 summary: same live count as the 25-only run; 124 more rows are couldnt_check, none absent",
       P87["summary"]["live"] == P25["summary"]["live"] and sum(1 for d in P87["directories"] if d["state"] == "couldnt_check") - sum(1 for d in P25["directories"] if d["state"] == "couldnt_check") == len(seed) + 1 - len(DIRS)
       and not any(d["state"] == "absent" for d in nm), P87["summary"])
 
