@@ -295,5 +295,24 @@ for label, addr, want in [("two-line full state name, right", "100 Example Drive
     r = R.compare(_dot(addr), MCAN)
     check("C7 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 
+for label, addr, want in [("state name on its own line, wrong (Ohio)", "100 Example Drive\nExampleton\nOhio 40000", "mismatch"),
+                          ("state name on its own line, right (Kentucky)", "100 Example Drive\nExampleton\nKentucky 40000", "match"),
+                          ("state abbreviation on its own line (KY)", "100 Example Drive\nExampleton\nKY 40000", "match")]:
+    r = R.compare(_dot(addr), MCAN)
+    check("C8 %s -> %s" % (label, want), r["verdict"] == want, str(r))
+
+_C8 = lambda a: {"name": "Alder Care Consulting & Solutions", "address": a, "phone": "(502) 555-0101"}
+NYC, DCC, INC = _C8("100 Example Drive, New York, NY 10001"), _C8("100 Example Drive, Washington, DC 20001"), _C8("100 Example Drive, Indiana, PA 15701")
+for label, can, addr, want in [("city is a state name: New York / NY zip", NYC, "100 Example Drive\nNew York\nNY 10001", "match"),
+                               ("city is a state name: New York / New York zip", NYC, "100 Example Drive\nNew York\nNew York 10001", "match"),
+                               ("city is a state name: zip / New York / NY", NYC, "100 Example Drive\n10001\nNew York\nNY", "match"),
+                               ("city is a state name: Washington / DC zip", DCC, "100 Example Drive\nWashington\nDC 20001", "match"),
+                               ("city is a state name: Indiana / PA zip", INC, "100 Example Drive\nIndiana\nPA 15701", "match"),
+                               ("city is a state name: Indiana / Pennsylvania zip", INC, "100 Example Drive\nIndiana\nPennsylvania 15701", "match"),
+                               ("state name lowercase, wrong", MCAN, "100 Example Drive\nExampleton\nohio 40000", "mismatch"),
+                               ("state name with ZIP+4, wrong", MCAN, "100 Example Drive\nExampleton\nOhio 40000-1234", "mismatch")]:
+    r = R.compare(_dot(addr), can)
+    check("C8 %s -> %s" % (label, want), r["verdict"] == want, str(r))
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
