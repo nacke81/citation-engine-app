@@ -344,6 +344,12 @@ def directories_step(checks, day, db=None, queue=None):
             except Exception: queue = None   # no queue file: check results still sync
         res = D.sync_run(checks, day, queue=queue, db=db)
         print("DIRECTORIES OK", json.dumps(res), flush=True)
+        if queue:   # t_c3087efc: fill-only, AFTER the weekly re-assert (which never sends the badge code); never overwrites, never nulls. Non-fatal.
+            try:
+                fr = D.weekly_badge_fill(db or D.DirDB(), queue)
+                print("REASON CODES FILLED", len(fr["rows"]), json.dumps([p["directory"] for p in fr["rows"]]), flush=True)
+            except Exception as e:
+                print("REASON CODE FILL FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
         return True
     except Exception as e:
         print("DIRECTORIES FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
