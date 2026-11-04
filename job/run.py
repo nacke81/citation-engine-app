@@ -138,7 +138,9 @@ def cant_reason(rows, b, d):
     """Why a Directory is 'couldn't check': blocked (the site walled the visit), error (the visit failed), else no usable result."""
     rs = [r for r in rows if r.get("kind") in ("dir", "map") and r.get("biz") == b and r.get("dir") == d]
     if not rs and d not in DIRS: return "no-method"   # no proven search method: nothing was tried, so it can never read as absent
-    if any("blocked" in (r.get("log") or "") or r.get("blocked_on_purpose") for r in rs): return "blocked"
+    if any("blocked" in (r.get("log") or "") or r.get("blocked_on_purpose") for r in rs):
+        import walls as W   # t_93ae9b6b: record the cause ('blocked: http-403') so the page can badge it; bare 'blocked' when no log line says why
+        return W.blocked_note([ln for r in rs for ln in (r.get("log") or "").split(" | ")])
     if any(str(r.get("note") or "").startswith("error") for r in rs): return "error"
     return "no usable result"
 

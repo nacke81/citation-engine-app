@@ -53,6 +53,8 @@ jobs:
         run: python tests/postcard_step_test.py
       - name: Hard-block retry cap (1 try a day, 3 tries, stopped until Mike)
         run: python tests/walls_test.py
+      - name: Reason badges (reason_code writer, migration 011 shape, page/job code lists)
+        run: python tests/reason_code_test.py
       - name: Create-queue discovery (absent only with a positive control)
         run: python tests/create_test.py
       - name: Listing URLs, NAP errors, honest states

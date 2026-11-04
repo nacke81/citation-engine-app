@@ -1,0 +1,292 @@
+{
+ "NM|bbb.org": {
+  "audit_label": "Contact name required",
+  "reason_code": "contact_name",
+  "section": "Needs a person"
+ },
+ "NM|bing.com": {
+  "audit_label": "Mike's account only",
+  "reason_code": "mike_account",
+  "section": "Needs a person"
+ },
+ "NM|bizapedia.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|brownbook.net": {
+  "audit_label": "Unsearchable",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|dexknows.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|ezlocal.com": {
+  "audit_label": "No usable result",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|facebook.com": {
+  "audit_label": "ID check (client)",
+  "reason_code": "id_check",
+  "section": "Needs a person"
+ },
+ "NM|foursquare.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|hotfrog.com": {
+  "audit_label": "No usable result",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|localstack.com": {
+  "audit_label": "Bad Catalog row",
+  "reason_code": "bad_catalog",
+  "section": "Couldn't check"
+ },
+ "NM|manta.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|mapquest.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "NM|merchantcircle.com": {
+  "audit_label": "Declined by Mike",
+  "reason_code": "declined",
+  "section": "Needs a person"
+ },
+ "NM|nextdoor.com": {
+  "audit_label": "Login wall",
+  "reason_code": "login_wall",
+  "section": "Couldn't check"
+ },
+ "NM|showmelocal.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Couldn't check"
+ },
+ "NM|superpages.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|yellowbook.com": {
+  "audit_label": "No search on site",
+  "reason_code": "no_search",
+  "section": "Couldn't check"
+ },
+ "NM|yellowbot.com": {
+  "audit_label": "Site down",
+  "reason_code": "site_down",
+  "section": "Couldn't check"
+ },
+ "NM|yellowpages.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "NM|yelp.com": {
+  "audit_label": "Phone verification (client)",
+  "reason_code": "phone_verify",
+  "section": "Needs a person"
+ },
+ "SCC|2findlocal.com": {
+  "audit_label": "Blocked: CAPTCHA",
+  "reason_code": "captcha",
+  "section": "Needs a person"
+ },
+ "SCC|8coupons.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|ailoq.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|americasbestcompanies.com": {
+  "audit_label": "Signup form fails",
+  "reason_code": "signup_form",
+  "section": "Needs a person"
+ },
+ "SCC|bbb.org": {
+  "audit_label": "Contact name required",
+  "reason_code": "contact_name",
+  "section": "Couldn't check"
+ },
+ "SCC|bizapedia.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "SCC|botw.org": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|brownbook.net": {
+  "audit_label": "Unsearchable",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "SCC|chamberofcommerce.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "SCC|cylex.us": {
+  "audit_label": "Blocked: bot wall",
+  "reason_code": "signup_form",
+  "section": "Needs a person"
+ },
+ "SCC|data-axle.com": {
+  "audit_label": "Waiting on directory",
+  "reason_code": "waiting_directory",
+  "section": "Needs a person"
+ },
+ "SCC|enrollbusiness.com": {
+  "audit_label": "Blocked: bot wall",
+  "reason_code": "cloudflare",
+  "section": "Needs a person"
+ },
+ "SCC|expressbusinessdirectory.com": {
+  "audit_label": "Signup form fails",
+  "reason_code": "signup_form",
+  "section": "Needs a person"
+ },
+ "SCC|ezlocal.com": {
+  "audit_label": "No usable result",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "SCC|facebook.com": {
+  "audit_label": "ID check (client)",
+  "reason_code": "id_check",
+  "section": "Couldn't check"
+ },
+ "SCC|foursquare.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "SCC|fyple.com": {
+  "audit_label": "Site down",
+  "reason_code": "site_down",
+  "section": "Needs a person"
+ },
+ "SCC|judysbook.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|localstack.com": {
+  "audit_label": "Bad Catalog row",
+  "reason_code": "bad_catalog",
+  "section": "Couldn't check"
+ },
+ "SCC|manta.com": {
+  "audit_label": "Search blocked (cause not recorded)",
+  "reason_code": null,
+  "section": "Couldn't check"
+ },
+ "SCC|mapquest.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|merchantcircle.com": {
+  "audit_label": "Declined by Mike",
+  "reason_code": "declined",
+  "section": "Needs a person"
+ },
+ "SCC|mylocalservices.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|neustarlocaleze.biz": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|sbdpro.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|showmelocal.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Couldn't check"
+ },
+ "SCC|superpages.com": {
+  "audit_label": "Blocked: CAPTCHA",
+  "reason_code": "captcha",
+  "section": "Needs a person"
+ },
+ "SCC|threebestrated.com": {
+  "audit_label": "Form can't take our NAP",
+  "reason_code": "nap",
+  "section": "Needs a person"
+ },
+ "SCC|topratedlocal.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|trustpilot.com": {
+  "audit_label": "Blocked: bot wall",
+  "reason_code": "bot_wall",
+  "section": "Needs a person"
+ },
+ "SCC|usaypage.com": {
+  "audit_label": "Blocked: CAPTCHA",
+  "reason_code": "nap",
+  "section": "Needs a person"
+ },
+ "SCC|uscity.net": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|uscolist.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|usdirectory.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|uslocaldir.com": {
+  "audit_label": "Paid listing",
+  "reason_code": "paid",
+  "section": "Needs a person"
+ },
+ "SCC|yellowbook.com": {
+  "audit_label": "No search on site",
+  "reason_code": "no_search",
+  "section": "Couldn't check"
+ },
+ "SCC|yellowbot.com": {
+  "audit_label": "Site down",
+  "reason_code": "site_down",
+  "section": "Couldn't check"
+ },
+ "SCC|yelp.com": {
+  "audit_label": "Phone verification (client)",
+  "reason_code": "phone_verify",
+  "section": "Couldn't check"
+ }
+}

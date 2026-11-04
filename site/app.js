@@ -41,11 +41,15 @@ function wireSections(b) {
   app.querySelectorAll('[data-expand]').forEach((el) => el.addEventListener('click', () => { secs.forEach((s) => setSec(s, el.dataset.expand === 'all')); persist(); }));
 }
 
+// Reason filter on "Needs a person": in memory only, reset when you leave the business.
+let reasonSel = '', reasonBiz = '';
 function bizView(b, target) {
-  const h = bizHtml(data.runs, data.checks, b, data, loadSec(b));
+  if (reasonBiz !== b) { reasonSel = ''; reasonBiz = b; }
+  const h = bizHtml(data.runs, data.checks, b, data, loadSec(b), reasonSel);
   if (h === null) { home(); return; }
   app.innerHTML = tabsHtml(b, data.runs) + h;
   wireSections(b);
+  app.querySelectorAll('[data-reason-filter]').forEach((el) => el.addEventListener('click', () => { reasonSel = el.dataset.reasonFilter; const y = window.scrollY; bizView(b); window.scrollTo(0, y); }));
   // #SCC/<group> scrolls to the group; #SCC/<domain> scrolls to that Directory's row.
   const el = target && (document.getElementById('grp-' + target) || [...app.querySelectorAll('[data-dir]')].find((x) => x.dataset.dir === target));
   if (el) { const sec = el.closest('section.coll'); if (sec && sec.querySelector('.cbody').hidden) setSec(sec, true); el.scrollIntoView(); el.classList.add('hl'); } else window.scrollTo(0, 0);

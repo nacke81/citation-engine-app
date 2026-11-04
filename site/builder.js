@@ -1,6 +1,7 @@
 // Builder stats: pure logic, no DOM, no network. Everything is derived from stored rows (finder checks + per-business status); no totals are stored.
 // State machine (one state per business x Directory row, first match wins) is documented in plans/2026-10-22-builder-stat-cards.md and the PR.
 import { statusOf } from './logic.js';
+import { reasonFor } from './reasons.js';
 
 const hasErrors = (k) => Array.isArray(k.diffs) && k.diffs.some((d) => d && d.field);
 const dirOf = (s) => s.domain || s.directory;
@@ -59,7 +60,8 @@ export function builderRows(checks, status, dirs) {
     if (state === 'needsPerson' && /^WALL:hard-block STOPPED/.test(note || '')) note = STOPPED_LABEL;
     const queue = q || (state === 'needsPerson' ? 'needs-human' : state === 'toBuild' ? 'queued' : null);
     const changed = String(s?.queue_state_at || s?.status_updated_at || s?.last_checked_on || '').slice(0, 10) || null;
-    return { directory, state, action, name: d?.name || directory, queue, queueLabel: proofPending ? 'Live, proof pending' : (QUEUE_LABEL[queue] || queue), proofPending, note,
+    const reason = reasonFor({ status: s, dir: d, check });
+    return { directory, state, action, reason, name: d?.name || directory, queue, queueLabel: proofPending ? 'Live, proof pending' : (QUEUE_LABEL[queue] || queue), proofPending, note,
       link: safeUrl(s?.proof_url) || safeUrl(s?.last_url) || safeUrl(check?.url) || '', changed };
   });
 }

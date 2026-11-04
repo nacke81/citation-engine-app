@@ -1,5 +1,6 @@
 // Pure HTML for the overview and business pages. No DOM, no network: tests import this and check the real markup.
 import { builderRows, builderStats, checkedStat } from './builder.js';
+import { reasonBadge, reasonFilterHtml } from './reasons.js';
 import { BIZ, bizLabel, LABEL, statusOf, latestFor, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel, snapshotSummary, snapshotCardsHtml } from './logic.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -55,7 +56,7 @@ function foundCard(c) {
 const fmtAction = (a) => ({ new: 'New', claim: 'Claim', fix: 'Fix' }[a] || '');
 function flightRow(r) {
   const l = r.link ? `<a href="${esc(r.link)}" rel="noopener noreferrer" target="_blank">${esc(r.link)}</a>` : '';
-  return `<div class="row flight" id="dir-${esc(r.directory)}" data-dir="${esc(r.directory)}" data-testid="flight-${esc(r.directory)}"><h3>${esc(r.name)} ${r.action ? `<span class="chip act" data-testid="action">${esc(fmtAction(r.action))}</span> ` : ''}<span class="chip q-${esc(r.queue || 'queued')}${r.proofPending ? ' q-proof' : ''}" data-testid="queue">${esc(r.queueLabel || '')}</span></h3>
+  return `<div class="row flight" id="dir-${esc(r.directory)}" data-dir="${esc(r.directory)}" data-testid="flight-${esc(r.directory)}"><h3>${esc(r.name)} ${r.state === 'needsPerson' && r.reason ? reasonBadge(r.reason, esc) : `${r.action ? `<span class="chip act" data-testid="action">${esc(fmtAction(r.action))}</span> ` : ''}<span class="chip q-${esc(r.queue || 'queued')}${r.proofPending ? ' q-proof' : ''}" data-testid="queue">${esc(r.queueLabel || '')}</span>`}</h3>
     ${r.note ? `<div class="kv"><span>${r.state === 'needsPerson' ? 'Gate' : 'Note'}</span><b data-testid="note">${esc(r.note)}</b></div>` : ''}
     ${l ? `<div class="kv"><span>${r.state === 'result' ? 'Listing' : 'Link'}</span><b>${l}</b></div>` : ''}
     ${r.changed ? `<div class="kv"><span>Last change</span><b>${esc(r.changed)}</b></div>` : ''}</div>`;
@@ -65,11 +66,14 @@ export const GROUPS = [
   ['tobuild', 'To build', (r) => r.state === 'toBuild'], ['waiting', 'Waiting on directory', (r) => r.state === 'waiting'], ['needsperson', 'Needs a person', (r) => r.state === 'needsPerson'],
   ['newlive', 'New listings live', (r) => r.state === 'result' && r.action === 'new'], ['claimed', 'Claimed', (r) => r.state === 'result' && r.action === 'claim'], ['fixed', 'Fixed', (r) => r.state === 'result' && r.action === 'fix'],
 ];
-function groupHtml([id, title, pick], rows, open) {
-  const m = rows.filter(pick), none = '<div class="note">None.</div>';
+function groupHtml([id, title, pick], rows, open, reasonSel = '') {
+  const all = rows.filter(pick), none = '<div class="note">None.</div>';
+  // "Needs a person" gets a filter by reason; the count in the title stays the full group so it matches the home card.
+  const m = id === 'needsperson' && reasonSel ? all.filter((r) => r.reason && r.reason.code === reasonSel) : all;
   let body = m.length ? m.map(flightRow).join('') : none;
+  if (id === 'needsperson') body = reasonFilterHtml(all, reasonSel, esc) + body;
   if (id === 'tobuild' && m.length) body = ['new', 'claim', 'fix'].map((a) => { const x = m.filter((r) => r.action === a); return x.length ? `<div class="bhead" data-testid="sub-${a}">${fmtAction(a)} <span class="n">${x.length}</span></div>${x.map(flightRow).join('')}` : ''; }).join('') + m.filter((r) => !['new', 'claim', 'fix'].includes(r.action)).map(flightRow).join('');
-  return section(id, ` id="grp-${id}" data-testid="grp-${id}"`, title, `<span data-testid="grp-${id}-n">${m.length}</span>`, body, open, 'h3', 'sec grp');
+  return section(id, ` id="grp-${id}" data-testid="grp-${id}"`, title, `<span data-testid="grp-${id}-n">${all.length}</span>`, body, open, 'h3', 'sec grp');
 }
 
 // Collapsible sections. Pure: the caller passes the saved open/closed map ({id: bool}); no map entry -> only "Needs a person" starts open.
@@ -78,17 +82,18 @@ function section(id, titleAttrs, title, count, body, open, tag = 'h2', cls = 'se
   const o = secOpen(open, id);
   return `<section class="coll" data-sec="${id}"><${tag} class="${cls}"${titleAttrs}><button type="button" class="tog" aria-expanded="${o}" aria-controls="body-${id}"><span class="chev" aria-hidden="true"></span>${esc(title)} <span class="n">${count}</span></button></${tag}><div class="cbody" id="body-${id}"${o ? '' : ' hidden'}>${body}</div></section>`;
 }
-export function bizHtml(runs, checks, b, dbs = {}, open = {}) {
+export function bizHtml(runs, checks, b, dbs = {}, open = {}, reasonSel = '') {
   const { run, checks: cs } = latestFor(runs, checks, b);
   if (!run || !BIZ[b]) return null;
-  const found = foundCards(cs), nf = notFoundCards(cs), cc = cantCheckCards(cs);
-  const rows = builderRows(cs, (dbs.dirStatus || []).filter((r) => r.biz === b), dbs.dirs);
+  const bizStatus = (dbs.dirStatus || []).filter((r) => r.biz === b);
+  const found = foundCards(cs), nf = notFoundCards(cs), cc = cantCheckCards(cs, bizStatus, dbs.dirs);
+  const rows = builderRows(cs, bizStatus, dbs.dirs);
   const none = (id) => `<div class="note" data-testid="${id}">None.</div>`;
   const tools = '<div class="coltools"><button type="button" class="btn" data-expand="all" data-testid="expand-all">Expand all</button> <button type="button" class="btn" data-expand="none" data-testid="collapse-all">Collapse all</button></div>';
   const nfBody = nf.length ? nf.map((x) => `<div class="row" data-testid="notfound-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip not_found">${esc(LABEL.not_found)}</span></h3></div>`).join('') : none('notfound-empty');
-  const ccBody = cc.length ? cc.map((x) => `<div class="row" data-testid="cant-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip couldnt_check">${esc(x.reason)}</span></h3></div>`).join('') : none('cant-empty');
+  const ccBody = cc.length ? cc.map((x) => `<div class="row" data-testid="cant-${esc(x.directory)}"><h3>${esc(x.directory)} ${reasonBadge(x.badge, esc)}</h3>${x.reason ? `<div class="kv"><span>Check</span><b data-testid="cant-note">${esc(x.reason)}</b></div>` : ''}</div>`).join('') : none('cant-empty');
   return `<a class="back" href="#">&larr; Both businesses</a><h2>${esc(bizLabel(run, b))}</h2>${tools}
-    <h2 class="sec" data-testid="inflight-title">In flight</h2>${GROUPS.slice(0, 3).map((g) => groupHtml(g, rows, open)).join('')}
+    <h2 class="sec" data-testid="inflight-title">In flight</h2>${GROUPS.slice(0, 3).map((g) => groupHtml(g, rows, open, reasonSel)).join('')}
     <h2 class="sec" data-testid="results-title">Results</h2>${GROUPS.slice(3).map((g) => groupHtml(g, rows, open)).join('')}
     ${section('found', ' id="grp-found" data-testid="found-title"', 'Found', found.length, found.length ? found.map(foundCard).join('') : none('found-empty'), open)}
     ${section('notfound', ' id="grp-notfound" data-testid="notfound-title"', 'Not found', nf.length, nfBody, open)}

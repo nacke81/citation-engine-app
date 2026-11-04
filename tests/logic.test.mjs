@@ -92,7 +92,7 @@ test("three groups in order, no Fix list group; errors first then correct", () =
   assert.match(html, /data-testid="correct"[^>]*>correct</);
 });
 test("Couldn't check: one card per directory with its reason", () => {
-  assert.deepEqual(cantCheckCards(nmChecks), [
+  assert.deepEqual(cantCheckCards(nmChecks).map(({ directory, reason }) => ({ directory, reason })), [
     { directory: "w.example", reason: "blocked" }, { directory: "x.example", reason: "error" }, { directory: "y.example", reason: "no usable result" }, { directory: "z.example", reason: "unsearchable" }]);
   const html = bizHtml(runs, all, "NM");
   assert.equal((html.match(/data-testid="cant-[a-z]+\.example"/g) || []).length, 4);
