@@ -18,7 +18,13 @@ ROW = {"id": "create-x", "directory": "x.example"}
 d1 = DB(); D.sync_transition("SCC", ROW, "needs-human", "paid-tier, Mike decides", "2026-11-04", kind="create", db=d1, reason_code="paid")
 check("R1 needs-human with a code writes reason_code in the same upsert as the queue state", posted(d1)[0].get("reason_code") == "paid" and posted(d1)[0]["queue_state"] == "needs-human")
 d2 = DB(); D.sync_transition("SCC", ROW, "needs-human", "note", "2026-11-04", kind="create", db=d2)
-check("R2 no code given -> the key is not sent at all (safe before migration 011 is applied)", "reason_code" not in posted(d2)[0])
+check("R2 stays needs-human with no code given -> key not sent (stored code kept); no old_state known -> also not sent", "reason_code" not in posted(d2)[0])
+d2b = DB(); D.sync_transition("SCC", ROW, "needs-human", "note", "2026-11-04", kind="create", db=d2b, old_state="needs-human")
+check("R2b needs-human -> needs-human, no code: key not sent", "reason_code" not in posted(d2b)[0])
+d2c = DB(); D.sync_transition("SCC", ROW, "needs-human", "note", "2026-11-04", kind="create", db=d2c, old_state="needs-human", reason_code="nap")
+check("R2c needs-human -> needs-human with a code: code replaces the stored one", posted(d2c)[0]["reason_code"] == "nap")
+d2d = DB(); D.sync_transition("SCC", ROW, "needs-human", "note", "2026-11-04", kind="create", db=d2d, old_state="queued")
+check("R2d queued -> needs-human with no code: sends null", "reason_code" in posted(d2d)[0] and posted(d2d)[0]["reason_code"] is None)
 def refuses(**k):
     try: D.sync_transition("SCC", ROW, k.pop("state", "needs-human"), "n", "2026-11-04", kind="create", db=DB(), **k)
     except D.DirectoriesError: return True
@@ -26,7 +32,39 @@ def refuses(**k):
 check("R3 an unknown code is refused", refuses(reason_code="made_up"))
 check("R4 a code on any other move is refused", refuses(state="live", reason_code="paid") and refuses(state="queued", reason_code="paid"))
 d5 = DB(); D.sync_transition("SCC", ROW, "live", None, "2026-11-04", kind="create", db=d5)
-check("R5 a live move never sends reason_code", "reason_code" not in posted(d5)[0])
+check("R5 a move to live sends reason_code null (clears any stored code)", "reason_code" in posted(d5)[0] and posted(d5)[0]["reason_code"] is None)
+
+# R11 walk one row: captcha park -> queued -> park with no code. A fake that merges upserts the way PostgREST does.
+class MergeDB(DB):
+    def __init__(s): DB.__init__(s); s.row = {}
+    def call(s, method, path, body=None, prefer=None):
+        if method == "POST" and "ce_directory_status" in path: s.row.update(body[0])
+        return None
+mdb = MergeDB()
+D.sync_transition("SCC", ROW, "needs-human", "captcha", "2026-11-01", kind="create", db=mdb, old_state="queued", reason_code="captcha")
+c1 = mdb.row.get("reason_code")
+D.sync_transition("SCC", ROW, "queued", None, "2026-11-02", kind="create", db=mdb, old_state="needs-human")
+c2 = mdb.row.get("reason_code")
+D.sync_transition("SCC", ROW, "needs-human", "other wall", "2026-11-03", kind="create", db=mdb, old_state="queued")
+c3 = mdb.row.get("reason_code")
+check("R11 captcha park -> queued -> park with no code ends with null", (c1, c2, c3) == ("captcha", None, None), str((c1, c2, c3)))
+
+# R12 weekly queue rows: a parked row keeps its stored code (key absent); queued/live rows send null
+q = {"fix_queue": [{"id": "f1", "directory": "a.example", "state": "needs-human", "history": [{"at": "2026-10-20", "note": "x"}]},
+                   {"id": "f2", "directory": "b.example", "state": "queued", "history": []},
+                   {"id": "f3", "directory": "c.example", "state": "live", "history": []}]}
+wk = {r["directory"]: r for r in D.queue_rows_to_status(MergeDB(), q, "2026-11-08")}
+check("R12 weekly: needs-human row never sends reason_code", "reason_code" not in wk["a.example"])
+check("R12 weekly: queued and live rows send null", wk["b.example"].get("reason_code", 1) is None and wk["c.example"].get("reason_code", 1) is None)
+class StoreDB(DB):
+    def __init__(s, store): DB.__init__(s); s.owner = "o1"; s.store = store
+    def call(s, method, path, body=None, prefer=None):
+        if method == "POST" and "ce_directory_status" in path:
+            for r in body: s.store.setdefault(r["directory"], {}).update(r)
+        return None
+store = {"a.example": {"reason_code": "paid"}, "b.example": {"reason_code": "captcha"}, "c.example": {"reason_code": "captcha"}}
+D.sync_run([], "2026-11-08", queue=q, db=StoreDB(store))
+check("R13 weekly sync_run: parked row keeps its backfilled code; queued/live rows are cleared", (store["a.example"]["reason_code"], store["b.example"]["reason_code"], store["c.example"]["reason_code"]) == ("paid", None, None), str(store))
 
 js = open(os.path.join(ROOT, "site", "reasons.js"), encoding="utf-8").read()
 js_codes = set(re.findall(r"^  (\w+): \{ label:", js, re.M))

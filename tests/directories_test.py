@@ -178,6 +178,7 @@ def table_cols(name):
     body = re.search(r"create table if not exists public\.%s \((.*?)\n\);" % name, sql, re.S).group(1)
     return {ln.split()[0] for ln in body.split("\n") if ln.strip() and ln.split()[0] not in ("unique", "primary", "constraint")}
 cols_dir, cols_stat = table_cols("ce_directories"), table_cols("ce_directory_status")
+cols_stat |= set(re.findall(r"add column if not exists (\w+)", open(os.path.join(ROOT, "db", "011_reason_code.sql"), encoding="utf-8").read()))   # t_93ae9b6b: 011 adds reason_code
 cols_dir |= set(re.findall(r"add column if not exists (\w+)", sql))
 seen_dir, seen_stat = set(), set()
 fdb7 = FakeDB(dirs={"yelp.com": {"agent_access": "unknown"}})

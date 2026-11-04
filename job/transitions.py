@@ -486,7 +486,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out["directories_written"] = False
     if directories is not None or D.enabled():
         try:
-            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories, proof=proof, reason_code=reason_code)
+            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories, proof=proof, reason_code=reason_code, old_state=old)
             out["directories_written"] = True
         except Exception as e:
             out["errors"].append("directories: %s" % e)
