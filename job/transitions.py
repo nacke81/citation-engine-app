@@ -19,7 +19,7 @@ Sinks (all injectable so tests and the dry run make no network call):
             for the client's Your Turn page and the batch trigger. A later live transition marks that row live with verified_at.
             Email verifications never use this path.
 """
-import copy, datetime, json, os, re, sys, tempfile
+import copy, datetime, json, os, re, sys, tempfile, time
 from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -228,6 +228,16 @@ def _read(path):
         return json.load(f)
 
 
+def _replace_retry(src, dst, tries=12, delay=0.05):
+    """os.replace with a short backoff on PermissionError. Windows (Defender, indexers, a lingering handle) can briefly lock the file; POSIX never raises here, so behavior is unchanged there."""
+    for i in range(tries):
+        try:
+            os.replace(src, dst); return
+        except PermissionError:
+            if i == tries - 1: raise
+            time.sleep(delay * (i + 1))
+
+
 def _write_atomic(path, data):
     d = os.path.dirname(os.path.abspath(path))
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
@@ -235,7 +245,7 @@ def _write_atomic(path, data):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
             f.write("\n")
-        os.replace(tmp, path)
+        _replace_retry(tmp, path)
     except Exception:
         if os.path.exists(tmp): os.unlink(tmp)
         raise
