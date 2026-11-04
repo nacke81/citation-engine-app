@@ -69,6 +69,10 @@ jobs:
         run: python tests/catalog_test.py
       - name: Hotfrog playbook (network, browser and mailbox mocked)
         run: python tests/hotfrog_test.py
+      - name: Real yellowpagecity page stays match, street-only stays nap-incomplete
+        run: python tests/yellowpagecity_fixture_test.py
+      - name: readmail link rendering (activateid= stays byte-exact)
+        run: node tests/readmail_test.cjs
       - name: Weekly Proof writer (match goes live and counts, mismatch waits, couldn't check writes nothing)
         run: python tests/proof_test.py
       - name: Proof gate (recheck comparator decides; partial NAP moves nothing)
