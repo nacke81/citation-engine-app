@@ -95,6 +95,14 @@ test("both sections show the badge next to the name, with the gate text still be
   assert.match(html, /data-testid="cant-note">blocked</);
 });
 
+test("Couldn't check Check line shows the raw ce_checks.note, falling back to the reason", () => {
+  const ck = (note) => [{ run_id: RUN, biz: "SCC", directory: "zz.example", result: "couldnt_check", note }];
+  const h1 = bizHtml(runs, ck("blocked: http-403"), "SCC", { dirs: [], dirStatus: [] }, { needsperson: true, cant: true });
+  assert.match(h1, /data-testid="cant-note">blocked: http-403</);
+  const h2 = bizHtml(runs, ck(""), "SCC", { dirs: [], dirStatus: [] }, { needsperson: true, cant: true });
+  assert.match(h2, /data-testid="cant-note">no usable result</);
+});
+
 test("filter by reason: Paid shows only Paid rows, the section count stays the full group, All restores", () => {
   const all = bizHtml(runs, checks, "SCC", dbs, { needsperson: true });
   const paid = bizHtml(runs, checks, "SCC", dbs, { needsperson: true }, "paid");
@@ -123,7 +131,7 @@ test("backfill file: 61 audit rows -> 58 status rows, only reason_code is set, n
   for (const v of Object.values(bf)) assert.ok(v.reason_code === null || REASONS[v.reason_code], v.reason_code);
   const sql = readFileSync(new URL("../db/011_reason_code_backfill.sql", import.meta.url), "utf8");
   assert.ok(!/\b(insert|delete|drop|truncate)\b/i.test(sql.replace(/^--.*$/gm, "")));
-  const upd = sql.split("\n").filter((l) => l.startsWith("update"));
+  const upd = sql.split(/\r?\n/).filter((l) => l.startsWith("update"));
   assert.ok(upd.length > 30 && upd.every((l) => /^update public\.ce_directory_status set reason_code = '[a-z_]+' where biz = '(SCC|NM)' and directory = '[^']+' and reason_code is null;$/.test(l)));
   const mig = readFileSync(new URL("../db/011_reason_code.sql", import.meta.url), "utf8");
   assert.match(mig, /add column if not exists reason_code text;/);

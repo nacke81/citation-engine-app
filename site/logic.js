@@ -75,7 +75,7 @@ export function reasonOf(check) {
 // status/dirs (optional) are the same rows builderRows reads, so both sections badge from the one label function.
 export function cantCheckCards(checks, status, dirs) {
   const st = new Map((status || []).map((r) => [r.domain || r.directory, r])), dr = new Map((dirs || []).map((d) => [d.domain, d]));
-  return sortChecks(checks).filter((k) => ["couldnt_check", "unsearchable"].includes(statusOf(k))).map((k) => ({ directory: k.directory, reason: reasonOf(k), badge: reasonFor({ status: st.get(k.directory), dir: dr.get(k.directory), check: k }) }));
+  return sortChecks(checks).filter((k) => ["couldnt_check", "unsearchable"].includes(statusOf(k))).map((k) => ({ directory: k.directory, reason: reasonOf(k), note: k.note || "", badge: reasonFor({ status: st.get(k.directory), dir: dr.get(k.directory), check: k }) }));
 }
 
 // Overview stats. Correct = found with zero error rows. With NAP errors = found with 1+ error rows (a website-only row counts).

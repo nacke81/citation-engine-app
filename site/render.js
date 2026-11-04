@@ -91,7 +91,7 @@ export function bizHtml(runs, checks, b, dbs = {}, open = {}, reasonSel = '') {
   const none = (id) => `<div class="note" data-testid="${id}">None.</div>`;
   const tools = '<div class="coltools"><button type="button" class="btn" data-expand="all" data-testid="expand-all">Expand all</button> <button type="button" class="btn" data-expand="none" data-testid="collapse-all">Collapse all</button></div>';
   const nfBody = nf.length ? nf.map((x) => `<div class="row" data-testid="notfound-${esc(x.directory)}"><h3>${esc(x.directory)} <span class="chip not_found">${esc(LABEL.not_found)}</span></h3></div>`).join('') : none('notfound-empty');
-  const ccBody = cc.length ? cc.map((x) => `<div class="row" data-testid="cant-${esc(x.directory)}"><h3>${esc(x.directory)} ${reasonBadge(x.badge, esc)}</h3>${x.reason ? `<div class="kv"><span>Check</span><b data-testid="cant-note">${esc(x.reason)}</b></div>` : ''}</div>`).join('') : none('cant-empty');
+  const ccBody = cc.length ? cc.map((x) => `<div class="row" data-testid="cant-${esc(x.directory)}"><h3>${esc(x.directory)} ${reasonBadge(x.badge, esc)}</h3>${x.note || x.reason ? `<div class="kv"><span>Check</span><b data-testid="cant-note">${esc(x.note || x.reason)}</b></div>` : ''}</div>`).join('') : none('cant-empty');
   return `<a class="back" href="#">&larr; Both businesses</a><h2>${esc(bizLabel(run, b))}</h2>${tools}
     <h2 class="sec" data-testid="inflight-title">In flight</h2>${GROUPS.slice(0, 3).map((g) => groupHtml(g, rows, open, reasonSel)).join('')}
     <h2 class="sec" data-testid="results-title">Results</h2>${GROUPS.slice(3).map((g) => groupHtml(g, rows, open)).join('')}
