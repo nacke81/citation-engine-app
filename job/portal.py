@@ -49,7 +49,7 @@ def _status(c):
     r = c["result"]
     if r == "found": return "nap"
     if r == "absent": return "undiscovered"
-    if r == "couldnt_check": return "blocked" if c.get("note") == "blocked" else "unavailable"
+    if r == "couldnt_check": return "blocked" if str(c.get("note") or "").split(":")[0] == "blocked" else "unavailable"   # 'blocked' or 'blocked: <kind>' (walls.is_blocked_note)
     return "unavailable"  # unsearchable
 
 

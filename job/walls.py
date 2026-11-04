@@ -59,6 +59,29 @@ def check_try(row, today):
     return len(t) + 1
 
 
+def wall_kind(log_lines):
+    """Why a weekly-run visit was walled, from the job's own fetch log lines ('kind:class:status:url', class 'blocked').
+    -> 'http-403' | 'http-502' | 'no-response' (no HTTP status came back: error/timeout), or None when no line was blocked.
+    Reads the status token only, never page text, so a page that talks about Cloudflare or CAPTCHA cannot change it."""
+    for ln in log_lines or []:
+        p = str(ln).strip().split(":", 4)
+        for i in (0, 1, 2):   # 'blocked:403:url' | 'search:blocked:403:url' | 'box:blocked:403:url'
+            if i + 1 < len(p) and p[i] == "blocked":
+                return "http-%s" % p[i + 1] if re.fullmatch(r"\d{3}", p[i + 1]) else "no-response"
+    return None
+
+
+def blocked_note(log_lines):
+    """The ce_checks.note for a walled Directory: 'blocked: <kind>' (site/reasons.js splits it), or bare 'blocked' when no line says why."""
+    k = wall_kind(log_lines)
+    return "blocked: " + k if k else "blocked"
+
+
+def is_blocked_note(note):
+    """True for the bare 'blocked' note and for 'blocked: <kind>'. Every reader of ce_checks.note uses this, never == 'blocked'."""
+    return note == "blocked" or str(note or "").startswith("blocked: ")
+
+
 def parse_ray_id(text):
     m = RAY_RX.search(text or "")
     return m.group(1).lower() if m else None

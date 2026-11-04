@@ -1,0 +1,1695 @@
+{
+ "audit": [
+  {
+   "audit_label": "Blocked: CAPTCHA",
+   "biz": "SCC",
+   "directory": "2findlocal.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "8coupons.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "ailoq.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Signup form fails",
+   "biz": "SCC",
+   "directory": "americasbestcompanies.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "botw.org",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Blocked: bot wall",
+   "biz": "SCC",
+   "directory": "cylex.us",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Waiting on directory",
+   "biz": "SCC",
+   "directory": "data-axle.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Blocked: bot wall",
+   "biz": "SCC",
+   "directory": "enrollbusiness.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Signup form fails",
+   "biz": "SCC",
+   "directory": "expressbusinessdirectory.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Site down",
+   "biz": "SCC",
+   "directory": "fyple.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "judysbook.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "mapquest.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Declined by Mike",
+   "biz": "SCC",
+   "directory": "merchantcircle.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "mylocalservices.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "neustarlocaleze.biz",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "sbdpro.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "showmelocal.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Blocked: CAPTCHA",
+   "biz": "SCC",
+   "directory": "superpages.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Form can't take our NAP",
+   "biz": "SCC",
+   "directory": "threebestrated.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "topratedlocal.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Blocked: bot wall",
+   "biz": "SCC",
+   "directory": "trustpilot.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Blocked: CAPTCHA",
+   "biz": "SCC",
+   "directory": "usaypage.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "uscity.net",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "uscolist.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "usdirectory.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "uslocaldir.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Site down",
+   "biz": "SCC",
+   "directory": "yellowbot.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Phone verification (client)",
+   "biz": "SCC",
+   "directory": "yelp.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Contact name required",
+   "biz": "SCC",
+   "directory": "bbb.org",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "SCC",
+   "directory": "bizapedia.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Unsearchable",
+   "biz": "SCC",
+   "directory": "brownbook.net",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "SCC",
+   "directory": "chamberofcommerce.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "No usable result",
+   "biz": "SCC",
+   "directory": "ezlocal.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "ID check (client)",
+   "biz": "SCC",
+   "directory": "facebook.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "SCC",
+   "directory": "foursquare.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Bad Catalog row",
+   "biz": "SCC",
+   "directory": "localstack.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "SCC",
+   "directory": "manta.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "SCC",
+   "directory": "showmelocal.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "No search on site",
+   "biz": "SCC",
+   "directory": "yellowbook.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Site down",
+   "biz": "SCC",
+   "directory": "yellowbot.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Phone verification (client)",
+   "biz": "SCC",
+   "directory": "yelp.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Contact name required",
+   "biz": "NM",
+   "directory": "bbb.org",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Mike's account only",
+   "biz": "NM",
+   "directory": "bing.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "ID check (client)",
+   "biz": "NM",
+   "directory": "facebook.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "NM",
+   "directory": "mapquest.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Declined by Mike",
+   "biz": "NM",
+   "directory": "merchantcircle.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Phone verification (client)",
+   "biz": "NM",
+   "directory": "yelp.com",
+   "section": "Needs a person"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "NM",
+   "directory": "bizapedia.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Unsearchable",
+   "biz": "NM",
+   "directory": "brownbook.net",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "NM",
+   "directory": "dexknows.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "No usable result",
+   "biz": "NM",
+   "directory": "ezlocal.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "NM",
+   "directory": "foursquare.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "No usable result",
+   "biz": "NM",
+   "directory": "hotfrog.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Bad Catalog row",
+   "biz": "NM",
+   "directory": "localstack.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "NM",
+   "directory": "manta.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Login wall",
+   "biz": "NM",
+   "directory": "nextdoor.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Paid listing",
+   "biz": "NM",
+   "directory": "showmelocal.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "NM",
+   "directory": "superpages.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "No search on site",
+   "biz": "NM",
+   "directory": "yellowbook.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Site down",
+   "biz": "NM",
+   "directory": "yellowbot.com",
+   "section": "Couldn't check"
+  },
+  {
+   "audit_label": "Search blocked (cause not recorded)",
+   "biz": "NM",
+   "directory": "yellowpages.com",
+   "section": "Couldn't check"
+  }
+ ],
+ "checks": [
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "facebook.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "yelp.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "bbb.org",
+   "note": "no usable result",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "mapquest.com",
+   "note": "",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "superpages.com",
+   "note": "",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "manta.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "merchantcircle.com",
+   "note": "",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "foursquare.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "chamberofcommerce.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "bizapedia.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "brownbook.net",
+   "note": "unsearchable",
+   "result": "unsearchable",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "localstack.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "yellowbook.com",
+   "note": "no usable result",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "yellowbot.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "ezlocal.com",
+   "note": "no usable result",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "SCC",
+   "diffs": null,
+   "directory": "showmelocal.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "bing.com",
+   "note": null,
+   "result": "absent",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "facebook.com",
+   "note": "stale phone shown",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "yelp.com",
+   "note": "stale phone shown",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "bbb.org",
+   "note": "; old street shown",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "mapquest.com",
+   "note": "",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "yellowpages.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "superpages.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "dexknows.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "nextdoor.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "manta.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "merchantcircle.com",
+   "note": "stale phone shown",
+   "result": "found",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "hotfrog.com",
+   "note": "no usable result",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "foursquare.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "bizapedia.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "brownbook.net",
+   "note": "unsearchable",
+   "result": "unsearchable",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "localstack.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "yellowbook.com",
+   "note": "no usable result",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "yellowbot.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "ezlocal.com",
+   "note": "no usable result",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  },
+  {
+   "biz": "NM",
+   "diffs": null,
+   "directory": "showmelocal.com",
+   "note": "blocked",
+   "result": "couldnt_check",
+   "run_id": "8f78f625-9ea3-4c1c-947f-6b6f27edcdca",
+   "url": null
+  }
+ ],
+ "dirs": [
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "2findlocal.com",
+   "name": "2findlocal"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "8coupons.com",
+   "name": "8coupons"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "ailoq.com",
+   "name": "ailoq"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "americasbestcompanies.com",
+   "name": "americasbestcompanies"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "bbb.org",
+   "name": "bbb"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agency-account",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "bing.com",
+   "name": "bing"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "free",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "bizapedia.com",
+   "name": "bizapedia"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "botw.org",
+   "name": "botw"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "brownbook.net",
+   "name": "brownbook"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "chamberofcommerce.com",
+   "name": "chamberofcommerce"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "cylex.us",
+   "name": "cylex"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "aggregator",
+   "cost": "free",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "data-axle.com",
+   "name": "data-axle"
+  },
+  {
+   "agent_access": "ok",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "dexknows.com",
+   "name": "dexknows"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "enrollbusiness.com",
+   "name": "enrollbusiness"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "expressbusinessdirectory.com",
+   "name": "expressbusinessdirectory"
+  },
+  {
+   "agent_access": "ok",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "ezlocal.com",
+   "name": "ezlocal"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "facebook.com",
+   "name": "facebook"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "aggregator",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "foursquare.com",
+   "name": "foursquare"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "fyple.com",
+   "name": "fyple"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "hotfrog.com",
+   "name": "hotfrog"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "judysbook.com",
+   "name": "judysbook"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": true,
+   "dead_reason": "gate text scrubbed from the fixture",
+   "domain": "localstack.com",
+   "name": "localstack"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "manta.com",
+   "name": "manta"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "mapquest.com",
+   "name": "mapquest"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "merchantcircle.com",
+   "name": "merchantcircle"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "mylocalservices.com",
+   "name": "mylocalservices"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "aggregator",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "neustarlocaleze.biz",
+   "name": "neustarlocaleze"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "nextdoor.com",
+   "name": "nextdoor"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "sbdpro.com",
+   "name": "sbdpro"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "showmelocal.com",
+   "name": "showmelocal"
+  },
+  {
+   "agent_access": "unknown",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "superpages.com",
+   "name": "superpages"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "threebestrated.com",
+   "name": "threebestrated"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "topratedlocal.com",
+   "name": "topratedlocal"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "trustpilot.com",
+   "name": "trustpilot"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "usaypage.com",
+   "name": "usaypage"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "uscity.net",
+   "name": "uscity"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "uscolist.com",
+   "name": "uscolist"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "usdirectory.com",
+   "name": "usdirectory"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "paid",
+   "cost_note": "gate text scrubbed from the fixture",
+   "dead": false,
+   "dead_reason": null,
+   "domain": "uslocaldir.com",
+   "name": "uslocaldir"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": true,
+   "dead_reason": "no business search on the site",
+   "domain": "yellowbook.com",
+   "name": "yellowbook"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "yellowbot.com",
+   "name": "yellowbot"
+  },
+  {
+   "agent_access": "ok",
+   "agent_blocker": null,
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "yellowpages.com",
+   "name": "yellowpages"
+  },
+  {
+   "agent_access": "blocked",
+   "agent_blocker": "gate text scrubbed from the fixture",
+   "build_route": "agent",
+   "cost": "unknown",
+   "cost_note": null,
+   "dead": false,
+   "dead_reason": null,
+   "domain": "yelp.com",
+   "name": "yelp"
+  }
+ ],
+ "status": [
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "bbb.org",
+   "last_result": "found",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "contact_name"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "bing.com",
+   "last_result": "absent",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "mike_account"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "bizapedia.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "brownbook.net",
+   "last_result": "unsearchable",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "dexknows.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "ezlocal.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "facebook.com",
+   "last_result": "found",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "id_check"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "foursquare.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "hotfrog.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "localstack.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "bad_catalog"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "manta.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "mapquest.com",
+   "last_result": "found",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "paid"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "merchantcircle.com",
+   "last_result": "found",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "declined"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "nextdoor.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "login_wall"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "showmelocal.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "paid"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "superpages.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "yellowbook.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "no_search"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "yellowbot.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "site_down"
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "yellowpages.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": null
+  },
+  {
+   "biz": "NM",
+   "build_action": null,
+   "domain": "yelp.com",
+   "last_result": "found",
+   "queue_note": null,
+   "queue_state": null,
+   "reason_code": "phone_verify"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "2findlocal.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "captcha"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "8coupons.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "ailoq.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "americasbestcompanies.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "signup_form"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "bbb.org",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "submitted",
+   "reason_code": "contact_name"
+  },
+  {
+   "biz": "SCC",
+   "build_action": "new",
+   "domain": "bizapedia.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "live",
+   "reason_code": null
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "botw.org",
+   "last_result": "couldnt_check",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": "new",
+   "domain": "brownbook.net",
+   "last_result": "unsearchable",
+   "queue_note": null,
+   "queue_state": "live",
+   "reason_code": null
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "chamberofcommerce.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "created-unlisted",
+   "reason_code": null
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "cylex.us",
+   "last_result": null,
+   "queue_note": "Cloudflare absent; registration advanced to an email code; the vault fill fails: browser-field-not-rendered.",
+   "queue_state": "needs-human",
+   "reason_code": "signup_form"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "data-axle.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "waiting_directory"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "enrollbusiness.com",
+   "last_result": "couldnt_check",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "cloudflare"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "expressbusinessdirectory.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "signup_form"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "ezlocal.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "created-unlisted",
+   "reason_code": null
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "facebook.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "rejected",
+   "reason_code": "id_check"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "foursquare.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "submitted",
+   "reason_code": null
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "fyple.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "site_down"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "judysbook.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "localstack.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "rejected",
+   "reason_code": "bad_catalog"
+  },
+  {
+   "biz": "SCC",
+   "build_action": "new",
+   "domain": "manta.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "live",
+   "reason_code": null
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "mapquest.com",
+   "last_result": "found",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "merchantcircle.com",
+   "last_result": "found",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "declined"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "mylocalservices.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "neustarlocaleze.biz",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "sbdpro.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "showmelocal.com",
+   "last_result": "couldnt_check",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "superpages.com",
+   "last_result": "found",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "captcha"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "threebestrated.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "nap"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "topratedlocal.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "trustpilot.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "bot_wall"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "usaypage.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "nap"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "uscity.net",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "uscolist.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "usdirectory.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "uslocaldir.com",
+   "last_result": null,
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "paid"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "yellowbook.com",
+   "last_result": "couldnt_check",
+   "queue_note": null,
+   "queue_state": "rejected",
+   "reason_code": "no_search"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "yellowbot.com",
+   "last_result": "couldnt_check",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "site_down"
+  },
+  {
+   "biz": "SCC",
+   "build_action": null,
+   "domain": "yelp.com",
+   "last_result": "couldnt_check",
+   "queue_note": "gate text scrubbed from the fixture",
+   "queue_state": "needs-human",
+   "reason_code": "phone_verify"
+  }
+ ]
+}

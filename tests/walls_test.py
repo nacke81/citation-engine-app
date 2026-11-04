@@ -117,4 +117,25 @@ mixed = row("m", "queued", "m.example")
 mixed["history"] = [{"wall": "hard-block", "try": 1, "at": "2026-10-27"}, {"wall": "hard-block", "try": 2, "at": "2026-10-26"}]
 check("W7 same-day check looks at every try, not only the last", refused(W.check_try, mixed, "2026-10-27"))
 
+# W8 (t_93ae9b6b) the weekly job records the wall kind or HTTP status in ce_checks.note, from the fetch log's status token only
+check("W8 403 in a search line -> 'blocked: http-403'", W.blocked_note(["search:blocked:403:https://a.example/s"]) == "blocked: http-403")
+check("W8 502 in a later line is found past ok lines", W.blocked_note(["home:ok:200:u", "search:blocked:502:u"]) == "blocked: http-502")
+check("W8 box line shape 'box:blocked:429:u'", W.blocked_note(["box:blocked:429:u"]) == "blocked: http-429")
+check("W8 no HTTP status (timeout/err) -> 'blocked: no-response'", W.blocked_note(["search:blocked:TimeoutError:u"]) == "blocked: no-response")
+check("W8 no blocked line -> bare 'blocked' (cause not recorded)", W.blocked_note([]) == "blocked" and W.blocked_note(["search:ok:200:u"]) == "blocked")
+check("W8 page text cannot set the kind: a log line quoting Cloudflare/CAPTCHA with no blocked token is ignored", W.wall_kind(["note: Cloudflare absent, No CAPTCHA solve spent"]) is None)
+check("W8 is_blocked_note matches both shapes and nothing else", W.is_blocked_note("blocked") and W.is_blocked_note("blocked: http-403") and not W.is_blocked_note("no usable result") and not W.is_blocked_note(None) and not W.is_blocked_note("unblocked"))
+import portal as P, listing as LST, directories as DIRS_
+check("W8 portal status treats 'blocked: http-403' as blocked", P._status({"result": "couldnt_check", "note": "blocked: http-403"}) == "blocked" and P._status({"result": "couldnt_check", "note": "no usable result"}) == "unavailable")
+check("W8 listing reason treats 'blocked: http-403' as a bot wall", LST.reason_for("zz.example", "couldnt_check", "blocked: http-403")[0] == "bot wall")
+class _DB:
+    def __init__(s, cur): s.cur = cur; s.calls = []
+    def call(s, method, path, body=None, prefer=None):
+        s.calls.append((method, path, body)); return s.cur if method == "GET" else None
+for _note in ("blocked", "blocked: http-403"):
+    _db = _DB([{"domain": "w.example", "agent_access": "ok", "agent_blocker_source": None}])
+    _n = DIRS_._access_updates(_db, [{"biz": "SCC", "directory": "w.example", "result": "couldnt_check", "note": _note}], "2026-11-04")
+    check("W8 a walled weekly check marks the Directory agent-blocked for note %r (same as before)" % _note, _n == 1 and [c for c in _db.calls if c[0] == "PATCH"][0][2]["agent_access"] == "blocked")
+check("W8 build-loop gate: no submit/queue code was touched (walls.gate and record_try behave as before)", W.gate({"fix_queue": []}, "w.example", "2026-11-04") is None)
+
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

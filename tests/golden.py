@@ -195,7 +195,8 @@ check("G7 self-check: a comparer that ignores hrefs fails the wrong-href test", 
 fixlist.website_hosts = _o3
 # couldn't-check reason is written by the job (blocked / error / no usable result)
 _rows = [dict(kind="dir", biz="NM", dir=DIRS[1], status="couldnt", log="search:blocked:403:u", note="rejected=0"), dict(kind="dir", biz="NM", dir=DIRS[2], status="couldnt", note="error TimeoutError", log=""), dict(kind="dir", biz="NM", dir=DIRS[3], status="couldnt", note="no plan", log="")]
-check("G7 couldn't-check reasons: blocked / error / no usable result", [jobrun.cant_reason(_rows, "NM", DIRS[i]) for i in (1, 2, 3)] == ["blocked", "error", "no usable result"])
+check("G7 couldn't-check reasons: blocked / error / no usable result", [jobrun.cant_reason(_rows, "NM", DIRS[i]) for i in (1, 2, 3)] == ["blocked: http-403", "error", "no usable result"])   # t_93ae9b6b: a walled row records its HTTP status
+check("G7 a blocked row with no status in its log stays a bare 'blocked'", jobrun.cant_reason([dict(kind="dir", biz="NM", dir=DIRS[1], status="couldnt", log="", blocked_on_purpose=True, note="")], "NM", DIRS[1]) == "blocked")
 
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})")
 sys.exit(0 if all(ok) else 1)

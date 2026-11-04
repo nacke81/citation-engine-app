@@ -339,7 +339,7 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -486,7 +486,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out["directories_written"] = False
     if directories is not None or D.enabled():
         try:
-            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories, proof=proof)
+            out["directories"] = D.sync_transition(client, new_row, new_state, note, day, kind=kind, db=directories, proof=proof, reason_code=reason_code)
             out["directories_written"] = True
         except Exception as e:
             out["errors"].append("directories: %s" % e)
@@ -517,6 +517,7 @@ def main(argv=None):
     a.add_argument("--recheck-due", default=None, help="YYYY-MM-DD: batch tools skip this row until that day (retry later, e.g. a Directory sender limit)")
     a.add_argument("--park-reason", default=None, choices=PARK_REASONS, help="needs-human only: why the row is parked by a cap (no-public-permalink: 3 backoffs and still no listing URL)")
     a.add_argument("--refresh-url", action="store_true", help="live -> live only: store --evidence as both evidence_url and listing_url (the Directory moved the listing; needs --note)")
+    a.add_argument("--reason-code", default=None, help="needs-human only: the badge the page shows for this row (paid, captcha, cloudflare, bot_wall, site_down, signup_form, nap, ...; job/directories.py REASON_CODES)")
     a.add_argument("--audit", action="store_true", help="read-only: list live rows with incomplete Proof; exit 1 if any")
     n = a.parse_args(argv)
     if n.audit:
@@ -525,7 +526,7 @@ def main(argv=None):
         print("%d live rows without complete Proof" % len(miss)); return 1 if miss else 0
     if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason,
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code,
                                 observation=({"observed_type": n.observed_type, "screenshot": n.screenshot, "price_seen": n.price_seen, "observed_at": n.observed_at, "url": n.observed_url, "final_url": n.final_url} if n.verify_type else None))
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
