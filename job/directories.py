@@ -172,3 +172,55 @@ def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proo
                  "agent_blocker_source": "transition", "last_verified": day, "updated_at": day + "T00:00:00Z"})
         out["agent_blocked"] = True
     return out
+
+
+def _queue_rows(queue):
+    for kind, rows in (("fix", queue.get("fix_queue") or []), ("create", queue.get("create_rows") or []),
+                       ("create", (queue.get("create_queue") or {}).get("rows") or [] if isinstance(queue.get("create_queue"), dict) else [])):
+        for r in rows:
+            yield r
+
+
+def fill_reason_code_plan(db, queue):
+    """t_c3087efc: SCC rows parked outside sync_transition (buildrows, walls try 3) whose code sits only on queue history. Read-only.
+    Picks needs-human rows whose last needs-human history entry has a code in REASON_CODES and whose status row exists with reason_code NULL."""
+    cur = {r["directory"]: r.get("reason_code") for r in (db.call("GET", "ce_directory_status?biz=eq.SCC&owner=eq.%s&select=directory,reason_code" % _owner(db), None, "return=representation") or [])}
+    out = []
+    for r in _queue_rows(queue):
+        if r.get("state") != "needs-human" or not r.get("directory") or r["directory"] not in cur: continue
+        if cur[r["directory"]] is not None: continue
+        parks = [h for h in (r.get("history") or []) if h.get("to") == "needs-human"]
+        code = parks[-1].get("reason_code") if parks else None
+        if code not in REASON_CODES: continue
+        out.append({"id": r.get("id"), "directory": r["directory"], "code": code, "db_value": cur[r["directory"]]})
+    return out
+
+
+def fill_reason_codes(db, queue, write=False):
+    """Fill-only: PATCH one column, only where it is still NULL (the filter holds even if the DB changed since the read). Never nulls, never overwrites. Dry run by default."""
+    plan = fill_reason_code_plan(db, queue)
+    if write:
+        for p in plan:
+            db.call("PATCH", "ce_directory_status?biz=eq.SCC&owner=eq.%s&directory=eq.%s&reason_code=is.null&queue_state=eq.needs-human" % (_owner(db), p["directory"]),
+                    {"reason_code": p["code"]})
+    return {"write": bool(write), "rows": plan}
+
+
+def main(argv=None):
+    import argparse, sys
+    ap = argparse.ArgumentParser(description="Directory sink tools")
+    ap.add_argument("--fill-reason-codes", action="store_true", help="fill NULL reason_code from queue history (dry run unless --write)")
+    ap.add_argument("--write", action="store_true"); ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--queue")
+    a = ap.parse_args(argv)
+    if not a.fill_reason_codes: ap.error("nothing to do: pass --fill-reason-codes"); return 2
+    if a.write and a.dry_run: ap.error("--write and --dry-run conflict"); return 2
+    import buildqueue as Q
+    res = fill_reason_codes(DirDB(), json.load(open(a.queue or Q.QUEUE_PATH, encoding="utf-8")), write=a.write)
+    print(("WRITE" if res["write"] else "DRY RUN (nothing written)"), "-", len(res["rows"]), "rows")
+    for p in res["rows"]: print("  id=%s directory=%s code=%s db=%s" % (p["id"], p["directory"], p["code"], p["db_value"]))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys; sys.exit(main())
