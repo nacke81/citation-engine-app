@@ -38,6 +38,9 @@ def _hist(day, to, note, url=None):
     return [{"at": day, "from": "queued", "to": to, "evidence_url": url, "note": note}] if to != "queued" else []
 
 
+PARK_CODE = {"needs-human-paid": "paid", "needs-human-route": "signup_form"}   # t_8d61ef01: badge code per park action
+
+
 def decide(d, st, ck):
     """-> (action, why, listing_url, diffs). action: none | fix | create | needs-human-paid | needs-human-route."""
     if d.get("build_route") == "none":
@@ -78,7 +81,7 @@ def make_row(d, action, why, url, diffs, day, canon):
         state = "needs-human"
     row["state"] = state
     row["mike_approval"] = approval(rid)
-    row["history"] = [] if state == "queued" else [{"at": day, "from": "queued", "to": "needs-human", "evidence_url": None, "note": why}]
+    row["history"] = [] if state == "queued" else [{"at": day, "from": "queued", "to": "needs-human", "evidence_url": None, "note": why, "reason_code": PARK_CODE[action]}]
     return row
 
 

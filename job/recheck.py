@@ -742,7 +742,7 @@ def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
         return
     if no_url and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS:   # t_8d1865a3: 3 backoffs and still no listing URL: park it, never a silent forever-submitted row
         n = "no public permalink after %d backoffs (public search, mail scan); parked for a human: find the listing by hand or reject" % T.MAX_NO_URL_BACKOFFS
-        record("SCC", row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink")
+        record("SCC", row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink", reason_code="no_search")
         res["after"] = "needs-human"; res["parked"] = "no-public-permalink"; res["recheck_due"] = None
         return
     n = ((note or res.get("note") or "public read: not public")[:160]) + " (recheck due %s)" % due

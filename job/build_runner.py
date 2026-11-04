@@ -354,7 +354,7 @@ def record_live(row, site, record=None, captured=None):
         except Exception as e: return "NOT recorded (recheck_due failed: %s). Set it with transitions.py." % PK.redact(str(e))[:120]
         return "recheck due %s set on %s (state stays %s)" % (due, row["id"], row["state"])
     if to == "none":
-        return "not recorded: this spec stops at a verify step (record none). Set the state with transitions.py (needs-human + verify_type)."
+        return "not recorded: this spec stops at a verify step (record none). Set the state with transitions.py (needs-human + verify_type + --reason-code phone_verify or id_check)."
     row = dict(row); row.setdefault("vaultwarden_item", site.vault_item)
     try:
         res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True, to=to,
