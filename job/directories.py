@@ -84,7 +84,7 @@ def queue_rows_to_status(db, queue, day):
             last = hist[-1] if hist else {}
             note = last.get("note") if r["state"] == "needs-human" else None
             out.append(_status_row(db, "SCC", r["directory"], day, queue_state=r["state"], queue_row_id=r.get("id"), queue_kind=kind,
-                                   queue_note=note, queue_state_at=last.get("at") or r.get("found_on") or day))
+                                   queue_note=note, queue_state_at=last.get("at") or r.get("found_on") or day))   # t_93ae9b6b: the weekly re-assert is not a move; it never sends reason_code (clearing lives in sync_transition only)
     return out
 
 
@@ -111,7 +111,7 @@ def _access_updates(db, checks, day):
         if c.get("biz") in BIZS: by.setdefault(c["directory"], []).append(c)
     n = 0
     for d, cs in by.items():
-        walled = any(c["result"] == "couldnt_check" and c.get("note") == "blocked" for c in cs)
+        walled = any(c["result"] == "couldnt_check" and str(c.get("note") or "").split(":")[0] == "blocked" for c in cs)
         clean = all(c["result"] in ("found", "absent") for c in cs)
         row = cur.get(d, {})
         if walled and row.get("agent_access") != "blocked":
@@ -145,13 +145,26 @@ def sync_run(checks, day, queue=None, db=None):
     return {"checks": n_checks, "create_discovery": len(rows) - n_checks, "queue_rows": len(qrows), "access_updates": n_access}
 
 
-def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proof=None):
-    """One queue transition: queue state on the status row; needs-human also marks the Directory agent-blocked with the note as the blocker."""
+# Reason badge codes the page knows (site/reasons.js REASONS; tests/walls_test.py keeps the two lists equal). The wall causes from the weekly job live in ce_checks.note, not here.
+REASON_CODES = ("paid", "captcha", "cloudflare", "bot_wall", "site_down", "signup_form", "nap", "phone_verify", "id_check", "contact_name", "login_wall",
+                "mike_account", "declined", "waiting_directory", "bad_catalog", "no_search")
+
+
+def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proof=None, reason_code=None, old_state=None):
+    """One queue transition: queue state on the status row; needs-human also marks the Directory agent-blocked with the note as the blocker.
+    reason_code (t_93ae9b6b): the badge code the worker that parks the row picked. Lifecycle: a move to any state other than needs-human sends null; a move INTO needs-human (old_state known and different) sends the given code or null;
+    needs-human staying needs-human keeps the stored code unless a new one is given."""
     if new_state not in QUEUE_STATES: raise DirectoriesError("unknown state %r" % (new_state,))
+    if reason_code is not None and (reason_code not in REASON_CODES or new_state != "needs-human"):
+        raise DirectoriesError("reason_code %r: one of %s, and only on a move to needs-human" % (reason_code, "/".join(REASON_CODES)))
     db = db or DirDB()
+    if new_state != "needs-human": rc = {"reason_code": None}
+    elif reason_code: rc = {"reason_code": reason_code}
+    elif old_state is not None and old_state != "needs-human": rc = {"reason_code": None}
+    else: rc = {}
     _upsert_status(db, [_status_row(db, client, row["directory"], day, queue_state=new_state, queue_row_id=row.get("id"), queue_kind=kind,
                                     queue_note=(note or None) if new_state == "needs-human" else None, queue_state_at=day,
-                                    **(proof or {}))])   # t_d660babc: Proof rides in the SAME upsert as queue_state=live
+                                    **(proof or {}), **rc)])   # t_d660babc: Proof rides in the SAME upsert as queue_state=live
     out = {"status_written": True, "agent_blocked": False}
     if new_state == "needs-human":
         db.call("PATCH", "ce_directories?domain=eq.%s" % row["directory"],

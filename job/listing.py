@@ -56,7 +56,7 @@ def reason_for(directory, result, note):
     r = REASON_BY_DIR.get(directory)
     if not r:
         n = (note or "")
-        r = "no permalink" if n == "no permalink" else "no-method" if n == "no-method" else "bot wall" if n == "blocked" else "page error" if n == "error" else "unsearchable" if result == "unsearchable" else "no usable result"
+        r = "no permalink" if n == "no permalink" else "no-method" if n == "no-method" else "bot wall" if n.split(":")[0] == "blocked" else "page error" if n == "error" else "unsearchable" if result == "unsearchable" else "no usable result"
     return r, REASON_TEXT[r]
 
 

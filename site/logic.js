@@ -1,5 +1,6 @@
 // Pure page logic. No network, no DOM. "Couldn't check" is never "Not found"; "Not found" needs the job's strict rule (set by the job, only trusted here).
 // Business keys only. The display names come from the job's run row (counts[biz].label), so no business name lives in this repo.
+import { reasonFor } from "./reasons.js";
 export const BIZ = { SCC: "Business 1", NM: "Business 2" };
 export const bizLabel = (run, b) => run?.counts?.[b]?.label || BIZ[b];
 // The database stores the strict-rule status under its old name. It is read in exactly one place (statusOf) and never shown.
@@ -68,10 +69,13 @@ export function notFoundCards(checks) {
 const REASONS = ["blocked", "error", "unsearchable", "no usable result", "no-method"];
 export function reasonOf(check) {
   if (statusOf(check) === "unsearchable") return "unsearchable";
+  if (/^blocked: /.test(check?.note || "")) return "blocked"; // job/walls.py writes "blocked: <kind>"
   return REASONS.includes(check?.note) ? check.note : "no usable result";
 }
-export function cantCheckCards(checks) {
-  return sortChecks(checks).filter((k) => ["couldnt_check", "unsearchable"].includes(statusOf(k))).map((k) => ({ directory: k.directory, reason: reasonOf(k) }));
+// status/dirs (optional) are the same rows builderRows reads, so both sections badge from the one label function.
+export function cantCheckCards(checks, status, dirs) {
+  const st = new Map((status || []).map((r) => [r.domain || r.directory, r])), dr = new Map((dirs || []).map((d) => [d.domain, d]));
+  return sortChecks(checks).filter((k) => ["couldnt_check", "unsearchable"].includes(statusOf(k))).map((k) => ({ directory: k.directory, reason: reasonOf(k), note: k.note || "", badge: reasonFor({ status: st.get(k.directory), dir: dr.get(k.directory), check: k }) }));
 }
 
 // Overview stats. Correct = found with zero error rows. With NAP errors = found with 1+ error rows (a website-only row counts).
