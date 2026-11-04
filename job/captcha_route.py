@@ -87,7 +87,7 @@ def plan(html, url, cli=None):
     """One dict the caller can print or act on: {"route", "wall", "commands", "max_tries", "notes"}."""
     d = detect(html, url)
     if d["interstitial"]:
-        return {"route": "park", "wall": "WALL:cloudflare-click", "commands": [], "max_tries": 1, "notes": ["full-page Cloudflare interstitial, not a form widget: click it in the build Chrome once; never CapSolver (Mike's rule)"]}
+        return {"route": "park", "wall": "WALL:cloudflare-click", "commands": [], "max_tries": 1, "notes": ["full-page Cloudflare interstitial, not a form widget: click it in the build Chrome once; never CapSolver (Mike's rule)", "if parked: transitions.py --to needs-human --reason-code cloudflare"]}
     if not d["widgets"]:
         return {"route": "none", "wall": None, "commands": [], "max_tries": 0, "notes": ["no CAPTCHA widget found on this page"]}
     cmds, notes, wall = [], [], None
@@ -98,7 +98,7 @@ def plan(html, url, cli=None):
         try: cmds.append(command(w, url, cli))
         except ValueError as e: notes.append(str(e))
     if cmds: wall = None
-    return {"route": "capsolver" if cmds else "park", "wall": wall, "commands": cmds, "max_tries": MAX_TRIES, "notes": notes + ["%d tries at most per row; after that park needs-human with the CAPTCHA note" % MAX_TRIES]}
+    return {"route": "capsolver" if cmds else "park", "wall": wall, "commands": cmds, "max_tries": MAX_TRIES, "notes": notes + ["%d tries at most per row; after that park needs-human with the CAPTCHA note and --reason-code captcha" % MAX_TRIES]}
 
 
 def main(argv=None):

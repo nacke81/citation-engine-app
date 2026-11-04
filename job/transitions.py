@@ -367,6 +367,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if park_reason is not None:   # t_8d1865a3: the cap move. Any waiting row -> needs-human, with a structured reason.
         if park_reason not in PARK_REASONS or new_state != "needs-human" or old == "needs-human" or not (note or "").strip():
             raise TransitionRefused("park_reason %r: only %s, on a move INTO needs-human from another state, with a note" % (park_reason, "/".join(PARK_REASONS)))
+    if reason_code is not None and (reason_code not in D.REASON_CODES or new_state != "needs-human"):   # t_8d61ef01: refused BEFORE any write (the sink used to fail after the queue was written)
+        raise TransitionRefused("reason_code %r: one of %s, and only on a move to needs-human" % (reason_code, "/".join(D.REASON_CODES)))
     if refresh_url:   # the evidence URL is the new URL; listing_url follows it, so the next recheck reads the live slug
         if not evidence_url: raise TransitionRefused("--refresh-url needs --evidence (the final URL after redirects)")
         listing_url = evidence_url
@@ -402,11 +404,12 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if recheck_due: entry["recheck_due"] = str(recheck_due)
     if backoff: entry["backoff"] = backoff
     if park_reason: entry["park_reason"] = park_reason
+    if reason_code: entry["reason_code"] = reason_code   # t_8d61ef01: stored at park time so a backfill can send it
     new_row.setdefault("history", [])
     new_row["history"] = list(new_row["history"]) + [entry]
     assert new_row.get("mike_approval") == approval_before  # never touched
 
-    out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "errors": []}
+    out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "reason_code": reason_code, "errors": []}
     same_state = old == new_state  # note refresh: no client news, no Activities row
     rec = build_activity_record(client_id, new_row, new_state, evidence_url, day, hold=activities_hold_flag) if new_state in ACTIVITY_STATES and not same_state else None
     out["activity_record"] = rec
@@ -425,6 +428,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
                                  "row": {"client_id": client_id, "source": P.SOURCE, "captured_day": day,
                                          "payload": "latest snapshot payload, directories patched with:",
                                          "directory_patch": pp["directories"]}}
+        out["directories_request"] = {"queue_state": new_state, "reason_code": reason_code if new_state == "needs-human" else None}
         out["activities_request"] = ({"method": "POST", "path": "deliverables?on_conflict=client_id,source_ref", "body": [rec]} if use_act
                                      else "skipped: %s=0 or state %s is not client news" % (FLAG, new_state))
         out["verification_request"] = (

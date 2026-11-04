@@ -100,6 +100,7 @@ def record_try(row, today=None, ray_id=None):
              "note": "WALL:hard-block try %d/%d" % (n, MAX_TRIES)}
     if n >= MAX_TRIES:
         entry["to"] = "needs-human"; entry["note"] = STOP_NOTE; row["state"] = "needs-human"
+        entry["reason_code"] = "cloudflare" if ray_id else "bot_wall"   # t_8d61ef01: a Ray ID means a Cloudflare wall
     row["history"] = list(row.get("history") or []) + [entry]
     return entry
 
