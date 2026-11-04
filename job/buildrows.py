@@ -8,6 +8,7 @@ import copy, datetime, json, os, shutil, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import fsretry as FSR  # noqa: E402
 import buildqueue as Q
 import permalink
 
@@ -161,7 +162,7 @@ def apply_file(path, dirs, status, checks, day, write=True):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(new, f, indent=1)
-        os.replace(tmp, path)
+        FSR.replace_retry(tmp, path)
     except Exception:
         if os.path.exists(tmp): os.unlink(tmp)
         raise

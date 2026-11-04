@@ -3,6 +3,7 @@ state, history, approval and every other field are untouched. Backup (.bak-<date
   python job/signup_urls.py [--queue PATH] [--dry-run]"""
 import os, sys, json, shutil, tempfile, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fsretry as FSR  # noqa: E402
 
 # row id -> (field, url). Source: Obsidian playbooks/build/<directory>.md, batch 1.
 URLS = {
@@ -57,7 +58,7 @@ def main(argv=None):
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(q, f, indent=2); f.write("\n")
-    os.replace(tmp, path)
+    FSR.replace_retry(tmp, path)
     return 0
 
 

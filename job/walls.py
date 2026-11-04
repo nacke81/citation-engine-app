@@ -10,6 +10,7 @@ A try is a history entry {wall: "hard-block", try: N, at: date, ray_id, note}. T
 import datetime, json, os, re, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fsretry as FSR  # noqa: E402
 
 WALL = "hard-block"
 MAX_TRIES = 3
@@ -114,7 +115,7 @@ def _write_atomic(path, data):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2); f.write("\n")
-        os.replace(tmp, path)
+        FSR.replace_retry(tmp, path)
     except Exception:
         if os.path.exists(tmp): os.unlink(tmp)
         raise

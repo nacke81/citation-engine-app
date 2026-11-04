@@ -11,6 +11,7 @@ import json, os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import fsretry as FSR  # noqa: E402
 import claim, listing  # noqa: E402
 
 
@@ -87,7 +88,7 @@ def main(argv):
         claim.merge_into_queue(q, res)
         tmp = qp + ".tmp"
         json.dump(q, open(tmp, "w", encoding="utf-8"), indent=1)
-        os.replace(tmp, qp)
+        FSR.replace_retry(tmp, qp)
         print("queue updated:", qp)
     return 0
 

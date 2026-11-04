@@ -11,6 +11,7 @@ from urllib.parse import quote_plus as qp, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import fsretry as FSR  # noqa: E402
 from core import judge_listing, classify, Result, HttpFetcher  # noqa: E402
 from cfg import S  # noqa: E402
 
@@ -151,7 +152,7 @@ def weekly_merge(queue_path, fetcher=None, day=None):
     dec, rows = run_all(fetcher, day); day = day or date.today().isoformat()
     q = json.load(open(queue_path, encoding="utf-8"))
     merge_create_queue(q, dec, rows, day)
-    tmp = queue_path + ".tmp"; json.dump(q, open(tmp, "w", encoding="utf-8"), indent=1); os.replace(tmp, queue_path)
+    tmp = queue_path + ".tmp"; json.dump(q, open(tmp, "w", encoding="utf-8"), indent=1); FSR.replace_retry(tmp, queue_path)
     return dec, rows
 
 

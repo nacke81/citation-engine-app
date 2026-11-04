@@ -9,6 +9,7 @@ import datetime, json, os, shutil, sys, tempfile
 from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fsretry as FSR  # noqa: E402
 import signup_urls as S
 
 # directory domain -> (field, url). Playbook files win over CREATE_DIRS. Entries are the signup/claim entry the playbook recorded, not a search page.
@@ -76,7 +77,7 @@ def write_atomic(path, q):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(q, f, indent=2); f.write("\n")
-        os.replace(tmp, path)
+        FSR.replace_retry(tmp, path)
     except Exception:
         if os.path.exists(tmp): os.unlink(tmp)
         raise
