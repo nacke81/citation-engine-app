@@ -206,6 +206,11 @@ def fill_reason_codes(db, queue, write=False):
     return {"write": bool(write), "rows": plan}
 
 
+def weekly_badge_fill(db, queue):
+    """Weekly entry point: the fill-only badge code fill, live. Called by run.directories_step AFTER sync_run."""
+    return fill_reason_codes(db, queue, write=True)
+
+
 def main(argv=None):
     import argparse, sys
     ap = argparse.ArgumentParser(description="Directory sink tools")

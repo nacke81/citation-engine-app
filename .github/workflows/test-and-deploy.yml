@@ -55,6 +55,10 @@ jobs:
         run: python tests/walls_test.py
       - name: Reason badges (reason_code writer, migration 011 shape, page/job code lists)
         run: python tests/reason_code_test.py
+      - name: Fill-only reason code command (never overwrites, never nulls)
+        run: python tests/fill_reason_codes_test.py
+      - name: Weekly job runs the fill after sync_run (non-fatal)
+        run: python tests/weekly_fill_test.py
       - name: Create-queue discovery (absent only with a positive control)
         run: python tests/create_test.py
       - name: Listing URLs, NAP errors, honest states
