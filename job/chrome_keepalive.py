@@ -16,6 +16,10 @@ PROFILE = os.environ.get("CE_BUILD_PROFILE") or os.path.join(LOCAL, "citation-en
 LEASE_PATH = os.environ.get("CE_BUILD_LEASE") or os.path.join(LOCAL, "citation-engine", "build-chrome.lease")
 CHROME = os.environ.get("CE_CHROME") or "C:/Program Files/Google/Chrome/Application/chrome.exe"
 PORT = 9333
+# t_0c4ebee8: every Chrome this repo starts opens OFF-SCREEN so a headed read (Cloudflare still passes a real headed Chrome) never takes over Mike's screen.
+# CE_CHROME_VISIBLE=1 puts the window back at 40,40 (watching a build on purpose).
+OFFSCREEN_POS = "-32000,-32000"
+def window_pos(env=None): return "40,40" if (os.environ if env is None else env).get("CE_CHROME_VISIBLE") == "1" else OFFSCREEN_POS
 LEASE_TTL = 900   # seconds without a refresh before a lease no longer holds Chrome open
 
 
@@ -69,8 +73,34 @@ def cdp_alive(port=PORT, urlopen=urllib.request.urlopen, timeout=2):
 
 
 def chrome_args(profile=PROFILE, port=PORT, chrome=CHROME):
-    return [chrome, "--remote-debugging-port=%d" % port, "--user-data-dir=%s" % profile, "--window-position=40,40", "--window-size=1400,900",
+    return [chrome, "--remote-debugging-port=%d" % port, "--user-data-dir=%s" % profile, "--window-position=%s" % window_pos(), "--window-size=1400,900",
             "--no-first-run", "--no-default-browser-check", *CLEAN_FLAGS, "about:blank"]
+
+
+def set_window(show, port=PORT, cdp=None):
+    """--show / --hide (t_0c4ebee8, no restart): move EVERY window of the Chrome on `port` to 40,40 (show) or off-screen (hide), over CDP Browser.getWindowForTarget +
+    Browser.setWindowBounds. This is how a person reaches the build Chrome for a WALL:cloudflare-click while it sits off-screen. `cdp(method, params) -> dict` is injectable
+    (the test uses a fake); the real one is a Playwright browser-level CDP session. -> list of window ids moved."""
+    pos = (40, 40) if show else tuple(int(x) for x in OFFSCREEN_POS.split(","))
+    if cdp is None:
+        from playwright.sync_api import sync_playwright
+        p = sync_playwright().start()
+        try:
+            b = p.chromium.connect_over_cdp("http://127.0.0.1:%d" % port)
+            s = b.new_browser_cdp_session()
+            return set_window(show, port, lambda m, params=None: s.send(m, params or {}))
+        finally:
+            p.stop()
+    done = []
+    for t in cdp("Target.getTargets").get("targetInfos", []):
+        if t.get("type") != "page": continue
+        try: wid = cdp("Browser.getWindowForTarget", {"targetId": t["targetId"]})["windowId"]
+        except Exception: continue
+        if wid in done: continue
+        cdp("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "normal"}})   # a minimized / maximized window ignores left/top
+        cdp("Browser.setWindowBounds", {"windowId": wid, "bounds": {"left": pos[0], "top": pos[1]}})
+        done.append(wid)
+    return done
 
 
 def _detached_flags():
@@ -128,3 +158,14 @@ class Lease:
     def touch(self): lease_write(self.card, self.path, self.now)
     def __enter__(self): self.touch(); return self
     def __exit__(self, *a): lease_release(self.path); return False
+
+if __name__ == "__main__":   # t_0c4ebee8: python job/chrome_keepalive.py --show | --hide   (the build Chrome on 9333, no restart)
+    import argparse
+    ap = argparse.ArgumentParser(description="Bring the running build Chrome on screen (--show) or put it back off-screen (--hide)")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--show", action="store_true"); g.add_argument("--hide", action="store_true")
+    ap.add_argument("--port", type=int, default=PORT)
+    a = ap.parse_args()
+    if not cdp_alive(a.port): print("no Chrome answers on port %d" % a.port, file=sys.stderr); sys.exit(1)
+    moved = set_window(a.show, a.port)
+    print("%s %d window(s) on port %d" % ("showed" if a.show else "hid", len(moved), a.port))

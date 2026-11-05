@@ -72,9 +72,17 @@ check("walled fresh context: verdict unreadable", R.compare(page.text, CANON, pa
 
 # 3b unstable public page: first signed-out read shows the canonical phone, a later one the old phone -> not live
 import json
-reads = [body("(502) 555-0101"), body("(502) 555-0199"), body("(502) 555-0101")]
+reads = [body("(502) 555-0101"), body("(502) 555-0199"), body("(502) 555-0199")]   # match, then the old phone for good: the page settles on the old phone
+class FlipPg:   # t_0c4ebee8: the page's own text changes between polls (one load); read_rendered waits until it holds still
+    def goto(self, *a, **k): return type("Resp", (), {"status": 200})()
+    def wait_for_timeout(self, ms): pass
+    def inner_text(self, sel, timeout=0): return reads.pop(0) if len(reads) > 1 else reads[0]
+    def evaluate(self, js): return 0 if "click" in js else []
+    def content(self): return "<html>%s</html>" % reads[0]
+    url = "https://a.example/x"
 def flip(u):
-    t = reads.pop(0) if reads else body("(502) 555-0101"); return R.Page(200, u, t, html="<html>%s</html>" % t)
+    st, t, links, raw = R.read_rendered(FlipPg(), u, 30, CANON)
+    return R.Page(st, u, t, links, html="<html>%s</html>" % t)
 IDENT = json.load(open(os.path.join(HERE, "test_identity.json"), encoding="utf-8"))
 row = {"id": "r1", "directory": "a.example", "state": "pending-verify", "listing_url": "https://a.example/x", "evidence_url": "https://a.example/x", "history": []}
 q = {"canonical": CANON, "fix_queue": [row], "create_rows": []}

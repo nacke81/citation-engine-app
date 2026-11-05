@@ -29,7 +29,10 @@ import walls as W
 import mail_scan as MS
 
 US_STATES = {n.lower(): a for n, a in (("Alabama", "AL"), ("Alaska", "AK"), ("Arizona", "AZ"), ("Arkansas", "AR"), ("California", "CA"), ("Colorado", "CO"), ("Connecticut", "CT"), ("Delaware", "DE"), ("Florida", "FL"), ("Georgia", "GA"), ("Hawaii", "HI"), ("Idaho", "ID"), ("Illinois", "IL"), ("Indiana", "IN"), ("Iowa", "IA"), ("Kansas", "KS"), ("Kentucky", "KY"), ("Louisiana", "LA"), ("Maine", "ME"), ("Maryland", "MD"), ("Massachusetts", "MA"), ("Michigan", "MI"), ("Minnesota", "MN"), ("Mississippi", "MS"), ("Missouri", "MO"), ("Montana", "MT"), ("Nebraska", "NE"), ("Nevada", "NV"), ("New Hampshire", "NH"), ("New Jersey", "NJ"), ("New Mexico", "NM"), ("New York", "NY"), ("North Carolina", "NC"), ("North Dakota", "ND"), ("Ohio", "OH"), ("Oklahoma", "OK"), ("Oregon", "OR"), ("Pennsylvania", "PA"), ("Rhode Island", "RI"), ("South Carolina", "SC"), ("South Dakota", "SD"), ("Tennessee", "TN"), ("Texas", "TX"), ("Utah", "UT"), ("Vermont", "VT"), ("Virginia", "VA"), ("Washington", "WA"), ("West Virginia", "WV"), ("Wisconsin", "WI"), ("Wyoming", "WY"))}   # t_11f5b2b0: full state names on listing pages
-STABLE_READS = 2   # a Chrome/OSM match on a row that is NOT yet live is confirmed by one more read (t_ac8b1bdd); a row already live is read once (t_e34fc55c)
+STABLE_POLL_MS = 3000   # t_0c4ebee8: poll spacing of the ONE rendered read that waits for the NAP text to hold still
+STABLE_MAX_S = 20       # ... and the longest it waits once the page first read
+SAVED_MAX_AGE_S = 15 * 60   # t_0c4ebee8: --write --from-read DIR reuses a dry run's saved pages only when younger than this
+STABLE_READS = 2   # an OSM (API tags) match on a row that is NOT yet live is confirmed by one more read (t_ac8b1bdd); a row already live is read once (t_e34fc55c)
 WAITING = ("submitted", "pending-verify", "found", "created-unlisted")
 CDP_URL = "http://127.0.0.1:9333"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -53,8 +56,9 @@ MASKED_PHONE_RE = re.compile(r"\*{2,}|reveal phone|show phone|click to (call|vie
 
 
 class Page:
-    def __init__(self, status, url, text, links=None, err=None, html=None, limited=None):
+    def __init__(self, status, url, text, links=None, err=None, html=None, limited=None, unstable=None):
         self.status, self.url, self.text, self.links, self.err, self.html = status, url, text or "", links or [], err, html
+        self.unstable = unstable   # t_0c4ebee8: the per-poll NAP verdicts when the rendered read never settled (never live)
         self.limited = limited   # t_e34fc55c: why the site guard refused / the page is a quota or wall (rate-limited verdict)
 
 
@@ -102,7 +106,7 @@ class PageStore:
     """--save-pages / --replay (t_e34fc55c). One JSON file per read: <route>-<sha1(url)[:12]>-<n>.json, n counting the reads of that URL on that route in call order.
     save: wraps a reader and stores what it returned. replay: serves the saved pages in the same order, never touches the network; a URL with no saved page is `err`."""
     def __init__(self, folder, replay=False):
-        self.dir, self.replay, self.n = folder, replay, {}
+        self.dir, self.replay, self.n, self.reused = folder, replay, {}, 0
         if not replay: os.makedirs(folder, exist_ok=True)
 
     def _path(self, route, url):
@@ -113,9 +117,26 @@ class PageStore:
     def saving(self, fn, route):
         def read(url, *a, **k):
             pg = fn(url, *a, **k)
-            d = {"url": url, "status": pg.status, "final": pg.url, "text": pg.text, "links": pg.links, "err": pg.err, "html": pg.html, "limited": getattr(pg, "limited", None)}
+            d = {"url": url, "status": pg.status, "final": pg.url, "text": pg.text, "links": pg.links, "err": pg.err, "html": pg.html, "limited": getattr(pg, "limited", None), "unstable": getattr(pg, "unstable", None)}
             with open(self._path(route, url), "w", encoding="utf-8") as f: json.dump(d, f, ensure_ascii=False, sort_keys=True)
             return pg
+        return read
+
+    def reusing(self, fn, route, now=None, max_age=SAVED_MAX_AGE_S):
+        """--write --from-read DIR (t_0c4ebee8): serve a dry run's saved page instead of reading again, but only when the file is younger than `max_age`, its saved url is the url
+        asked for (row/URL match), and the Directory really answered (an HTTP status, not a guard refusal / quota / transport failure; a plain 403 IS reused, it is what the dry run saw). The n-th ask of a URL gets the n-th saved page, like --replay. Anything else
+        goes to `fn`, the live reader (guarded, one read). `fn` is the guarded reader, so a reuse never reserves the guard. `self.reused` counts the reuses."""
+        import time as _t
+        now = now or _t.time
+        def read(url, *a, **k):
+            p = self._path(route, url)
+            try:
+                d = json.load(open(p, encoding="utf-8")) if now() - os.path.getmtime(p) <= max_age else None
+            except (OSError, ValueError): d = None
+            if d and d.get("url") == url and not d.get("limited") and d.get("status") and d["text"] is not None:
+                self.reused += 1
+                return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"), d.get("unstable"))
+            return fn(url, *a, **k)
         return read
 
     def replaying(self, route):
@@ -128,7 +149,7 @@ class PageStore:
                 if not os.path.exists(p2): return Page(0, url, "", err="replay: no saved page", limited=None)
                 p = p2
             d = json.load(open(p, encoding="utf-8"))
-            return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"))
+            return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"), d.get("unstable"))
         return read
 
 
@@ -162,7 +183,7 @@ REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); const bare = /^(show|reve
   } return n; }""" % REVEAL_RE
 
 
-def read_rendered(pg, url, wait_s=30, canonical=None, referer=None):
+def read_rendered(pg, url, wait_s=30, canonical=None, referer=None, info=None):
     """Open `url` in page `pg`, wait for the JS page to render (past walls), click any 'Reveal Phone Number' control, then read text/links/html.
     Reads only; the one click is a public page's own reveal control (t_3ac43137). -> (status, text, links, html)"""
     import core
@@ -171,18 +192,32 @@ def read_rendered(pg, url, wait_s=30, canonical=None, referer=None):
         except Exception: pass
     r = pg.goto(url, timeout=40000, wait_until="domcontentloaded", **({"referer": referer} if referer else {}))   # referer: businessyab search answers 403 without a home-page Referer (t_89f4aebf)
     status = r.status if r else None
-    text, prev, same = "", None, 0
-    for _ in range(max(1, wait_s // 2)):
-        pg.wait_for_timeout(2000)
+    text, prev, same, readable, seen, settled = "", None, 0, 0, [], False
+    base = max(1, wait_s // 2)   # round 2: the budget to FIND a readable page; once it reads, the loop always gets the full stability window (cap fires), however many wall polls came first
+    for i in range(base + int(STABLE_MAX_S * 1000 // STABLE_POLL_MS) + 1):
+        if i >= base and readable == 0: break
+        pg.wait_for_timeout(STABLE_POLL_MS if readable else 2000)   # t_0c4ebee8: once the page reads, poll ~3s apart
         try: text = pg.inner_text("body", timeout=8000)
         except Exception: text = ""
-        if WALL_RE.search(text[:4000]) or len(text.strip()) <= 200: prev, same = None, 0; continue
-        # t_03a74bae (us-info flip-flop): a lazy-loaded block (the street) appears AFTER the first readable render. Without the canonical NAP: stop only once the
-        # text held still for 3 polls. With it: stop as soon as the full NAP reads as a match, else after 3 still polls (a page that really lacks the street).
-        same = same + 1 if text == prev else 0; prev = text
+        if WALL_RE.search(text[:4000]) or len(text.strip()) <= 200: prev, same, readable, seen = None, 0, 0, []; continue
+        # t_03a74bae (us-info flip-flop): a lazy-loaded block (the street) appears AFTER the first readable render.
+        # t_0c4ebee8: this ONE load is also the stability check (it replaces the second, back-to-back confirm load). Without the canonical NAP: stop once the text held
+        # still for 3 polls. With it: stop once the NAP matches AND the text did not change across 2 polls, else after 3 still polls (a page that really lacks the street).
+        # Never longer than STABLE_MAX_S after the page first read.
+        readable += 1
+        if canonical is None:   # no NAP to judge: the whole text must hold still
+            key, verdict = text, None
+        else:   # t_0c4ebee8 round 1: stability is the NAP READ (verdict + the NAP found) holding still, not the body (a rotating ad / timestamp must not matter)
+            c = compare(text, canonical); verdict = c["verdict"]; key = (verdict, json.dumps(c.get("nap"), sort_keys=True, default=str))
+        seen.append(verdict)
+        same = same + 1 if key == prev else 0; prev = key
         if canonical is None:
-            if same >= 2: break
-        elif compare(text, canonical)["verdict"] == "match" or same >= 2: break
+            if same >= 2: settled = True; break
+        elif (same >= 1 and verdict == "match") or same >= 2: settled = True; break
+        if readable * STABLE_POLL_MS / 1000.0 >= STABLE_MAX_S: break
+    # t_0c4ebee8 round 2: EVERY exit that is not an early stable stop (the 20s cap, OR the loop running out of iterations after wall/slow polls, OR a small wait_s)
+    # with NAP reads that disagreed and a last poll that did not hold is unstable: never scored as a listing, never live, same verdict in both phases.
+    if canonical is not None and not settled and same == 0 and len(set(seen)) > 1 and info is not None: info["unstable"] = list(seen)
     try: clicked = pg.evaluate(REVEAL_JS)
     except Exception: clicked = 0
     if isinstance(clicked, int) and not isinstance(clicked, bool) and clicked > 0:   # the phone sits behind a click (us-info): let it appear, then re-read
@@ -205,8 +240,9 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30, canonical=None, referer=None):
         ctx = b.new_context()   # fresh, signed out (t_ac8b1bdd): contexts[0] is the signed-in build profile and shows owner-only pending edits
         pg = ctx.new_page()
         try:
-            status, text, links, raw = read_rendered(pg, url, wait_s, canonical, referer) if referer else read_rendered(pg, url, wait_s, canonical)
-            return Page(status, pg.url, text, links, html=raw)
+            info = {}
+            status, text, links, raw = read_rendered(pg, url, wait_s, canonical, referer, info) if referer else read_rendered(pg, url, wait_s, canonical, None, info)
+            return Page(status, pg.url, text, links, html=raw, unstable=info.get("unstable"))
         finally:
             try: pg.close()
             except Exception: pass
@@ -315,7 +351,11 @@ def read_listing(url, plain, chrome, canonical, confirm=True):
     if getattr(page, "limited", None) or wall_reason(page):   # t_e34fc55c: a quota / wall page is never scored as a listing
         return page, how, {"verdict": "rate-limited", "wrong": [], "gaps": [], "nap": None, "why": getattr(page, "limited", None) or wall_reason(page)}
     cmp_ = compare(page.text, canonical, getattr(page, "html", None))
-    again = {"osm": lambda: osm_fetch(url), "chrome": (lambda: chrome(url)) if chrome else None}.get(how)
+    if getattr(page, "unstable", None):   # t_0c4ebee8 round 1: the rendered read never settled (its NAP verdicts disagreed at the cap): the most severe non-match, never live, whatever phase the last poll was in
+        vs = list(page.unstable); bad = min((v for v in vs if v != "match"), key=lambda v: SEVERITY.index(v) if v in SEVERITY else 99, default="mismatch")
+        c = dict(cmp_); c["verdict"] = bad; c["unstable"] = vs
+        return page, how, c
+    again = {"osm": lambda: osm_fetch(url)}.get(how)   # t_0c4ebee8: the rendered route is confirmed INSIDE its one load (read_rendered waits for stable text), never by a second back-to-back load
     if again is None or not confirm or cmp_["verdict"] not in ("match", "nap-incomplete"): return page, how, cmp_   # confirm=False: a row already live is read ONCE
     reads = [(page, cmp_)]
     for _ in range(STABLE_READS - 1):
@@ -785,7 +825,7 @@ def _last_note(row):
     return (h[-1].get("note") if h and isinstance(h[-1], dict) else None)
 
 
-def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False, any_state=False, guard=None, store=None):
+def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False, any_state=False, guard=None, store=None, from_read=None):
     """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row.
     any_state (t_89f4aebf): read the NAMED rows (`only`) in any state, e.g. a needs-human row after a ruling. Dry-run reads only: it refuses write / backoff / proof."""
     import datetime
@@ -811,6 +851,9 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
         if store is not None and not store.replay:   # --save-pages: outside the guard, so a refused / quota read is saved as it was returned
             plain = store.saving(plain or plain_fetch, "plain")
             if chrome is not None: chrome = store.saving(chrome, "chrome")
+        if from_read is not None:   # t_0c4ebee8: OUTSIDE the guard: a reused page makes no reservation and no load; a stale / mismatched one falls through to the guarded live read
+            plain = from_read.reusing(plain or plain_fetch, "plain")
+            if chrome is not None: chrome = from_read.reusing(chrome, "chrome")
         return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail, backoff_only, any_state, guard)
     finally:
         if own_reader: own_reader.close()
@@ -1063,7 +1106,10 @@ def main(argv=None, plain=None, chrome=None):
     a.add_argument("--live-sweep-ok", action="store_true", help="t_e34fc55c: --include-live over the whole queue (no --row) reads every live row on the Directories; the weekly job only")
     a.add_argument("--save-pages", default=None, metavar="DIR", help="store every page this run reads, for --replay")
     a.add_argument("--replay", default=None, metavar="DIR", help="score pages saved by --save-pages: no network, no mail, dry run only")
+    a.add_argument("--from-read", default=None, metavar="DIR", help="t_0c4ebee8: with --write: reuse the pages a dry run saved with --save-pages (younger than 15 min, same URL) instead of reading the Directory again; stale or mismatched = one live read")
     n = a.parse_args(argv)
+    if n.from_read and (not n.write or n.replay or n.save_pages):
+        print("REFUSED: --from-read DIR reuses a dry run's saved pages for a --write run; never without --write, nor with --replay / --save-pages", file=sys.stderr); return 1
     if n.include_live and not n.row and not n.live_sweep_ok and not n.replay:
         print("REFUSED: --include-live without --row reads every live row on the Directories (that is how we got blocked). Use --row ID, --replay DIR on saved pages, or --live-sweep-ok (weekly job only)", file=sys.stderr); return 1
     if n.replay and (n.write or n.backoff_only or n.proof_live or n.proof_backfill or n.save_pages):
@@ -1090,6 +1136,9 @@ def main(argv=None, plain=None, chrome=None):
     else:
         kw = {"plain": plain, "chrome": chrome, "use_chrome": not n.no_chrome, "guard": SG.SiteGuard()}
         if store: globals()["osm_fetch"] = _save_osm(store, globals()["osm_fetch"])
+        if n.from_read:
+            reuse = PageStore(n.from_read, replay=True); kw["from_read"] = reuse
+            globals()["osm_fetch"] = reuse.reusing(globals()["osm_fetch"], "osm")
     res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write, any_state=n.any_state, store=store, **kw)
     if mail is not None and mail.error: print("MAILBOX NOT READ: %s (rows that need the approval mail were left alone)" % mail.error, file=sys.stderr)
     print(format_report(res))

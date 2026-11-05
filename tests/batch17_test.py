@@ -192,12 +192,20 @@ check("3 recheck rows read through ONE function (read_listing); get_page+compare
       _src.count("= read_listing(url, plain, chrome, canonical, confirm=(before != \"live\"))") == 1 and _src.count("get_page(url, plain, chrome, canonical)") == 1 and "def read_listing(url, plain, chrome, canonical, confirm=True):" in _src)
 # the street loading late ON the repeat reads: reads disagree -> never live, and the verdict does not depend on dry run / write
 seq = [listing(True), listing(False), listing(True)]
+class LatePg:   # t_0c4ebee8: ONE load whose text changes between polls; read_rendered waits for it to hold still
+    url = "https://us-info.example/x"
+    def goto(self, *a, **k): return type("Resp", (), {"status": 200})()
+    def wait_for_timeout(self, ms): pass
+    def inner_text(self, sel, timeout=0): return seq.pop(0) if len(seq) > 1 else seq[0]
+    def evaluate(self, js): return 0 if "click" in js else []
+    def content(self): return "<html>%s</html>" % seq[0]
 def late_chrome(u):
-    t = seq.pop(0) if seq else listing(True); return R.Page(200, u, t, html="<html>%s</html>" % t)
+    st, t, links, raw = R.read_rendered(LatePg(), u, 30, CANON)
+    return R.Page(st, u, t, links, html="<html>%s</html>" % t)
 walled = lambda u: R.Page(403, u, "Just a moment...")
 outs = []
 for write in (False, True):
-    seq[:] = [listing(True), listing(False), listing(True)]
+    seq[:] = [listing(True), listing(False), listing(False)]   # street shows, then is gone for good
     q = {"canonical": CANON, "fix_queue": [row()], "create_rows": []}
     res = R.recheck(q, IDENT, plain=walled, chrome=late_chrome, record=lambda *a, **k: {}, write=write, db=None, queue_path=None)
     outs.append((res[0]["verdict"], res[0]["after"], res[0].get("note")))
@@ -205,7 +213,11 @@ check("3 reads that disagree (street present, absent, present): not live, same i
 seq[:] = [listing(False), listing(False), listing(True)]
 q = {"canonical": CANON, "fix_queue": [row()], "create_rows": []}
 res = R.recheck(q, IDENT, plain=walled, chrome=late_chrome, record=lambda *a, **k: {}, write=False, db=None, queue_path=None)
-check("3 street absent on the first two reads then present: the first nap-incomplete read is repeated, disagreement is never live", res[0]["after"] == "submitted" and res[0]["verdict"] == "nap-incomplete", str(res[0]))
+check("3 street absent on the first two polls then present and holding (ONE load, t_0c4ebee8): the late street is waited for, the page reads match", res[0]["after"] == "live" and res[0]["verdict"] == "match", str(res[0]))
+seq[:] = [listing(False)]
+q = {"canonical": CANON, "fix_queue": [row()], "create_rows": []}
+res = R.recheck(q, IDENT, plain=walled, chrome=late_chrome, record=lambda *a, **k: {}, write=False, db=None, queue_path=None)
+check("3 street that never appears: nap-incomplete, never live", res[0]["after"] == "submitted" and res[0]["verdict"] == "nap-incomplete", str(res[0]))
 seq[:] = [listing(True)] * 3
 res = R.recheck({"canonical": CANON, "fix_queue": [row()], "create_rows": []}, IDENT, plain=walled, chrome=late_chrome, record=lambda *a, **k: {}, write=False, db=None, queue_path=None)
 check("3 three full reads: match", res[0]["verdict"] == "match" and res[0]["after"] == "live", str(res[0]))
