@@ -16,6 +16,9 @@ sys.path.insert(0, str(HERE.parent / "job"))
 TEMP = tempfile.TemporaryDirectory(prefix="weekly-claim-", dir=HERE)
 os.environ["CE_RUNS"] = TEMP.name
 os.environ["CE_ROWS"] = str(Path(TEMP.name) / "rows.jsonl")
+os.environ["CE_SITE_GUARD"] = str(Path(TEMP.name) / "site-guard.json")   # t_e34fc55c: discover_live puts the fetchers behind the site guard; never the real ledger
+os.environ["CE_LOGS"] = str(Path(TEMP.name) / "logs")
+os.environ["CE_SITE_GAP"] = "0"
 import run as R
 import claim as C
 import core
@@ -153,7 +156,7 @@ def discovered(on_chrome, on_complete):
         on_complete(fetcher)
     globals_["discover_all"](on_chrome, complete)
 
-fake_discover = SimpleNamespace(discover_all=discovered, own_search_box=lambda: None, mapnap=SimpleNamespace(lookup=lambda: {}))
+fake_discover = SimpleNamespace(discover_all=discovered, KNOWN={}, SETTLED=set(), GUARD=None, own_search_box=lambda: None, mapnap=SimpleNamespace(lookup=lambda: {}))
 fake_owned = SimpleNamespace(chrome_windows=lambda: [], window_count=lambda: 0)
 with patch.dict(sys.modules, discover=fake_discover, owned_chrome=fake_owned), \
      patch.object(core, "HttpFetcher", Fetcher), patch.object(core, "ChromeFetcher", LiveFetcher), \

@@ -13,3 +13,9 @@ Base: main at 6b7fbcc. Branch citation-engineer/t_e34fc55c-site-spacing. No live
 3. `job/run.py recheck_step`: guard on; prints `SITE WALLS (7d)` per domain. `job/workable.py`: same counts in the table.
 4. Tests: `tests/sitegate_test.py` (one read per row, gap across 2 processes, cap, cooldown, quota page -> rate-limited with no row change and a single log line, replay byte-identical, `--include-live` refusal). Existing tests that counted 3 reads updated. `build_runner_test` sets CE_RUNS to a temp dir and asserts the real runs dir did not grow. CI: add `sitegate_test`.
 5. Live proof: one signed-out dry run on a queue copy, `--row` x3 incl. bizapedia; show reads and logged gaps.
+
+## Round 2 (Nate review: the weekly discovery sweep was unguarded)
+- `sitegate.guard_fetchers(core, guard)` wraps `core.HttpFetcher.fetch` and `core.ChromeFetcher.fetch` with the one per-run SiteGuard (gap, cap, cooldown, quota/CF/429 wall -> `wall()`). Refused or walled read = Result with `err "site-guard: ..."`; `classify()` calls it `blocked`, so discovery says `couldnt`, never `noresult`/absent. `discover.own_search_box` (hotfrog/brownbook/n49) reserves through the same guard. `run.discover_live` installs and removes it.
+- `sitegate.known_listings(queue, runs)`: queue rows with a listing_url plus the newest earlier weekly run's `found` rows. `discover.plan_or_known`: a known URL is read directly, the search is skipped; once answered (found, or noresult on a capped domain) later methods/passes skip it; the made-up control is not run on a capped domain. SCC stays before NM in BIZS.
+- Not routed (named so it is not a surprise): `mapnap.lookup` (google, apple, bing, mapquest map boxes) and `proof.py`/`build_proof.py` read through their own Chrome pages; they are not Directory search reads of the capped domain. Left for a later card if Nate wants them under the ledger.
+- Tests: sitegate_test S8. weekly_claim_test points the ledger at a temp dir.

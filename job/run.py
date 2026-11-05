@@ -76,6 +76,11 @@ def discover_live():
             return r
         cls.fetch = f
     wrap_fetch(core.HttpFetcher); wrap_fetch(core.ChromeFetcher)
+    # t_e34fc55c: BOTH core fetchers + the own-search boxes share one SiteGuard (gap, daily cap, cooldown); known listings are read, not searched for
+    import sitegate as SG, buildqueue
+    guard = SG.SiteGuard(); undo_guard = SG.guard_fetchers(core, guard)
+    discover.GUARD = guard; discover.SETTLED.clear()
+    discover.KNOWN.clear(); discover.KNOWN.update(SG.known_listings(buildqueue.QUEUE_PATH, RUNS, skip=os.environ.get("CE_ROWS")))
     ol = mapnap.lookup
     def lk(*a, **k):
         r = ol(*a, **k)
@@ -103,6 +108,7 @@ def discover_live():
         discover.discover_all(on_chrome, on_complete=on_complete)
     except BaseException as e:
         err = f"{type(e).__name__}: {str(e)[:200]}"
+    undo_guard(); discover.GUARD = None
     time.sleep(2)
     after = window_count()
     alive = chrome_procs_with(state.get("profile"))

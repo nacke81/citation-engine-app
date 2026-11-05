@@ -195,5 +195,86 @@ with contextlib.redirect_stdout(out):
     RUN.recheck_step(run=lambda **k: [{"row": "x", "before": "live", "after": "live", "verdict": "match", "error": None}])
 check("S7 weekly recheck_step prints SITE WALLS (7d)", "SITE WALLS (7d): bizapedia.com walled 2 times" in out.getvalue(), out.getvalue())
 
+# ---- S8 weekly discovery fetchers (core.HttpFetcher / ChromeFetcher) go through the guard (round 2) -------------------------
+import types
+for _m in ("playwright", "playwright.sync_api", "owned_chrome"):
+    sys.modules.setdefault(_m, types.ModuleType(_m))
+sys.modules["playwright.sync_api"].sync_playwright = lambda: None
+for _n in ("OwnedChrome", "window_count", "chrome_windows"): setattr(sys.modules["owned_chrome"], _n, lambda *a, **k: None)
+import core, discover as D
+
+class FakeHttp:
+    name = "http"; block = None
+    def __init__(self, texts=None): self.seen = []; self.texts = texts or {}
+    def fetch(self, url, label=""): self.seen.append(url); return core.Result(200, self.texts.get(url, url), self.texts.get(url, GOODSC), [])
+class FakeChrome(FakeHttp):
+    name = "chrome"
+GOODSC = "filler text " * 120
+fcore = types.SimpleNamespace(Result=core.Result, HttpFetcher=FakeHttp, ChromeFetcher=FakeChrome)
+g8, lg8 = fresh_guard(gap=0, caps={"bizapedia.com": 3})
+undo8 = SG.guard_fetchers(fcore, g8)
+h, c = fcore.HttpFetcher(), fcore.ChromeFetcher()
+BZ1 = "https://www.bizapedia.com/search.aspx?q=%s"
+rs = [(h if i % 2 == 0 else c).fetch(BZ1 % i) for i in range(4)]
+check("S8 Http and Chrome fetchers share one daily cap: 3 reads reach the site, the 4th does not", len(h.seen) + len(c.seen) == 3 and rs[3].err and "daily cap" in rs[3].err, str(rs[3].err))
+r8 = core.classify(rs[3], "SCC")
+check("S8 a capped read is `blocked` for discovery (couldnt_check), never noresult/absent", r8 == "blocked")
+res8 = D.discover(h, "bizapedia.com", "SCC", [("search", BZ1 % 9)], [])
+check("S8 discover() on a capped domain: status couldnt, not noresult", res8["status"] == "couldnt", str(res8))
+undo8()
+check("S8 undo restores the original fetch", fcore.HttpFetcher.fetch is FakeHttp.fetch and not hasattr(FakeHttp.fetch, "__wrapped__"))
+
+# quota page through a fetcher: wall logged once, cooldown, result is blocked
+class QuotaHttp(FakeHttp):
+    def fetch(self, url, label=""): self.seen.append(url); return core.Result(200, "https://www.bizapedia.com/pro-search-subscription.aspx?x=1", QUOTA, [])
+fq = types.SimpleNamespace(Result=core.Result, HttpFetcher=QuotaHttp, ChromeFetcher=FakeChrome)
+gq, lq = fresh_guard(gap=0, caps={"bizapedia.com": 3})
+uq = SG.guard_fetchers(fq, gq); q1 = fq.HttpFetcher(); rq = [q1.fetch(BZ1 % i) for i in range(3)]
+check("S8 quota page via a core fetcher: walled once, later reads refused with no fetch", len(q1.seen) == 1 and "cooldown" in rq[1].err and len(lines(os.path.join(lq, "site-walls.jsonl"))) == 1, str([x.err for x in rq]))
+check("S8 quota page classifies blocked -> couldnt", core.classify(rq[0], "SCC") == "blocked" and D.discover(q1, "bizapedia.com", "SCC", [("search", BZ1 % 5)], [])["status"] == "couldnt")
+uq()
+
+# the gap across two processes for the core fetchers
+child8 = ("import os,sys,time,types; sys.path.insert(0, %r)\nimport sitegate as SG\nclass R:\n    def __init__(s,*a): s.err=None; s.url=a[1]; s.text='x'; s.status=200\nclass H:\n    block=None\n    def fetch(self,url,label=''): return R(0,url)\nclass C(H): pass\ncore=types.SimpleNamespace(Result=R,HttpFetcher=H,ChromeFetcher=C)\nSG.guard_fetchers(core, SG.SiteGuard())\nr=core.ChromeFetcher().fetch('https://gap8.example/'+sys.argv[1])\nprint(time.time(), r.err)\n" % os.path.join(HERE, "..", "job"))
+env8 = dict(os.environ, CE_SITE_GUARD=os.path.join(TMP, "two-proc8", "g.json"), CE_SITE_GAP="2", CE_LOGS=os.path.join(TMP, "two-proc8", "logs"))
+procs8 = [subprocess.Popen([sys.executable, "-c", child8, "u%d" % i], env=env8, stdout=subprocess.PIPE, text=True) for i in range(2)]
+o8 = [pr.communicate()[0].split() for pr in procs8]
+t8 = sorted(float(o[0]) for o in o8)
+check("S8 two processes through the core fetchers: reads >= gap apart", len(o8) == 2 and all(o[1] == "None" for o in o8) and t8[1] - t8[0] >= 1.8, str(o8))
+
+# blocked-on-purpose is no read
+gb8, _ = fresh_guard(gap=0, caps={"bizapedia.com": 1})
+fb = types.SimpleNamespace(Result=core.Result, HttpFetcher=FakeHttp, ChromeFetcher=FakeChrome); ub = SG.guard_fetchers(fb, gb8)
+hb = fb.HttpFetcher(); hb.block = "yellowpages.com"; hb.fetch("https://www.yellowpages.com/x"); hb.fetch("https://www.yellowpages.com/y")
+check("S8 blocked-on-purpose URLs do not use the ledger", not os.path.exists(gb8.path) or "yellowpages.com" not in json.load(open(gb8.path))); ub()
+
+# known listing: read the URL, skip the search; SCC before NM under a cap; FAKE control not run on a capped domain
+check("S8 order: SCC (the client) is read before NM before the made-up control", D.BIZS.index("SCC") < D.BIZS.index("NM") < D.BIZS.index("FAKE"))
+D.KNOWN.clear(); D.SETTLED.clear()
+p_search, _s = D.plan_or_known("search", "bizapedia.com", "SCC")
+check("S8 no known listing: the search runs", p_search and p_search[0][0] == "search" and "search.aspx" in p_search[0][1], str(p_search))
+D.KNOWN[("SCC", "manta.com")] = "https://www.manta.com/c/abc/senior-care"
+p_known, _s = D.plan_or_known("search", "manta.com", "SCC")
+check("S8 known listing_url: that URL is read and the Directory search is SKIPPED", p_known == [("pattern", "https://www.manta.com/c/abc/senior-care")], str(p_known))
+D.settle("SCC", "manta.com", "found"); pk, _s = D.plan_or_known("pattern", "manta.com", "SCC")
+check("S8 once answered found, later methods/passes do not read it again", pk is None)
+pf, why = D.plan_or_known("search", "bizapedia.com", "FAKE")
+check("S8 the made-up control is not run on a read-capped domain", pf is None and "capped" in why, why)
+D.KNOWN.clear(); D.SETTLED.clear()
+gc, _ = fresh_guard(gap=0, caps={"bizapedia.com": 1})
+fcc = types.SimpleNamespace(Result=core.Result, HttpFetcher=FakeHttp, ChromeFetcher=FakeChrome); uc = SG.guard_fetchers(fcc, gc); hc = fcc.HttpFetcher(); order = {}
+for b in D.BIZS:
+    plan, _s = D.plan_or_known("search", "bizapedia.com", b)
+    if plan: order[b] = D.discover(hc, "bizapedia.com", b, plan, [])["status"]
+check("S8 cap of 1 read: SCC gets it, NM is couldnt (not absent), FAKE not run", order.get("SCC") != "couldnt" and order.get("NM") == "couldnt" and "FAKE" not in order and len(hc.seen) == 1, str((order, hc.seen))); uc()
+
+# known_listings: queue rows + the newest earlier run's found rows
+kd = tempfile.mkdtemp(dir=TMP); os.makedirs(os.path.join(kd, "20261101-1100")); os.makedirs(os.path.join(kd, "20261025-1100")); os.makedirs(os.path.join(kd, "20261105-0900"))
+open(os.path.join(kd, "20261101-1100", "rows.jsonl"), "w").write(json.dumps({"kind": "dir", "biz": "NM", "dir": "bbb.org", "status": "found", "url": "https://bbb.example/nm"}) + "\n" + json.dumps({"kind": "dir", "biz": "NM", "dir": "yelp.com", "status": "couldnt", "url": ""}) + "\n")
+open(os.path.join(kd, "20261025-1100", "rows.jsonl"), "w").write(json.dumps({"kind": "dir", "biz": "NM", "dir": "old.example", "status": "found", "url": "https://old.example/nm"}) + "\n")
+open(os.path.join(kd, "20261105-0900", "rows.jsonl"), "w").write("")
+kn = SG.known_listings({"fix_queue": [{"directory": "bing.com", "listing_url": "https://bing.example/scc", "state": "live"}, {"directory": "z.example", "listing_url": "https://z.example/1", "state": "rejected"}]}, kd)
+check("S8 known_listings: queue listing_url + newest earlier run's found rows only", kn == {("SCC", "bing.com"): "https://bing.example/scc", ("NM", "bbb.org"): "https://bbb.example/nm"}, str(kn))
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

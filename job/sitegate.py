@@ -141,3 +141,67 @@ def wall_counts(days=7, logs=None, today=None):
 def render_counts(counts):
     if not counts: return "SITE WALLS (7d): none"
     return "SITE WALLS (7d): " + ", ".join("%s walled %d time%s" % (d, n, "" if n == 1 else "s") for d, n in counts.items())
+
+
+# ---- discovery fetchers (t_e34fc55c r2): core.HttpFetcher / core.ChromeFetcher read Directories too -------------------------------------
+import re as _re
+_QUOTA_URL = _re.compile(r"(?i)bizapedia\.com/pro-search-subscription")
+_QUOTA_TEXT = _re.compile(r"(?i)run out of (your )?free searches|out of free searches")
+_CF = _re.compile(r"(?i)just a moment|quick security check|performing a quick|verify you are (a )?human|attention required|checking your browser|press (&|and) hold|error 1020|security verification")
+
+
+def fetch_wall(r):
+    """Why a fetcher Result is a quota / block wall, else None. Quota page (a 200) and 429 always; Cloudflare text only on a short page."""
+    if _QUOTA_URL.search(getattr(r, "url", "") or "") or _QUOTA_TEXT.search((getattr(r, "text", "") or "")[:6000]): return "quota page: out of free searches"
+    if getattr(r, "status", None) == 429: return "HTTP 429 rate limit"
+    t = getattr(r, "text", "") or ""
+    if len(t) < 4000 and _CF.search(t[:4000]): return "Cloudflare wall"
+    return None
+
+
+def guard_fetchers(core, guard):
+    """Route core.HttpFetcher.fetch and core.ChromeFetcher.fetch through ONE SiteGuard. A refused read (cooldown / cap) is a Result with err "site-guard: ...", which discovery's classify() calls blocked -> couldnt_check, never absent. Returns an undo()."""
+    undo = []
+    def wrap(cls):
+        orig = cls.fetch
+        def f(self, url, label=""):
+            dom = domain_of(url)
+            if not dom or (getattr(self, "block", None) and self.block in url): return orig(self, url, label)   # blocked-on-purpose is no read
+            g = guard.reserve(dom, key=url)
+            if not g["ok"]: return core.Result(None, url, "", [], "site-guard: " + g["why"])
+            r = orig(self, url, label)
+            w = fetch_wall(r)
+            if w:
+                guard.wall(dom, w, url=getattr(r, "url", url), row=label or None)
+                r.err = r.err or ("site-guard: " + w)   # classify() -> blocked
+            return r
+        cls.fetch = f
+        undo.append(lambda: setattr(cls, "fetch", orig))
+    wrap(core.HttpFetcher); wrap(core.ChromeFetcher)
+    return lambda: [u() for u in undo]
+
+
+def known_listings(queue=None, runs_dir=None, skip=None):
+    """{(biz, directory): listing url} we already hold: SCC queue rows with a listing_url, and the newest earlier weekly run's rows.jsonl `found` rows (SCC + NM). The weekly reads that URL instead of searching the Directory again."""
+    out = {}
+    try:
+        q = queue if isinstance(queue, dict) else (json.load(open(queue, encoding="utf-8")) if queue else {})
+    except (OSError, ValueError):
+        q = {}
+    for key in ("fix_queue", "create_queue"):
+        v = q.get(key)
+        for r in (v if isinstance(v, list) else (v or {}).get("rows", []) if isinstance(v, dict) else []):
+            if isinstance(r, dict) and r.get("listing_url") and r.get("directory") and r.get("state") in ("live", "found", "submitted", "pending-verify"):
+                out[("SCC", r["directory"])] = r["listing_url"]
+    if runs_dir and os.path.isdir(runs_dir):
+        for d in sorted(os.listdir(runs_dir), reverse=True):
+            p = os.path.join(runs_dir, d, "rows.jsonl")
+            if not os.path.isfile(p) or (skip and os.path.abspath(p) == os.path.abspath(skip)): continue
+            got = 0
+            for ln in open(p, encoding="utf-8"):
+                try: r = json.loads(ln)
+                except ValueError: continue
+                if r.get("kind") == "dir" and r.get("status") == "found" and r.get("url") and r.get("biz") in ("SCC", "NM"):
+                    out.setdefault((r["biz"], r["dir"]), r["url"]); got += 1
+            if got: break   # newest run that holds any; older ones are staler
+    return out
