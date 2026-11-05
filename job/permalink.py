@@ -34,7 +34,7 @@ LISTING_SHAPES = {
     "yellowbot.com": r"^/[^/?]+\.html$",
     "yelp.com": r"^/biz/[^/?]+",
     "bbb.org": r"/profile/",
-    "chamberofcommerce.com": r"^/united-states/[^?]*/\d+-",
+    "chamberofcommerce.com": r"^/(united-states/[^?]*|business-directory/[a-z-]+/[a-z-]+/[^?]*)/\d+-",
 }
 
 

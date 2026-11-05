@@ -45,6 +45,11 @@ check("L1 a page that is already the record is kept", L.resolve("mapquest.com", 
 for d, u in (("yellowpages.com", yp_guess), ("hotfrog.com", "https://www.hotfrog.com/search/x"), ("n49.com", "https://www.n49.com/search/x/1/y/"),
              ("merchantcircle.com", "https://www.merchantcircle.com/ky-exampleton/health-and-beauty/care-providers/assisted-living"), ("bing.com", "https://www.bing.com/maps/search?q=x")):
     check("L1 is_permalink rejects %s search/category/guessed URL" % d, not L.is_permalink(d, u))
+COC = "https://www.chamberofcommerce.com/"
+check("L1 coc /business-directory/ listing passes", L.is_permalink("chamberofcommerce.com", COC + "business-directory/kentucky/madisonville/health-consultant/2033707360-senior-care-consulting-solutions"))
+check("L1 coc /united-states/ listing still passes", L.is_permalink("chamberofcommerce.com", COC + "united-states/kentucky/madisonville/health-consultant/2033707360-senior-care-consulting-solutions"))
+check("L1 coc category page (no id-slug) fails", not L.is_permalink("chamberofcommerce.com", COC + "business-directory/kentucky/madisonville/health-consultant"))
+check("L1 coc search page fails", not L.is_permalink("chamberofcommerce.com", COC + "search?what=senior+care&where=madisonville"))
 
 # payload: a stored search URL (old data) can never reach the portal as a url
 def row(d, res, **k): return dict(biz="SCC", directory=d, result=res, url=k.get("url"), method="m", note=k.get("note"), diffs=k.get("diffs"))
