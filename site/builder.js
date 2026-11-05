@@ -76,7 +76,9 @@ export function builderStats(rows) {
 }
 
 // Directories checked in the latest run of one business / Catalog size. "of N" is dropped when the Directory table did not load.
+// t_43e88fb7: the count alone, so the weekly chart plots exactly what the tile shows before the "of N".
+export const checkedCount = (checks) => new Set((checks || []).map((k) => k.directory)).size; // a Directory the weekly run visited, whatever the result
 export function checkedStat(checks, dirs) {
-  const done = new Set((checks || []).map((k) => k.directory)).size; // a Directory the weekly run visited, whatever the result
+  const done = checkedCount(checks);
   return dirs && dirs.length ? `${done} of ${dirs.length}` : String(done);
 }

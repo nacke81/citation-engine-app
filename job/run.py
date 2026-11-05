@@ -300,6 +300,7 @@ def main():
     recheck_step()  # public-page recheck of submitted / pending-verify / found rows with a permalink, plus a NAP read of every live row; read-only, non-fatal
     portal_publish(checks, datetime.now().date().isoformat())  # t_f6267312: second same-day snapshot write so the NAP results and any new live row land now (idempotent upsert); non-fatal
     postcard_step()  # client-sent postcard codes: consume, enter, record the result; code never logged; non-fatal
+    if "--weekly" in sys.argv: weekly_metrics_step(run["id"], datetime.now().date().isoformat())  # t_43e88fb7: the chart point for this weekly run, LAST so the tiles are final; manual runs add none; non-fatal
     return 0 if (ok_run and portal_ok) else 1
 
 
@@ -353,6 +354,18 @@ def directories_step(checks, day, db=None, queue=None):
         return True
     except Exception as e:
         print("DIRECTORIES FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
+        return False
+
+
+def weekly_metrics_step(run_id, day, db=None, **kw):
+    """One ce_weekly_metrics row per business for this weekly run, counted by the page's own functions (job/metrics_cli.mjs). Idempotent. Non-fatal."""
+    try:
+        import directories as D, weekly_metrics as W
+        res = W.snapshot_run(db or D.DirDB(), run_id, day, **kw)
+        print("WEEKLY METRICS OK", json.dumps(res), flush=True)
+        return True
+    except Exception as e:
+        print("WEEKLY METRICS FAILED: " + (str(e)[:300] or type(e).__name__), file=sys.stderr, flush=True)
         return False
 
 

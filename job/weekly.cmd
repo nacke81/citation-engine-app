@@ -11,6 +11,6 @@ if not exist "%LOCALAPPDATA%\citation-engine\logs" mkdir "%LOCALAPPDATA%\citatio
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmm"') do set "TS=%%i"
 set "LOG=%LOCALAPPDATA%\citation-engine\logs\run-!TS!.log"
 "!PY!" "!APP!\job\update.py" "!APP!" > "!LOG!" 2>&1
-if defined WEEKLY_UPDATE_ONLY ( echo update-only: not running run.py >> "!LOG!" ) else ( "!PY!" "!APP!\job\run.py" >> "!LOG!" 2>&1 )
+if defined WEEKLY_UPDATE_ONLY ( echo update-only: not running run.py >> "!LOG!" ) else ( "!PY!" "!APP!\job\run.py" --weekly >> "!LOG!" 2>&1 )
 exit /b
 )

@@ -59,6 +59,8 @@ jobs:
         run: python tests/fill_reason_codes_test.py
       - name: Weekly job runs the fill after sync_run (non-fatal)
         run: python tests/weekly_fill_test.py
+      - name: Weekly progress chart data (snapshot idempotent, ad-hoc adds no point, gaps stay gaps, no Directory traffic)
+        run: python tests/weekly_metrics_test.py
       - name: Create-queue discovery (absent only with a positive control)
         run: python tests/create_test.py
       - name: Listing URLs, NAP errors, honest states
