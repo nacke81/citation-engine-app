@@ -1,11 +1,13 @@
 import { BIZ } from './logic.js';
 import { overviewHtml, bizHtml, esc } from './render.js';
 import { directoriesHtml, tabsHtml, DEFAULT_FILTERS } from './directories.js';
+import { loadHidden, wireChart } from './chart.js';
+import { pointsFor } from './metrics.js';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const app = document.getElementById('app');
-let user = null, data = { runs: [], checks: [], dirs: [], dirStatus: [], snapshots: [] };
+let user = null, data = { runs: [], checks: [], dirs: [], dirStatus: [], snapshots: [], weekly: [] };
 
 // client_id -> SCC / NM (the same ids job/portal.py writes); the first row per business is the newest.
 const CLIENT_BIZ = { 'e1fb5abd-8d7f-4d83-8cde-18934d149bb5': 'SCC', 'fe3062b5-c956-4358-9e77-840e18be9f85': 'NM' };
@@ -24,10 +26,16 @@ async function load() {
   ]);
   // Stat cards read the newest footprint_snapshot per client (source citation_engine). Additive: no snapshot access -> the old scan cards show.
   const snapshots = await sb.from('footprint_snapshot').select('client_id,captured_day,payload').eq('source', 'citation_engine').order('captured_day', { ascending: false }).limit(8).then(must).catch(() => []);
-  data = { runs, checks, dirs, dirStatus, snapshots: tagSnapshots(snapshots) };
+  // t_43e88fb7: weekly snapshots for the progress chart. Additive: before migration 012 is applied the chart just says there is no history yet.
+  const weekly = await sb.from('ce_weekly_metrics').select('biz,run_id,week_index,captured_on,metrics').order('week_index').limit(500).then(must).catch(() => []);
+  data = { runs, checks, dirs, dirStatus, snapshots: tagSnapshots(snapshots), weekly };
 }
 
-function home() { app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks, data); }
+function home() {
+  const chartHidden = Object.fromEntries(Object.keys(BIZ).map((b) => [b, loadHidden(localStorage, b)]));
+  app.innerHTML = tabsHtml('', data.runs) + overviewHtml(data.runs, data.checks, { ...data, chartHidden });
+  Object.keys(BIZ).forEach((b) => wireChart(app, b, pointsFor(data.weekly, b), localStorage));
+}
 
 // Section open/closed state, remembered per business. Storage can be blocked; then the defaults apply.
 const secKey = (b) => 'ce-sec:' + b;

@@ -1,5 +1,7 @@
 // Pure HTML for the overview and business pages. No DOM, no network: tests import this and check the real markup.
 import { builderRows, builderStats, checkedStat } from './builder.js';
+import { weeklyMetrics, pointsFor } from './metrics.js';
+import { chartHtml, driftNote } from './chart.js';
 import { reasonBadge, reasonFilterHtml } from './reasons.js';
 import { BIZ, bizLabel, LABEL, statusOf, latestFor, FIELD, foundCards, notFoundCards, cantCheckCards, stats, matchLabel, snapshotSummary, snapshotCardsHtml } from './logic.js';
 
@@ -16,6 +18,7 @@ export function overviewHtml(runs, checks, dbs = {}) {
     const sum = snapshotSummary(dbs.snapshots, b);
     const L = (g, id, inner, cls = 'stat') => `<a class="${cls}" href="#${b}/${g}" data-testid="${id}">${inner}</a>`;
     return `<div class="card biz" data-testid="biz-${b}"><a class="bizlink" href="#${b}"><h2>${esc(bizLabel(l.run, b))}</h2></a>
+      ${chartHtml(b, pointsFor(dbs.weekly, b), (dbs.chartHidden || {})[b] || [], { note: driftNote(pointsFor(dbs.weekly, b), weeklyMetrics(l.checks, (dbs.dirStatus || []).filter((r) => r.biz === b), dbs.dirs), l.run && l.run.id) })}
       ${sum ? snapshotCardsHtml(sum, b) : `<div class="stats">
         ${L('found', 'stat-found', `<b>${s.found}</b><span>Found</span>`, 'stat')}
         ${L('notfound', 'stat-notfound', `<b>${s.notFound}</b><span>Not found</span>`, 'stat')}
