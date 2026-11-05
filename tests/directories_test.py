@@ -130,10 +130,19 @@ r = T.record_transition("SCC", "fix-a", "submitted", "https://a.example/l", "n",
 check("D4 transition writes queue state to the Directory database", r["directories_written"] and fdb.st("SCC", "a.example").get("queue_state") == "submitted" and fdb.st("SCC", "a.example").get("queue_row_id") == "fix-a" and not r["errors"], r["errors"])
 check("D4 a non-blocking transition does not mark the Directory blocked", not any(c[0] == "PATCH" for c in fdb.calls))
 p = qfile(copy.deepcopy(SRC)); fdb = FakeDB()
-r = T.record_transition("SCC", "fix-a", "needs-human", None, "Signup is behind a CAPTCHA", queue_path=p, today=DAY, portal=portal_with("a.example"), directories=fdb)
+r = T.record_transition("SCC", "fix-a", "needs-human", None, "Signup is behind a CAPTCHA", queue_path=p, today=DAY, portal=portal_with("a.example"), directories=fdb, reason_code="captcha")
 check("D4 needs-human stores the reason on the status row", fdb.st("SCC", "a.example").get("queue_state") == "needs-human" and fdb.st("SCC", "a.example").get("queue_note") == "Signup is behind a CAPTCHA")
 check("D4 needs-human marks the Directory agent-blocked with the note", fdb.dirs["a.example"]["agent_access"] == "blocked" and fdb.dirs["a.example"]["agent_blocker"] == "Signup is behind a CAPTCHA"
       and fdb.dirs["a.example"]["agent_blocker_source"] == "transition" and r["directories"]["agent_blocked"])
+# t_7ef78a86: a client-row park never walls the Directory; a site wall does
+for code, note in ((None, "no public permalink after 3 backoffs"), ("login_wall", "our account is signed out"), ("mike_account", "needs Mike account"), ("declined", "moderation declined")):
+    p = qfile(copy.deepcopy(SRC)); fdb = FakeDB()
+    r = T.record_transition("SCC", "fix-a", "needs-human", None, note, queue_path=p, today=DAY, portal=portal_with("a.example"), directories=fdb, reason_code=code)
+    check("D4b park (%s) leaves the Directory unchanged" % code, not any(c[0] == "PATCH" for c in fdb.calls) and not r["directories"]["agent_blocked"] and fdb.st("SCC", "a.example").get("queue_state") == "needs-human" and fdb.st("SCC", "a.example").get("queue_note") == note)
+for code in ("bot_wall", "site_down"):
+    p = qfile(copy.deepcopy(SRC)); fdb = FakeDB()
+    r = T.record_transition("SCC", "fix-a", "needs-human", None, "wall", queue_path=p, today=DAY, portal=portal_with("a.example"), directories=fdb, reason_code=code)
+    check("D4b park (%s) still blocks the Directory" % code, fdb.dirs["a.example"]["agent_access"] == "blocked" and fdb.dirs["a.example"]["agent_blocker_source"] == "transition" and r["directories"]["agent_blocked"])
 class BoomDB(FakeDB):
     def call(self, *a, **k): raise RuntimeError("db down")
 p = qfile(copy.deepcopy(SRC))
@@ -151,7 +160,7 @@ CROW = {"id": "create-acompio", "directory": "acompio.us", "kind": "create", "st
 q = copy.deepcopy(SRC); q["create_queue"] = {"status": "x", "last_seen": {}, "rows": [copy.deepcopy(CROW)]}
 p = qfile(q); fdb = FakeDB()
 try:
-    r = T.record_transition("SCC", "create-acompio", "needs-human", None, "Turnstile CAPTCHA on signup", queue_path=p, today=DAY, portal=portal_with("acompio.us"), directories=fdb); good = True
+    r = T.record_transition("SCC", "create-acompio", "needs-human", None, "Turnstile CAPTCHA on signup", queue_path=p, today=DAY, portal=portal_with("acompio.us"), directories=fdb, reason_code="cloudflare"); good = True
 except Exception as e:
     good = False; r = {}
 after = json.load(open(p))
@@ -185,7 +194,7 @@ fdb7 = FakeDB(dirs={"yelp.com": {"agent_access": "unknown"}})
 D.sync_run(checks, DAY, queue=queue, db=fdb7)
 D.sync_run([dict(biz="SCC", directory="hotfrog.com", result="couldnt_check", note="blocked"), dict(biz="NM", directory="hotfrog.com", result="couldnt_check", note="blocked")], DAY, db=fdb7)
 fdb7t = FakeDB()
-D.sync_transition("SCC", {"id": "fix-a", "directory": "a.example"}, "needs-human", "Signup is behind a CAPTCHA", DAY, db=fdb7t)
+D.sync_transition("SCC", {"id": "fix-a", "directory": "a.example"}, "needs-human", "Signup is behind a CAPTCHA", DAY, db=fdb7t, reason_code="captcha")
 D.sync_transition("SCC", {"id": "fix-a", "directory": "a.example"}, "submitted", None, DAY, db=fdb7t)
 check("D7 transition scan covers the needs-human PATCH", any(c[0] == "PATCH" and c[2].get("agent_blocker_source") == "transition" for c in fdb7t.calls))
 for c in db.calls + db2.calls + fdb7.calls + fdb7t.calls:
