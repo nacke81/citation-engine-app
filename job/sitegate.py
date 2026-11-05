@@ -73,6 +73,7 @@ class SiteGuard:
     def __init__(self, path=None, gap=None, caps=None, now=time.time, sleep=time.sleep, logs=None):
         self.path, self.gap, self.caps = path or ledger_path(), gap_s() if gap is None else gap, DAILY_CAP if caps is None else caps
         self.now, self.sleep, self.logs = now, sleep, logs
+        self._mine = {}   # domain -> the URL THIS process reserved last: only our own plain-then-Chrome fallback is "the same read", never another process
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
 
     def _load(self):
@@ -93,7 +94,7 @@ class SiteGuard:
             led = self._load(); t = self.now(); e = led.setdefault(domain, {})
             if e.get("cooldown_until", 0) > t:
                 return {"ok": False, "why": "cooldown until %s after a wall" % datetime.datetime.fromtimestamp(e["cooldown_until"]).strftime("%Y-%m-%d %H:%M")}
-            if key and e.get("last_key") == key and t - e.get("last", 0) < SAME_READ_S:
+            if key and self._mine.get(domain) == key and e.get("last_key") == key and t - e.get("last", 0) < SAME_READ_S:
                 return {"ok": True, "waited": 0.0, "same_read": True}
             today = self._day(t)
             n = e.get("count", 0) if e.get("day") == today else 0
@@ -102,6 +103,7 @@ class SiteGuard:
                 return {"ok": False, "why": "daily cap %d reached for %s" % (cap, domain)}
             slot = max(t, e.get("last", 0) + self.gap)   # claim the slot now; others queue behind it
             e.update(last=slot, last_key=key, day=today, count=n + 1)
+            self._mine[domain] = key
             self._save(led)
         waited = max(0.0, slot - t)
         if waited > 0: self.sleep(waited)
