@@ -444,6 +444,7 @@ def compare(text, canonical, html_=None):
             return {"verdict": "not-public", "wrong": [], "gaps": ["listing visibility"], "nap": None}
         return {"verdict": "unreadable", "wrong": [], "gaps": [], "nap": None}
     wrong, gaps = [], []
+    segs, zfirst = [], None   # t_f2bc28d2: set in the street-match branch below; read at the end to quote the city/state/zip line in the proof
     if exact_name(block[0]) != exact_name(canonical["name"]):
         wrong.append(("name", block[0]))   # 'Senior Care Consltng Solutions' is not our name (t_d7a907d5)
     want_phone = _digits(canonical["phone"])[-10:]
@@ -566,6 +567,8 @@ def compare(text, canonical, html_=None):
     elif not got:
         gaps.append("address")
     street_txt = got[0] if got else None
+    if got and segs and not sa_used and segs[0] not in got[0]:   # t_f2bc28d2: street and city/state/zip on separate lines -> quote both (display only; verdict logic unchanged)
+        street_txt = ", ".join([got[0]] + segs + ([zfirst] if zfirst and zfirst not in " ".join(segs) else []))
     nap = " | ".join(x for x in (canonical["name"], street_txt, F.fmt_phone(shown[0]) if shown else masked_txt) if x)
     if ADDR_NOT_LISTED_RE.search("\n".join(block)) and "address" not in gaps and not got: gaps.append("address")
     if UNLISTED_RE.search(text or "") and "listing visibility" not in gaps: gaps.append("listing visibility")   # paused / hidden: not public yet even if the NAP shown matches

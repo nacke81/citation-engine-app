@@ -103,6 +103,8 @@ jobs:
         run: python tests/snapshot_test.py
       - name: Recheck job (match goes live, mismatch is a note, no permalink is nothing)
         run: python tests/recheck_test.py
+      - name: proof nap quotes the city/state/zip line (t_f2bc28d2)
+        run: python tests/proof_nap_city_test.py
       - name: Recheck phone reading (uuid, masked, structured, real-page fixtures)
         run: python tests/recheck_phone_test.py
       - name: Recheck reads signed out (fresh context, never the signed-in profile)
