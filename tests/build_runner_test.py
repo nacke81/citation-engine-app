@@ -2,6 +2,9 @@
 import os, re, sys, json, tempfile, hashlib, types, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
+REAL_RUNS = os.path.expandvars("%LOCALAPPDATA%/citation-engine/runs")   # t_e34fc55c: FakePage failures wrote build-find-us-here-* into the real runs folder
+RUNS_BEFORE = set(os.listdir(REAL_RUNS)) if os.path.isdir(REAL_RUNS) else set()
+os.environ["CE_RUNS"] = tempfile.mkdtemp(prefix="ce-runs-")
 JOB = os.path.join(HERE, "..", "job")
 sys.path.insert(0, JOB); sys.path.insert(0, os.path.join(JOB, "playbooks"))
 import build_runner as B
@@ -272,4 +275,7 @@ check("K1 own CDP session is detached after the upload", s2.detached)
 # ---- R1 the runner adds nothing that submits -----------------------------------------------------------------------------------
 check("R1 runner source has no portal seed / Directory submit of its own", "seed" not in open(os.path.join(JOB, "build_runner.py"), encoding="utf-8").read().lower())
 
+runs_after = set(os.listdir(REAL_RUNS)) if os.path.isdir(REAL_RUNS) else set()
+check("R2 the test wrote nothing into the real runs folder (t_e34fc55c)", runs_after == RUNS_BEFORE, str(sorted(runs_after - RUNS_BEFORE)))
+check("R2 failure evidence went to the temp CE_RUNS", any(n.startswith("build-") for n in os.listdir(os.environ["CE_RUNS"])))
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

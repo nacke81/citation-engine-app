@@ -189,7 +189,7 @@ check("3 the plain page missing the street no longer decides: get_page goes to t
 check("3 a plain page that already matches stays on the plain route", R.get_page("https://us-info.example/x", make_world(True)[0], make_world(True)[1], CANON)[1] == "plain")
 _src = open(os.path.join(JOB, "recheck.py"), encoding="utf-8").read().replace("\r\n", "\n")
 check("3 recheck rows read through ONE function (read_listing); get_page+compare is not repeated in the row loop",
-      _src.count("= read_listing(url, plain, chrome, canonical)") == 1 and _src.count("get_page(url, plain, chrome, canonical)") == 1 and "def read_listing(url, plain, chrome, canonical):" in _src)
+      _src.count("= read_listing(url, plain, chrome, canonical, confirm=(before != \"live\"))") == 1 and _src.count("get_page(url, plain, chrome, canonical)") == 1 and "def read_listing(url, plain, chrome, canonical, confirm=True):" in _src)
 # the street loading late ON the repeat reads: reads disagree -> never live, and the verdict does not depend on dry run / write
 seq = [listing(True), listing(False), listing(True)]
 def late_chrome(u):
