@@ -388,17 +388,18 @@ class DB:
     owner = "o"
     def __init__(s): s.calls = []
     def call(s, m, p, body=None, prefer=None): s.calls.append((m, p, body))
-reads10 = []; plain10 = lambda url, *a, **k: R.Page(200, url, "")   # a JS shell: forces the rendered read
-plain_calls = []
+reads10 = []; plain_calls = []
+def plain10(url, *a, **k): plain_calls.append(url); return R.Page(200, url, "")   # a JS shell: forces the rendered read
 def chrome10(url, *a, **k): reads10.append(url); return R.Page(200, url, GOOD) if hasattr(R, "Page") else None
 gp, lp = fresh_guard(gap=0, caps={"bizapedia.com": 3})
 for i in range(2): gp.reserve("bizapedia.com", key="core-%d" % i)   # the core fetchers already used 2 of 3
 rec10 = []
 qp = proof_queue(); res10 = PR.proof_step([pchk()], DAY, queue_path=qp, db=DB(), record=lambda *a, **k: rec10.append(a) or {"errors": []}, guard=gp, chrome=chrome10, plain=plain10)
 check("S10 proof read is the 3rd (last) bizapedia read: shared cap counted core + proof", json.load(open(gp.path))["bizapedia.com"]["count"] == 3 and reads10 and reads10[0].endswith("/company/alder-care"), str(reads10))
-reads10.clear(); qp2 = proof_queue(); db10 = DB()
+reads10.clear(); plain_calls.clear(); qp2 = proof_queue(); db10 = DB()
 res11 = PR.proof_step([pchk(n="-2")], DAY, queue_path=qp2, db=db10, record=lambda *a, **k: rec10.append(a) or {"errors": []}, guard=gp, chrome=chrome10, plain=plain10)
 check("S10 proof read after the cap: refused, chrome NOT called", reads10 == [], str(reads10))
+check("S10 proof read after the cap: refused, plain GET NOT made", plain_calls == [], str(plain_calls))
 check("S10 refused proof read: limited, untouched, no mismatch, no DB write, row unchanged", res11["limited"] == ["bizapedia.com"] and res11["untouched"] == ["bizapedia.com"] and not res11["mismatched"] and not res11["moved"] and db10.calls == []
       and json.load(open(qp2))["create_rows"][0]["state"] == "needs-human", str(res11))
 # a Cloudflare wall page on the proof read: rate-limited, cooldown + one wall line
@@ -410,7 +411,10 @@ check("S10 ... and the next proof read on that domain is refused (cooldown)", PR
 # default reader path (no chrome injected) asks the guard first: with a cooldown no Chrome is ever started
 gc, _lc = fresh_guard(gap=0); gc.wall("manta.com", "test"); started = []
 _orig_so = R.SignedOutReader.__call__; R.SignedOutReader.__call__ = lambda self, *a, **k: started.append(a) or R.Page(0, a[0], "", err="started")
-v13 = PR.recheck_verdict("https://www.manta.com/c/x", CANON, guard=gc); R.SignedOutReader.__call__ = _orig_so
+_orig_pf = R.plain_fetch; real_plain = []; R.plain_fetch = lambda url, *a, **k: real_plain.append(url) or R.Page(0, url, "", err="blocked in test")
+try: v13 = PR.recheck_verdict("https://www.manta.com/c/x", CANON, guard=gc)
+finally: R.SignedOutReader.__call__ = _orig_so; R.plain_fetch = _orig_pf
+check("S10 default plain reader is behind the guard: cooldown -> plain_fetch never called", real_plain == [], str(real_plain))
 check("S10 default signed-out reader is behind the guard: cooldown -> rate-limited, Chrome page never loaded", v13["verdict"] == "rate-limited" and started == [], str((v13, started)))
 check("S10 run.proof_step_run + proof_step build their own SiteGuard (same ledger) when none is passed", "SiteGuard()" in open(os.path.join(HERE, "..", "job", "proof.py"), encoding="utf-8").read())
 
