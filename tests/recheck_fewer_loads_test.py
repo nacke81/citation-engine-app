@@ -183,6 +183,30 @@ _pg = R.Page(200, U, BAD, html="<html></html>", unstable=["match", "mismatch"])
 sp.saving(lambda u: _pg, "chrome")(U)
 back = R.PageStore(os.path.join(TMP, "unst")).reusing(lambda u: None, "chrome")(U)
 check("F8 a saved unstable page is reused as unstable (same verdict on --write)", back is not None and back.unstable == ["match", "mismatch"])
+# round 2: the loop running out of iterations (wall/slow polls first, or a small wait_s) is not an early stable stop either: still unstable, same verdict both phases
+def listing_w(mod, pg, wait_s):
+    def chrome(u):
+        info = {}
+        st, t, l, raw = mod.read_rendered(pg, u, wait_s, CANON, None, info)
+        return mod.Page(st, u, t, l, html=raw, unstable=info.get("unstable"))
+    return mod.read_listing(U, plain_403, chrome, CANON)
+SLOW = "Loading..."   # <= 200 chars: counts as a slow poll, not readable
+def slow_then_flip(K, first, second, mod=R, wait_s=30): return listing_w(mod, Pg([SLOW] * K + [first, second] * 40), wait_s)
+for K in (9, 14):
+    a, b = slow_then_flip(K, GOOD, BAD), slow_then_flip(K, BAD, GOOD)
+    check("F8b %d slow polls then a flip: not live and unstable in BOTH phases, same verdict" % K, a[2]["verdict"] != "match" and b[2]["verdict"] != "match" and a[2].get("unstable") and b[2].get("unstable") and a[2]["verdict"] == b[2]["verdict"], "%s / %s" % (a[2]["verdict"], b[2]["verdict"]))
+a, b = listing_w(R, flip(GOOD, BAD), 12), listing_w(R, flip(BAD, GOOD), 12)
+check("F8b wait_s=12 with a flip: not live and unstable in BOTH phases, same verdict", a[2]["verdict"] != "match" and b[2]["verdict"] != "match" and a[2].get("unstable") and b[2].get("unstable") and a[2]["verdict"] == b[2]["verdict"], "%s / %s" % (a[2]["verdict"], b[2]["verdict"]))
+r = slow_then_flip(9, GOOD, GOOD)
+check("F8b slow polls then a stable match still matches (no false unstable)", r[2]["verdict"] == "match" and not r[2].get("unstable"))
+# mutation 2: with the post-loop rule removed, the K=9 flip goes live in one phase
+cut2 = 'if canonical is not None and not settled and same == 0 and len(set(seen)) > 1 and info is not None: info["unstable"] = list(seen)'
+assert src_all.count(cut2) == 1 if (src_all := open(os.path.join(HERE, "..", "job", "recheck.py"), encoding="utf-8").read()) else False
+mut2 = {"__name__": "recheck_mut2", "__file__": os.path.join(HERE, "..", "job", "recheck.py")}
+exec(compile(src_all.replace(cut2, "pass"), "recheck_mut2", "exec"), mut2)
+M2 = type("M2", (), {k: v for k, v in mut2.items() if not k.startswith("__")})
+n_ab, n_ba = slow_then_flip(9, GOOD, BAD, M2), slow_then_flip(9, BAD, GOOD, M2)
+check("F8b MUTATION: without the post-loop unstable rule the K=9 flip goes live in one phase (so the F8b tests would fail)", "match" in (n_ab[2]["verdict"], n_ba[2]["verdict"]), "%s / %s" % (n_ab[2]["verdict"], n_ba[2]["verdict"]))
 # mutation: with the unstable handling cut out of read_listing, the flip test must FAIL (phase match-first goes live)
 src = open(os.path.join(HERE, "..", "job", "recheck.py"), encoding="utf-8").read()
 cut = 'if getattr(page, "unstable", None):'

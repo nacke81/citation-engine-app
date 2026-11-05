@@ -192,8 +192,10 @@ def read_rendered(pg, url, wait_s=30, canonical=None, referer=None, info=None):
         except Exception: pass
     r = pg.goto(url, timeout=40000, wait_until="domcontentloaded", **({"referer": referer} if referer else {}))   # referer: businessyab search answers 403 without a home-page Referer (t_89f4aebf)
     status = r.status if r else None
-    text, prev, same, readable, seen = "", None, 0, 0, []
-    for _ in range(max(1, wait_s // 2)):
+    text, prev, same, readable, seen, settled = "", None, 0, 0, [], False
+    base = max(1, wait_s // 2)   # round 2: the budget to FIND a readable page; once it reads, the loop always gets the full stability window (cap fires), however many wall polls came first
+    for i in range(base + int(STABLE_MAX_S * 1000 // STABLE_POLL_MS) + 1):
+        if i >= base and readable == 0: break
         pg.wait_for_timeout(STABLE_POLL_MS if readable else 2000)   # t_0c4ebee8: once the page reads, poll ~3s apart
         try: text = pg.inner_text("body", timeout=8000)
         except Exception: text = ""
@@ -210,11 +212,12 @@ def read_rendered(pg, url, wait_s=30, canonical=None, referer=None, info=None):
         seen.append(verdict)
         same = same + 1 if key == prev else 0; prev = key
         if canonical is None:
-            if same >= 2: break
-        elif (same >= 1 and verdict == "match") or same >= 2: break
-        if readable * STABLE_POLL_MS / 1000.0 >= STABLE_MAX_S:
-            if canonical is not None and same == 0 and len(set(seen)) > 1 and info is not None: info["unstable"] = list(seen)   # cap hit while the NAP reads disagreed: never scored as a listing
-            break
+            if same >= 2: settled = True; break
+        elif (same >= 1 and verdict == "match") or same >= 2: settled = True; break
+        if readable * STABLE_POLL_MS / 1000.0 >= STABLE_MAX_S: break
+    # t_0c4ebee8 round 2: EVERY exit that is not an early stable stop (the 20s cap, OR the loop running out of iterations after wall/slow polls, OR a small wait_s)
+    # with NAP reads that disagreed and a last poll that did not hold is unstable: never scored as a listing, never live, same verdict in both phases.
+    if canonical is not None and not settled and same == 0 and len(set(seen)) > 1 and info is not None: info["unstable"] = list(seen)
     try: clicked = pg.evaluate(REVEAL_JS)
     except Exception: clicked = 0
     if isinstance(clicked, int) and not isinstance(clicked, bool) and clicked > 0:   # the phone sits behind a click (us-info): let it appear, then re-read
