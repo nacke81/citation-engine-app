@@ -7,7 +7,8 @@ Never any Directory traffic. The tables hold no client NAP: only the listing URL
 ce_directories.agent_access rules (reference facts, kept by whoever saw the wall last):
   * a weekly search that was walled sets agent_access=blocked (source 'weekly') only when the Directory is not already blocked;
   * a later clean weekly check clears it only when the blocker came from the weekly run (a hand-seen signup wall is never cleared by a search);
-  * a needs-human transition sets agent_access=blocked with the transition note as the blocker (source 'transition').
+  * a needs-human transition sets agent_access=blocked (source 'transition') ONLY when its reason_code is a site wall (WALL_CODES: bot wall, captcha, cloudflare, outage).
+    A park about one client's row (login wall on our account, moderation, no permalink, not found, no code) stays on the queue row and leaves the Directory alone.
 """
 import json, os, urllib.request
 
@@ -150,6 +151,10 @@ REASON_CODES = ("paid", "captcha", "cloudflare", "bot_wall", "site_down", "signu
                 "mike_account", "declined", "waiting_directory", "bad_catalog", "no_search")
 
 
+# Site-wide walls: only these reason codes may mark the Directory itself blocked (t_7ef78a86).
+WALL_CODES = ("bot_wall", "captcha", "cloudflare", "site_down")
+
+
 def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proof=None, reason_code=None, old_state=None):
     """One queue transition: queue state on the status row; needs-human also marks the Directory agent-blocked with the note as the blocker.
     reason_code (t_93ae9b6b): the badge code the worker that parks the row picked. Lifecycle: a move to any state other than needs-human sends null; a move INTO needs-human (old_state known and different) sends the given code or null;
@@ -166,7 +171,7 @@ def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proo
                                     queue_note=(note or None) if new_state == "needs-human" else None, queue_state_at=day,
                                     **(proof or {}), **rc)])   # t_d660babc: Proof rides in the SAME upsert as queue_state=live
     out = {"status_written": True, "agent_blocked": False}
-    if new_state == "needs-human":
+    if new_state == "needs-human" and reason_code in WALL_CODES:
         db.call("PATCH", "ce_directories?domain=eq.%s" % row["directory"],
                 {"agent_access": "blocked", "agent_blocker": note or "Agent could not continue; needs a human step.", "agent_blocker_seen_on": day,
                  "agent_blocker_source": "transition", "last_verified": day, "updated_at": day + "T00:00:00Z"})
