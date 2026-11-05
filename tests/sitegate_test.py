@@ -352,5 +352,87 @@ check("S9 mapnap: a cooldown also refuses (lookup not called)", not c9["verified
 d9 = w9(None, None, "bing.com", "SCC", "name", "q", "c", "t4")
 check("S9 mapnap: an unwalled uncapped domain passes through", d9["verified"] and called9[-1] == "bing.com")
 
+# ---- S10 map-box walls, proof.py and build_proof.py behind the guard (t_f5d80477) -----------------------------------------------------------
+import proof as PR
+import build_proof as BP
+
+CAPTCHA = "About this page\nOur systems have detected unusual traffic from your computer network. Please try your request again later."
+gm, lm = fresh_guard(gap=0); callm = []
+def _lk(text, url="https://www.google.com/maps", panel=False):
+    def f(ctx, rec, d, b, kind, q, caption, tag):
+        callm.append(d); return {"text": text, "url": url, "shot": "", "note": "", "verified": True, "results": 3, "links": [], "panel": panel}
+    return f
+wm = SG.guard_mapnap(_lk(CAPTCHA), gm)
+r1 = wm(None, None, "google.com", "SCC", "name", "q", "c", "t1")
+check("S10 map captcha text: lookup is couldnt (not verified, 0 results)", not r1["verified"] and r1["results"] == 0 and "site-guard" in r1["note"], str(r1))
+wl = lines(os.path.join(lm, "site-walls.jsonl"))
+check("S10 map captcha: one site-walls.jsonl line with the domain", len(wl) == 1 and wl[0]["domain"] == "google.com" and wl[0]["row"] == "SCC", str(wl))
+r2 = wm(None, None, "google.com", "SCC", "phone", "q", "c", "t2")
+check("S10 map captcha: the next lookup on that domain is refused, real lookup NOT called", "cooldown" in r2["note"] and callm == ["google.com"] and not r2["verified"], str((r2, callm)))
+check("S10 map captcha: other map domains are not on cooldown", SG.guard_mapnap(_lk("Joe's Pizza\n123 Main St"), gm)(None, None, "bing.com", "SCC", "name", "q", "c", "t3")["verified"])
+check("S10 google /sorry/ url is a wall", SG.map_wall({"text": "", "url": "https://www.google.com/sorry/index?continue=x", "panel": False}) is not None)
+check("S10 a rendered place panel is never a wall even with captcha words", SG.map_wall({"text": CAPTCHA, "url": "https://www.google.com/maps/place/x", "panel": True}) is None)
+check("S10 an ordinary results page is no wall", SG.map_wall({"text": "Alder Care Consulting\n100 Example Exampleton KY\n(502) 555-0101", "url": "u", "panel": False}) is None)
+gq, lq = fresh_guard(gap=0); wq = SG.guard_mapnap(_lk("Please complete the captcha to continue", "https://www.mapquest.com/"), gq)
+wq(None, None, "mapquest.com", "SCC", "name", "q", "c", "t"); check("S10 mapquest / bing captcha text also walls", len(lines(os.path.join(lq, "site-walls.jsonl"))) == 1)
+
+# proof_step: shared cap, refusal is rate-limited (never mismatch), queue row untouched
+def proof_queue(directory="bizapedia.com"):
+    p = os.path.join(tempfile.mkdtemp(dir=TMP), "q.json")
+    json.dump({"canonical": CANON, "create_rows": [{"id": "create-b", "directory": directory, "state": "needs-human", "mike_approval": None, "evidence_url": None, "history": []}]}, open(p, "w"))
+    return p
+def pchk(directory="bizapedia.com", n=""):
+    return dict(biz="SCC", directory=directory, result="found", url="https://www.%s/%s/alder-care%s" % (directory, "biz" if directory == "yelp.com" else "company", n), nap_shown="Alder Care Consulting & Solutions | 100 Example | (502) 555-0101",
+                name_match=True, street_match=True, phone_match=True, match=True, diffs=[], note=None)
+class DB:
+    owner = "o"
+    def __init__(s): s.calls = []
+    def call(s, m, p, body=None, prefer=None): s.calls.append((m, p, body))
+reads10 = []; plain10 = lambda url, *a, **k: R.Page(200, url, "")   # a JS shell: forces the rendered read
+plain_calls = []
+def chrome10(url, *a, **k): reads10.append(url); return R.Page(200, url, GOOD) if hasattr(R, "Page") else None
+gp, lp = fresh_guard(gap=0, caps={"bizapedia.com": 3})
+for i in range(2): gp.reserve("bizapedia.com", key="core-%d" % i)   # the core fetchers already used 2 of 3
+rec10 = []
+qp = proof_queue(); res10 = PR.proof_step([pchk()], DAY, queue_path=qp, db=DB(), record=lambda *a, **k: rec10.append(a) or {"errors": []}, guard=gp, chrome=chrome10, plain=plain10)
+check("S10 proof read is the 3rd (last) bizapedia read: shared cap counted core + proof", json.load(open(gp.path))["bizapedia.com"]["count"] == 3 and reads10 and reads10[0].endswith("/company/alder-care"), str(reads10))
+reads10.clear(); qp2 = proof_queue(); db10 = DB()
+res11 = PR.proof_step([pchk(n="-2")], DAY, queue_path=qp2, db=db10, record=lambda *a, **k: rec10.append(a) or {"errors": []}, guard=gp, chrome=chrome10, plain=plain10)
+check("S10 proof read after the cap: refused, chrome NOT called", reads10 == [], str(reads10))
+check("S10 refused proof read: limited, untouched, no mismatch, no DB write, row unchanged", res11["limited"] == ["bizapedia.com"] and res11["untouched"] == ["bizapedia.com"] and not res11["mismatched"] and not res11["moved"] and db10.calls == []
+      and json.load(open(qp2))["create_rows"][0]["state"] == "needs-human", str(res11))
+# a Cloudflare wall page on the proof read: rate-limited, cooldown + one wall line
+gw, lw = fresh_guard(gap=0); CFP = "Just a moment...\nChecking your browser before accessing the site.\n"
+res12 = PR.proof_step([pchk("yelp.com")], DAY, queue_path=proof_queue("yelp.com"), db=DB(), record=lambda *a, **k: {"errors": []}, guard=gw, plain=lambda url, *a, **k: R.Page(200, url, CFP), chrome=lambda url, *a, **k: R.Page(200, url, CFP))
+w12 = lines(os.path.join(lw, "site-walls.jsonl"))
+check("S10 proof read hits a Cloudflare page: limited, wall logged once, no mismatch", res12["limited"] == ["yelp.com"] and not res12["mismatched"] and len(w12) == 1 and w12[0]["domain"] == "yelp.com", str((res12, w12)))
+check("S10 ... and the next proof read on that domain is refused (cooldown)", PR.recheck_verdict("https://www.yelp.com/biz/x", CANON, guard=gw, plain=plain10, chrome=lambda u, *a, **k: R.Page(200, u, GOOD))["verdict"] == "rate-limited")
+# default reader path (no chrome injected) asks the guard first: with a cooldown no Chrome is ever started
+gc, _lc = fresh_guard(gap=0); gc.wall("manta.com", "test"); started = []
+_orig_so = R.SignedOutReader.__call__; R.SignedOutReader.__call__ = lambda self, *a, **k: started.append(a) or R.Page(0, a[0], "", err="started")
+v13 = PR.recheck_verdict("https://www.manta.com/c/x", CANON, guard=gc); R.SignedOutReader.__call__ = _orig_so
+check("S10 default signed-out reader is behind the guard: cooldown -> rate-limited, Chrome page never loaded", v13["verdict"] == "rate-limited" and started == [], str((v13, started)))
+check("S10 run.proof_step_run + proof_step build their own SiteGuard (same ledger) when none is passed", "SiteGuard()" in open(os.path.join(HERE, "..", "job", "proof.py"), encoding="utf-8").read())
+
+# build_proof: reserve before the page load; refused -> no goto
+class FakePg:
+    def __init__(s): s.gotos = []
+    def goto(s, url, **k): s.gotos.append(url); return types.SimpleNamespace(status=200)
+gb10, _l = fresh_guard(gap=0, caps={"bizapedia.com": 3}); pg10 = FakePg(); out10 = []
+for i in range(5): out10.append(BP.guarded_goto(pg10, gb10, "bizapedia.com", "https://www.bizapedia.com/?%d" % i))
+check("S10 build_proof: 3 goto then refused at the shared cap, 2 refused pages never loaded", len(pg10.gotos) == 3 and [o[1] is None for o in out10] == [True, True, True, False, False] and "daily cap" in out10[3][1], str(out10))
+check("S10 build_proof: its reads count in the ledger the weekly uses", json.load(open(gb10.path))["bizapedia.com"]["count"] == 3)
+gb11, _l = fresh_guard(gap=0); gb11.wall("yelp.com", "t"); pg11 = FakePg()
+check("S10 build_proof: a cooled-down domain is refused, no goto", BP.guarded_goto(pg11, gb11, "yelp.com", "https://www.yelp.com/")[1] and pg11.gotos == [])
+check("S10 build_proof main() routes every goto through guarded_goto", "pg.goto(" not in open(os.path.join(HERE, "..", "job", "build_proof.py"), encoding="utf-8").read().split("def main")[1])
+
+# the gap holds across two processes for the proof / build_proof path (same domain, two processes)
+child10 = ("import os,sys,time,types; sys.path.insert(0, %r)\nimport sitegate as SG, build_proof as BP\nclass P:\n    def goto(s,url,**k): return types.SimpleNamespace(status=200)\n"
+           "g=SG.SiteGuard()\nBP.guarded_goto(P(), g, 'yelp.com', sys.argv[1])\nprint(time.time())\n" % os.path.join(HERE, "..", "job"))
+env10 = dict(os.environ, CE_SITE_GUARD=os.path.join(TMP, "two-proc10", "g.json"), CE_SITE_GAP="2", CE_LOGS=os.path.join(TMP, "two-proc10", "logs"))
+procs10 = [subprocess.Popen([sys.executable, "-c", child10, "https://www.yelp.com/%d" % i], env=env10, stdout=subprocess.PIPE, text=True) for i in range(2)]
+t10 = sorted(float(pr.communicate()[0].split()[0]) for pr in procs10)
+check("S10 two processes (build_proof path) on one domain: goto >= gap apart", t10[1] - t10[0] >= 1.8, str(t10))
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

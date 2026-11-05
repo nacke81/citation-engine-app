@@ -22,8 +22,18 @@ def classify(status, text, html):
     return "loads" if len((text or "").strip()) > 200 else "error"
 
 
-def main(out):
+def guarded_goto(pg, guard, d, url, timeout=40000):
+    """t_f5d80477: reserve the per-domain slot (gap, daily cap, cooldown) BEFORE the page load. -> (status, refused_reason). A refused read loads nothing."""
+    g = guard.reserve(d, key=url)
+    if not g["ok"]: return None, g["why"]
+    r = pg.goto(url, timeout=timeout, wait_until="domcontentloaded")
+    return (r.status if r else None), None
+
+
+def main(out, guard=None):
     from playwright.sync_api import sync_playwright
+    import sitegate as SG
+    guard = guard or SG.SiteGuard()   # the same ledger as the weekly run: bizapedia's 3/day is shared
     os.makedirs(out, exist_ok=True)
     res = []; before = window_count()
     with build_chrome() as oc, sync_playwright() as pw:
@@ -32,18 +42,21 @@ def main(out):
         ua = pg.evaluate("navigator.userAgent"); wd = pg.evaluate("navigator.webdriver")
         for d in SITES:
             for kind, url in (("home", "https://www.%s/" % d), ("search", cfg.search_url(d, "SCC"))):
-                status = None; err = None
+                status = None; err = None; refused = None
                 try:
-                    r = pg.goto(url, timeout=40000, wait_until="domcontentloaded"); status = r.status if r else None
+                    status, refused = guarded_goto(pg, guard, d, url)
+                    if refused: raise RuntimeError("rate-limited")
                     pg.wait_for_timeout(6000)
                     text = pg.inner_text("body", timeout=8000); html = pg.content()
                 except Exception as e:
                     text, html, err = "", "", type(e).__name__
+                if not err and classify(status, text, html) == "challenge":
+                    guard.wall(d, "build_proof challenge page", url=url)   # one cooldown + one site-walls.jsonl line
                 shot = os.path.join(out, "%s-%s.png" % (d.split(".")[0], kind))
                 try: pg.screenshot(path=shot)
                 except Exception: shot = None
-                row = dict(site=d, page=kind, url=url, final_url=pg.url, status=status, result="error" if err else classify(status, text, html),
-                           error=err, title=(pg.title() if not err else None), text_len=len(text), screenshot=shot)
+                row = dict(site=d, page=kind, url=url, final_url=pg.url, status=status, result="rate-limited" if refused else "error" if err else classify(status, text, html),
+                           error=("site-guard: " + refused) if refused else err, title=(pg.title() if not err else None), text_len=len(text), screenshot=shot)
                 res.append(row); print(row["site"], row["page"], row["status"], row["result"], flush=True)
         pg.close()
     time.sleep(1)

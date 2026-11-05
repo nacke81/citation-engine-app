@@ -218,11 +218,29 @@ def _offer(best, key, url, resolver):
     if key not in best or rank < best[key][0]: best[key] = (rank, url)
 
 
+_MAP_WALL = _re.compile(r"(?i)unusual traffic|our systems have detected|verify you are (a )?human|are you a robot|captcha|press (&|and) hold|just a moment|checking your browser|security check|access denied|too many requests")
+_MAP_WALL_URL = _re.compile(r"(?i)google\.[a-z.]+/sorry/|/captcha|/challenge|\bcf-chl")
+
+
+def map_wall(res):
+    """Why a mapnap.lookup result dict is a block / captcha page, else None. A rendered place panel (res["panel"]) is a real page, never a wall."""
+    if not isinstance(res, dict) or res.get("panel"): return None
+    if _MAP_WALL_URL.search(res.get("url") or ""): return "map captcha page (url)"
+    t = res.get("text") or ""
+    m = _MAP_WALL.search(t) if len(t) < 4000 else None
+    return ("map wall: " + m.group(0).lower()[:40]) if m else None
+
+
 def guard_mapnap(lookup, guard):
-    """Wrap mapnap.lookup(ctx, rec, d, b, kind, q, caption, tag) with the SiteGuard (the map boxes drive their own Chrome page). A refused read returns a not-verified result: couldnt, never noresult."""
+    """Wrap mapnap.lookup(ctx, rec, d, b, kind, q, caption, tag, ...) with the SiteGuard (the map boxes drive their own Chrome page). A refused read, or a result that is a captcha / block page (cooldown + one site-walls.jsonl line), returns a not-verified result: couldnt, never noresult."""
     def f(ctx, rec, d, b, kind, q, caption, tag, *a, **k):
         g = guard.reserve(d, key=tag)
         if not g["ok"]:
             return {"text": "", "url": "", "shot": "", "note": "site-guard: " + g["why"], "verified": False, "results": 0, "links": []}
-        return lookup(ctx, rec, d, b, kind, q, caption, tag, *a, **k)
+        r = lookup(ctx, rec, d, b, kind, q, caption, tag, *a, **k)
+        w = map_wall(r)
+        if w:
+            guard.wall(d, w, url=r.get("url"), row=b)
+            r = dict(r, verified=False, results=0, note=(r.get("note") or "") + ";site-guard: " + w)
+        return r
     return f

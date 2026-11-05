@@ -59,23 +59,31 @@ def _waiting_rows(queue):
     return out
 
 
-def recheck_verdict(url, canonical, reader=None):
+def recheck_verdict(url, canonical, reader=None, guard=None, chrome=None, plain=None):
     """t_5871cdf9: the ONE comparator. Re-read proof_url signed out through recheck.read_listing and return recheck.compare's result
-    ({verdict: match|mismatch|nap-incomplete|not-public|unreadable, nap, ...}). `match` needs the full canonical NAP: name, street, city, zip, phone.
-    `reader(url, canonical)` is injectable for tests; the default is a clean signed-out Chrome (GET/read only)."""
+    ({verdict: match|mismatch|nap-incomplete|not-public|unreadable|rate-limited, nap, ...}). `match` needs the full canonical NAP: name, street, city, zip, phone.
+    `reader(url, canonical)` is injectable for tests; the default is a clean signed-out Chrome (GET/read only).
+    t_f5d80477: the default read goes through the per-domain SiteGuard (`guard`; one is made when None, same ledger as the weekly): a refused
+    read (cap / cooldown / gap) or a quota / Cloudflare page is `rate-limited` and starts the cooldown; never a mismatch. `chrome` is injectable for tests."""
     if reader is not None: return reader(url, canonical)
-    import recheck as RC
-    own = RC.SignedOutReader(); own.canonical = canonical
+    import recheck as RC, sitegate as SG
+    guard = guard if guard is not None else SG.SiteGuard()
+    own = None
+    if chrome is None:
+        own = RC.SignedOutReader(); own.canonical = canonical; chrome = own
     try:
-        _page, _how, cmp_ = RC.read_listing(url, None, own, canonical)
+        page, _how, cmp_ = RC.read_listing(url, RC.guarded(plain or RC.plain_fetch, guard, "plain"), RC.guarded(chrome, guard, "chrome"), canonical)   # the plain GET is a Directory read too
+        if cmp_.get("verdict") == "rate-limited" and not getattr(page, "limited", None):
+            guard.wall(SG.domain_of(url), cmp_.get("why") or "wall", url=getattr(page, "url", url))   # a fresh wall; a guard refusal already has its cooldown
         return cmp_
     finally:
-        own.close()
+        if own is not None: own.close()
 
 
-def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None, reader=None):
-    """Returns {moved:[{row, directory, proof_url, build_action}], mismatched:[...], untouched:[...], errors:[...]}. Never raises per-row."""
-    out = {"moved": [], "mismatched": [], "untouched": [], "errors": []}
+def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None, reader=None, guard=None, chrome=None, plain=None):
+    """Returns {moved:[{row, directory, proof_url, build_action}], mismatched:[...], untouched:[...], limited:[...], errors:[...]}. Never raises per-row.
+    `limited` (t_f5d80477): Directories whose proof read the site guard refused or the site walled; their rows are untouched, never a mismatch."""
+    out = {"moved": [], "mismatched": [], "untouched": [], "limited": [], "errors": []}
     path = queue_path or Q.QUEUE_PATH
     try:
         with open(path, encoding="utf-8") as f: queue = json.load(f)
@@ -83,6 +91,8 @@ def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None, 
         out["errors"].append("queue: %s" % (str(e)[:200] or type(e).__name__)); return out
     waiting = _waiting_rows(queue)
     if not waiting: return out
+    if guard is None and reader is None:   # t_f5d80477: ONE guard for every proof read of this step (same ledger as the weekly's other readers)
+        import sitegate as SG; guard = SG.SiteGuard()
     if record is None:
         import transitions; record = transitions.record_transition
     db = db or D.DirDB()
@@ -102,9 +112,11 @@ def proof_step(checks, day, *, queue_path=None, db=None, record=None, now=None, 
                 out["errors"].append("%s: %s" % (d, str(e)[:200] or type(e).__name__))
             continue
         try:   # t_5871cdf9: verdict() is only a pre-filter; recheck's comparator on the same proof_url page decides. Not `match` -> write nothing.
-            cmp_ = recheck_verdict(c["url"], queue.get("canonical"), reader)
+            cmp_ = recheck_verdict(c["url"], queue.get("canonical"), reader, guard, chrome, plain)
         except Exception as e:
             out["untouched"].append(d); out["errors"].append("%s: comparator read failed: %s" % (d, str(e)[:160] or type(e).__name__)); continue
+        if (cmp_ or {}).get("verdict") == "rate-limited":
+            out["untouched"].append(d); out["limited"].append(d); continue
         if (cmp_ or {}).get("verdict") != "match":
             out["untouched"].append(d); continue
         c = dict(c, nap_shown=cmp_.get("nap") or c.get("nap_shown"))
