@@ -5,8 +5,8 @@ for the search URL. Writes <out>/proof.json and one screenshot per page. Classif
 """
 import os, sys, json, re, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from build_chrome import build_chrome
-from owned_chrome import window_count
+# build_chrome / owned_chrome are Windows-only (ctypes.WinDLL): imported inside main() so the guard helpers import on any OS (CI is Linux)
+
 import cfg
 
 SITES = ["yelp.com", "manta.com", "hotfrog.com", "bizapedia.com", "showmelocal.com", "chamberofcommerce.com"]
@@ -32,6 +32,8 @@ def guarded_goto(pg, guard, d, url, timeout=40000):
 
 def main(out, guard=None):
     from playwright.sync_api import sync_playwright
+    from build_chrome import build_chrome
+    from owned_chrome import window_count
     import sitegate as SG
     guard = guard or SG.SiteGuard()   # the same ledger as the weekly run: bizapedia's 3/day is shared
     os.makedirs(out, exist_ok=True)
