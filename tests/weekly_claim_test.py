@@ -156,7 +156,7 @@ def discovered(on_chrome, on_complete):
         on_complete(fetcher)
     globals_["discover_all"](on_chrome, complete)
 
-fake_discover = SimpleNamespace(discover_all=discovered, KNOWN={}, SETTLED=set(), GUARD=None, own_search_box=lambda: None, mapnap=SimpleNamespace(lookup=lambda: {}))
+fake_discover = SimpleNamespace(discover_all=discovered, KNOWN={}, SETTLED=set(), TRIED=set(), GUARD=None, own_search_box=lambda: None, mapnap=SimpleNamespace(lookup=lambda: {}))
 fake_owned = SimpleNamespace(chrome_windows=lambda: [], window_count=lambda: 0)
 with patch.dict(sys.modules, discover=fake_discover, owned_chrome=fake_owned), \
      patch.object(core, "HttpFetcher", Fetcher), patch.object(core, "ChromeFetcher", LiveFetcher), \

@@ -276,5 +276,81 @@ open(os.path.join(kd, "20261105-0900", "rows.jsonl"), "w").write("")
 kn = SG.known_listings({"fix_queue": [{"directory": "bing.com", "listing_url": "https://bing.example/scc", "state": "live"}, {"directory": "z.example", "listing_url": "https://z.example/1", "state": "rejected"}]}, kd)
 check("S8 known_listings: queue listing_url + newest earlier run's found rows only", kn == {("SCC", "bing.com"): "https://bing.example/scc", ("NM", "bbb.org"): "https://bbb.example/nm"}, str(kn))
 
+# ---- S9 round 3: a known URL is requested once per transport; best known URL; map boxes behind the guard ----------------------
+class _Stop(Exception): pass
+class _NoChrome:
+    def __enter__(self): raise _Stop()
+    def __exit__(self, *a): return False
+SEEN9 = []
+class Shell9(FakeHttp):
+    def fetch(self, url, label=""): SEEN9.append(url); return core.Result(200, url, "<html><body>loading...</body></html>", [])
+KN9 = "https://www.yellowpages.com/exampleton-ky/mip/alder-care-123"
+sv = (D.DIRS, D.BIZS, D.OUT, D.HttpFetcher, D.OwnedChrome)
+os.environ["CE_SHOTS"] = os.path.join(TMP, "shots9")
+D.DIRS = ["yellowpages.com", "manta.com"]; D.BIZS = ["SCC"]; D.OUT = os.path.join(TMP, "rows9.jsonl")
+D.HttpFetcher = Shell9; D.OwnedChrome = _NoChrome
+D.KNOWN.clear(); D.SETTLED.clear(); D.TRIED.clear(); D.KNOWN[("SCC", "yellowpages.com")] = KN9
+try: D.discover_all()
+except _Stop: pass
+check("S9 discover_all phase A: the known URL is requested exactly ONCE (was 3x)", SEEN9.count(KN9) == 1, str(SEEN9.count(KN9)))
+check("S9 identical-URL repeats through discover_all = 0", len(SEEN9) - len(set(SEEN9)) == 0, str([u for u in set(SEEN9) if SEEN9.count(u) > 1]))
+check("S9 after a miss, the later methods use the normal plan (the search URL is read)", core.plan_for("search", "yellowpages.com", "SCC")[0][1] in SEEN9, str(SEEN9))
+rows9 = [json.loads(l) for l in open(D.OUT, encoding="utf-8")]
+check("S9 the missed pair is not absent (no found/noresult invented by the skip)", not any(r.get("dir") == "yellowpages.com" and r.get("status") == "found" for r in rows9))
+D.DIRS, D.BIZS, D.OUT, D.HttpFetcher, D.OwnedChrome = sv
+
+# the Chrome ladder: one request of the known URL on that transport
+class LadderF(FakeHttp):
+    name = "chrome"; caption = ""
+    def fetch(self, url, label=""): self.seen.append(url); return core.Result(200, url, "<html>loading</html>", [])
+sv = (D.DIRS, D.BIZS, D.OUT); D.DIRS = ["yellowpages.com"]; D.BIZS = ["SCC"]; D.OUT = os.path.join(TMP, "rows9b.jsonl")
+D.KNOWN.clear(); D.SETTLED.clear(); D.TRIED.clear(); D.KNOWN[("SCC", "yellowpages.com")] = KN9
+lf = LadderF(); D.ladder(lf, "chrome", ["search", "pattern", "phone"], "t")
+check("S9 chrome ladder: known URL requested once; repeats 0", lf.seen.count(KN9) == 1 and len(lf.seen) == len(set(lf.seen)), str(lf.seen))
+D.DIRS, D.BIZS, D.OUT = sv
+D.KNOWN.clear(); D.SETTLED.clear(); D.TRIED.clear()
+D.KNOWN[("SCC", "bing.com")] = "https://www.bing.com/maps?q=alder"
+pm, _s = D.plan_or_known("search", "bing.com", "SCC", "http")
+check("S9 a known map search page keeps kind=search (judge: map page text)", pm == [("search", "https://www.bing.com/maps?q=alder")], str(pm))
+D.KNOWN.clear(); D.TRIED.clear()
+
+# a found search page IS the plan's search URL: it must not be requested a 2nd time by the fallback
+SEEN9.clear(); sv = (D.DIRS, D.BIZS, D.OUT, D.HttpFetcher, D.OwnedChrome)
+SU9 = core.plan_for("search", "google.com", "SCC")[0][1]
+D.DIRS = ["google.com"]; D.BIZS = ["SCC"]; D.OUT = os.path.join(TMP, "rows9c.jsonl"); D.HttpFetcher = Shell9; D.OwnedChrome = _NoChrome
+D.KNOWN.clear(); D.SETTLED.clear(); D.TRIED.clear(); D.KNOWN[("SCC", "google.com")] = SU9
+try: D.discover_all()
+except _Stop: pass
+check("S9 known URL == the search URL: requested once, not again by the fallback; repeats 0", SEEN9.count(SU9) == 1 and len(SEEN9) == len(set(SEEN9)), str(SEEN9))
+D.DIRS, D.BIZS, D.OUT, D.HttpFetcher, D.OwnedChrome = sv; D.KNOWN.clear(); D.SETTLED.clear(); D.TRIED.clear()
+
+pd9, _s = D.plan_or_known("pattern", "mapquest.com", "NM", "http")
+check("S9 a plan that lists one URL twice (NM mapquest pattern) asks it once", len(pd9) == len(set(pd9)) and len(core.plan_for("pattern", "mapquest.com", "NM")) > len(pd9), str(pd9))
+
+# known_listings: resolver > permalink-shaped > first found
+kd9 = tempfile.mkdtemp(dir=TMP); os.makedirs(os.path.join(kd9, "20261101-1100"))
+def _row(biz, d, url, method="http-search"): return json.dumps({"kind": "dir", "method": method, "biz": biz, "dir": d, "status": "found", "url": url}) + "\n"
+open(os.path.join(kd9, "20261101-1100", "rows.jsonl"), "w").write(
+    _row("SCC", "yellowpages.com", "https://www.yellowpages.com/exampleton-ky/alder-care") + _row("SCC", "yellowpages.com", KN9, "chrome-resolver") +
+    _row("NM", "manta.com", "https://www.manta.com/search?q=x") + _row("NM", "manta.com", "https://www.manta.com/c/mabc123/nm-co") +
+    _row("NM", "n49.com", "https://www.n49.com/search/x") + _row("NM", "n49.com", "https://www.n49.com/search/y"))
+k9 = SG.known_listings({}, kd9)
+check("S9 known_listings: the resolver permalink beats the earlier match page", k9[("SCC", "yellowpages.com")] == KN9, str(k9))
+check("S9 known_listings: a permalink-shaped URL beats a search page", k9[("NM", "manta.com")] == "https://www.manta.com/c/mabc123/nm-co", str(k9))
+check("S9 known_listings: nothing better -> first found", k9[("NM", "n49.com")] == "https://www.n49.com/search/x", str(k9))
+
+# mapnap.lookup behind the guard
+g9, _l = fresh_guard(gap=0, caps={"mapquest.com": 1}); called9 = []
+def _lookup(ctx, rec, d, b, kind, q, caption, tag): called9.append(d); return {"text": "page", "url": "u", "shot": "", "note": "", "verified": True, "results": 2, "links": []}
+w9 = SG.guard_mapnap(_lookup, g9)
+a9 = w9(None, None, "mapquest.com", "SCC", "name", "q", "c", "t1"); b9 = w9(None, None, "mapquest.com", "SCC", "phone", "q", "c", "t2")
+check("S9 mapnap: first read passes, 2nd is refused at the cap and the real lookup is NOT called", a9["verified"] and called9 == ["mapquest.com"] and not b9["verified"] and b9["results"] == 0 and "daily cap" in b9["note"], str(b9))
+st9 = "found" if False else ("noresult" if (b9["verified"] and b9["results"] >= 1) else "couldnt")
+check("S9 mapnap: refusal gives couldnt, never noresult", st9 == "couldnt")
+g9.wall("google.com", "test"); c9 = w9(None, None, "google.com", "SCC", "name", "q", "c", "t3")
+check("S9 mapnap: a cooldown also refuses (lookup not called)", not c9["verified"] and "cooldown" in c9["note"] and called9 == ["mapquest.com"], str(c9))
+d9 = w9(None, None, "bing.com", "SCC", "name", "q", "c", "t4")
+check("S9 mapnap: an unwalled uncapped domain passes through", d9["verified"] and called9[-1] == "bing.com")
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)
