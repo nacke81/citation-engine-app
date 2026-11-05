@@ -35,6 +35,8 @@ GOOD = [
     ("yellowbot.com", "https://www.yellowbot.com/birch-media-exampleton-tn.html"),
     ("maps.apple.com", "https://maps.apple.com/place?place-id=IPLACE0001&name=alder-care"),
     ("bing.com", "https://www.bing.com/maps/search?style=r&ss=id.local_ypid%3A%22YN0000000001%22&q=alder-care"),
+    ("chamberofcommerce.com", "https://www.chamberofcommerce.com/business-directory/kentucky/exampleton/health-consultant/123456789-alder-care-consltng-solutions"),
+    ("chamberofcommerce.com", "https://www.chamberofcommerce.com/united-states/kentucky/exampleton/health-consultant/123456789-alder-care-consltng-solutions"),
 ]
 BAD = [
     ("yellowpages.com", "https://www.yellowpages.com/exampleton-ky/alder-care-consulting-solutions"),
@@ -54,6 +56,9 @@ BAD = [
     ("cybo.com", "https://www.cybo.com/US/exampleton/"),
     ("mapquest.com", "https://www.mapquest.com/search/results?query=alder-care"),
     ("yellowbot.com", "https://www.yellowbot.com/search?q=alder&place=exampleton"),
+    ("chamberofcommerce.com", "https://www.chamberofcommerce.com/business-directory/kentucky/exampleton/health-consultant"),
+    ("chamberofcommerce.com", "https://www.chamberofcommerce.com/business-directory/kentucky/exampleton"),
+    ("chamberofcommerce.com", "https://www.chamberofcommerce.com/search?what=alder+care&where=exampleton"),
     ("yellowpages.com", ""),
 ]
 for d, u in GOOD:

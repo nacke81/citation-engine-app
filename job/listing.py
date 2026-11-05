@@ -22,7 +22,7 @@ PERMALINK = {
     "bing.com": r"local_ypid|ss=id\.",
     "yelp.com": r"^/biz/[^/?]+",
     "bbb.org": r"/profile/",
-    "chamberofcommerce.com": r"^/united-states/[^?]*/\d+-",
+    "chamberofcommerce.com": r"^/(united-states/[^?]*|business-directory/[a-z-]+/[a-z-]+/[^?]*)/\d+-",
     "yellowbot.com": r"^/[^/?]+\.html$",
     "facebook.com": r"^/(people/[^/]+/\d+|[A-Za-z0-9.\-]{3,})/?$",
     "localsolution.com": r"^/b/[^/?]+/[^/?]+",                                  # t_3ac43137: /b/<city-st>/<slug>; the homepage / add form are not listings
