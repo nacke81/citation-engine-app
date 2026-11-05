@@ -36,7 +36,7 @@ HUMAN_VERIFY = {"phone-call": "phone-call verification: the client takes the cal
                 "client-email": "client-email attestation: needs the client's own address, not listings@"}
 HUMAN_NOTE = (
     (re.compile(r"(?i)paid[- ]tier|Mike decides"), "paid tier: Mike decides (never buy)"),
-    (re.compile(r"WALL:cloudflare-click"), "Cloudflare click wall: a person clicks it"),
+    (re.compile(r"WALL:cloudflare-click"), "Cloudflare click wall: a person clicks it in the build Chrome (off-screen by default: python job/chrome_keepalive.py --show, then --hide)"),
     (re.compile(r"(?i)VERIFY:id|Veriff"), HUMAN_VERIFY["id-check"]),
     (re.compile(r"(?i)declined: .*\(Mike"), "declined by Mike"),
 )

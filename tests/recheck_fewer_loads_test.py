@@ -48,7 +48,7 @@ check("F1 a page that matches and holds still: read ends after 2 polls (first 2s
 pg = Pg([LATE, LATE, GOOD, GOOD])
 st, text, links, raw = R.read_rendered(pg, "https://a.example/biz/1", 30, CANON)
 check("F1 a street that loads late is waited for inside the SAME load", R.compare(text, CANON)["verdict"] == "match" and pg.waits[0] == 2000 and set(pg.waits[1:]) == {3000}, str(pg.waits))
-pg = Pg([GOOD + str(n) for n in range(100)])   # a page that never stops changing
+pg = Pg([(GOOD if n % 2 else GOOD.replace("555-0101", "555-9999")) for n in range(100)])   # a page whose phone never stops changing (round 1: a changing body with a stable NAP stops early, see F8)
 R.read_rendered(pg, "https://a.example/biz/1", 30, CANON)
 check("F1 a page that never settles is cut off: no more than 20s of polling after it first read", sum(pg.waits[1:]) <= R.STABLE_MAX_S * 1000 and len(pg.waits) >= 3, str(pg.waits))
 
@@ -147,6 +147,74 @@ check("F7 CE_CHROME_VISIBLE=1 brings the window back to 40,40", "--window-positi
 del os.environ["CE_CHROME_VISIBLE"]
 src = open(os.path.join(HERE, "..", "job", "owned_chrome.py"), encoding="utf-8").read()
 check("F7 the signed-out reader's OwnedChrome uses the same off-screen position (no hard-coded 40,40)", "window_pos()" in src and "40,40" not in src)
+
+# ---- F8 round 1: the wait judges the NAP READ; a page whose NAP never settles is never live, in either phase ------------------
+BAD = GOOD.replace("(502) 555-0101", "(502) 555-9999")   # the old phone
+def chrome_via(pg):
+    def chrome(u):
+        info = {}
+        st, t, l, raw = R.read_rendered(pg, u, 30, CANON, None, info)
+        return R.Page(st, u, t, l, html=raw, unstable=info.get("unstable"))
+    return chrome
+def flip(first, second): return Pg([first, second] * 40)
+def listing(mod, pg):
+    return mod.read_listing(U, plain_403, chrome_via_mod(mod, pg), CANON)
+def chrome_via_mod(mod, pg):
+    def chrome(u):
+        info = {}
+        st, t, l, raw = mod.read_rendered(pg, u, 30, CANON, None, info)
+        return mod.Page(st, u, t, l, html=raw, unstable=info.get("unstable"))
+    return chrome
+res_ab = listing(R, flip(GOOD, BAD)); res_ba = listing(R, flip(BAD, GOOD))
+check("F8 flip-forever, phase match-first: not live, unstable listed", res_ab[2]["verdict"] != "match" and res_ab[2].get("unstable"), str(res_ab[2]))
+check("F8 flip-forever, phase mismatch-first: same non-live verdict, unstable listed", res_ba[2]["verdict"] == res_ab[2]["verdict"] and res_ba[2].get("unstable"), str(res_ba[2]["verdict"]))
+pg = flip(GOOD, BAD); listing(R, pg)
+check("F8 the unstable page was still read in ONE load and cut at the 20s cap", sum(pg.waits[1:]) <= R.STABLE_MAX_S * 1000, str(pg.waits))
+ad = Pg([GOOD + " ad%d" % n for n in range(60)])   # body text always changes, NAP never does
+r = listing(R, ad)
+check("F8 a rotating ad with a stable NAP still matches, and stops early", r[2]["verdict"] == "match" and not r[2].get("unstable") and ad.waits == [2000, 3000], str(ad.waits))
+late = Pg([LATE, LATE, GOOD, GOOD]); r = listing(R, late)
+check("F8 a late street (LATE, LATE, GOOD, GOOD) still resolves to match inside one load", r[2]["verdict"] == "match" and not r[2].get("unstable"))
+never = Pg([LATE] * 30); r = listing(R, never)
+check("F8 a street that never appears is nap-incomplete, not unstable", r[2]["verdict"] == "nap-incomplete" and not r[2].get("unstable"), str(r[2]["verdict"]))
+# the saved page keeps `unstable`, so --write --from-read scores it the same as the dry run
+sp = R.PageStore(os.path.join(TMP, "unst"))
+_pg = R.Page(200, U, BAD, html="<html></html>", unstable=["match", "mismatch"])
+sp.saving(lambda u: _pg, "chrome")(U)
+back = R.PageStore(os.path.join(TMP, "unst")).reusing(lambda u: None, "chrome")(U)
+check("F8 a saved unstable page is reused as unstable (same verdict on --write)", back is not None and back.unstable == ["match", "mismatch"])
+# mutation: with the unstable handling cut out of read_listing, the flip test must FAIL (phase match-first goes live)
+src = open(os.path.join(HERE, "..", "job", "recheck.py"), encoding="utf-8").read()
+cut = 'if getattr(page, "unstable", None):'
+assert src.count(cut) == 1
+mut = {"__name__": "recheck_mut", "__file__": os.path.join(HERE, "..", "job", "recheck.py")}
+exec(compile(src.replace(cut, "if False:"), "recheck_mut", "exec"), mut)
+class M: pass
+M = type("M", (), {k: v for k, v in mut.items() if not k.startswith("__")})
+m_ab = M.read_listing(U, plain_403, chrome_via_mod(M, flip(GOOD, BAD)), CANON); m_ba = M.read_listing(U, plain_403, chrome_via_mod(M, flip(BAD, GOOD)), CANON)
+check("F8 MUTATION: without the unstable handling the flip goes live in one phase (so the F8 tests above would fail)", "match" in (m_ab[2]["verdict"], m_ba[2]["verdict"]) and not (m_ab[2].get("unstable") and m_ba[2].get("unstable")), "%s / %s" % (m_ab[2]["verdict"], m_ba[2]["verdict"]))
+
+# ---- F9 chrome_keepalive --show / --hide moves every window over CDP (fake CDP, no Chrome) ----------------------------------------
+class FakeCDP:
+    def __init__(self): self.log = []
+    def __call__(self, m, params=None):
+        self.log.append((m, params))
+        if m == "Target.getTargets": return {"targetInfos": [{"type": "page", "targetId": "t1"}, {"type": "page", "targetId": "t2"}, {"type": "service_worker", "targetId": "sw"}, {"type": "page", "targetId": "t3"}]}
+        if m == "Browser.getWindowForTarget": return {"windowId": {"t1": 7, "t2": 7, "t3": 9}[params["targetId"]]}
+        return {}
+f = FakeCDP(); moved = KA.set_window(True, cdp=f)
+sets = [(p_["windowId"], p_["bounds"]) for m, p_ in f.log if m == "Browser.setWindowBounds"]
+check("F9 --show: each window (not each tab) moved once to 40,40, state normalised first", moved == [7, 9] and (7, {"left": 40, "top": 40}) in sets and (9, {"left": 40, "top": 40}) in sets and (7, {"windowState": "normal"}) in sets and len(sets) == 4, str(sets))
+f = FakeCDP(); moved = KA.set_window(False, cdp=f)
+sets = [(p_["windowId"], p_["bounds"]) for m, p_ in f.log if m == "Browser.setWindowBounds"]
+check("F9 --hide: both windows go to -32000,-32000", moved == [7, 9] and (7, {"left": -32000, "top": -32000}) in sets and (9, {"left": -32000, "top": -32000}) in sets, str(sets))
+import subprocess
+rr = subprocess.run([sys.executable, os.path.join(HERE, "..", "job", "chrome_keepalive.py"), "--show", "--hide"], capture_output=True, text=True)
+check("F9 --show and --hide together are refused by the CLI", rr.returncode != 0 and "not allowed" in rr.stderr, rr.stderr[-120:])
+notes = open(os.path.join(HERE, "..", "job", "captcha_route.py"), encoding="utf-8").read() + open(os.path.join(HERE, "..", "job", "workable.py"), encoding="utf-8").read()
+check("F9 the cloudflare-click park note and the workable message name chrome_keepalive.py --show", notes.count("chrome_keepalive.py --show") >= 2)
+rd = open(os.path.join(HERE, "..", "README.md"), encoding="utf-8").read()
+check("F9 README names CE_CHROME_VISIBLE and --show/--hide", "CE_CHROME_VISIBLE" in rd and "chrome_keepalive.py --show" in rd and "--hide" in rd)
 
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

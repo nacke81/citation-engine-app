@@ -87,7 +87,7 @@ def plan(html, url, cli=None):
     """One dict the caller can print or act on: {"route", "wall", "commands", "max_tries", "notes"}."""
     d = detect(html, url)
     if d["interstitial"]:
-        return {"route": "park", "wall": "WALL:cloudflare-click", "commands": [], "max_tries": 1, "notes": ["full-page Cloudflare interstitial, not a form widget: click it in the build Chrome once; never CapSolver (Mike's rule)", "if parked: transitions.py --to needs-human --reason-code cloudflare"]}
+        return {"route": "park", "wall": "WALL:cloudflare-click", "commands": [], "max_tries": 1, "notes": ["full-page Cloudflare interstitial, not a form widget: click it in the build Chrome once (if it is off-screen run: python job/chrome_keepalive.py --show, then --hide after); never CapSolver (Mike's rule)", "if parked: transitions.py --to needs-human --reason-code cloudflare"]}
     if not d["widgets"]:
         return {"route": "none", "wall": None, "commands": [], "max_tries": 0, "notes": ["no CAPTCHA widget found on this page"]}
     cmds, notes, wall = [], [], None

@@ -56,8 +56,9 @@ MASKED_PHONE_RE = re.compile(r"\*{2,}|reveal phone|show phone|click to (call|vie
 
 
 class Page:
-    def __init__(self, status, url, text, links=None, err=None, html=None, limited=None):
+    def __init__(self, status, url, text, links=None, err=None, html=None, limited=None, unstable=None):
         self.status, self.url, self.text, self.links, self.err, self.html = status, url, text or "", links or [], err, html
+        self.unstable = unstable   # t_0c4ebee8: the per-poll NAP verdicts when the rendered read never settled (never live)
         self.limited = limited   # t_e34fc55c: why the site guard refused / the page is a quota or wall (rate-limited verdict)
 
 
@@ -116,7 +117,7 @@ class PageStore:
     def saving(self, fn, route):
         def read(url, *a, **k):
             pg = fn(url, *a, **k)
-            d = {"url": url, "status": pg.status, "final": pg.url, "text": pg.text, "links": pg.links, "err": pg.err, "html": pg.html, "limited": getattr(pg, "limited", None)}
+            d = {"url": url, "status": pg.status, "final": pg.url, "text": pg.text, "links": pg.links, "err": pg.err, "html": pg.html, "limited": getattr(pg, "limited", None), "unstable": getattr(pg, "unstable", None)}
             with open(self._path(route, url), "w", encoding="utf-8") as f: json.dump(d, f, ensure_ascii=False, sort_keys=True)
             return pg
         return read
@@ -134,7 +135,7 @@ class PageStore:
             except (OSError, ValueError): d = None
             if d and d.get("url") == url and not d.get("limited") and d.get("status") and d["text"] is not None:
                 self.reused += 1
-                return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"))
+                return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"), d.get("unstable"))
             return fn(url, *a, **k)
         return read
 
@@ -148,7 +149,7 @@ class PageStore:
                 if not os.path.exists(p2): return Page(0, url, "", err="replay: no saved page", limited=None)
                 p = p2
             d = json.load(open(p, encoding="utf-8"))
-            return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"))
+            return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"), d.get("unstable"))
         return read
 
 
@@ -182,7 +183,7 @@ REVEAL_JS = """() => { const re = new RegExp(%r, 'i'); const bare = /^(show|reve
   } return n; }""" % REVEAL_RE
 
 
-def read_rendered(pg, url, wait_s=30, canonical=None, referer=None):
+def read_rendered(pg, url, wait_s=30, canonical=None, referer=None, info=None):
     """Open `url` in page `pg`, wait for the JS page to render (past walls), click any 'Reveal Phone Number' control, then read text/links/html.
     Reads only; the one click is a public page's own reveal control (t_3ac43137). -> (status, text, links, html)"""
     import core
@@ -191,22 +192,29 @@ def read_rendered(pg, url, wait_s=30, canonical=None, referer=None):
         except Exception: pass
     r = pg.goto(url, timeout=40000, wait_until="domcontentloaded", **({"referer": referer} if referer else {}))   # referer: businessyab search answers 403 without a home-page Referer (t_89f4aebf)
     status = r.status if r else None
-    text, prev, same, readable = "", None, 0, 0
+    text, prev, same, readable, seen = "", None, 0, 0, []
     for _ in range(max(1, wait_s // 2)):
         pg.wait_for_timeout(STABLE_POLL_MS if readable else 2000)   # t_0c4ebee8: once the page reads, poll ~3s apart
         try: text = pg.inner_text("body", timeout=8000)
         except Exception: text = ""
-        if WALL_RE.search(text[:4000]) or len(text.strip()) <= 200: prev, same, readable = None, 0, 0; continue
+        if WALL_RE.search(text[:4000]) or len(text.strip()) <= 200: prev, same, readable, seen = None, 0, 0, []; continue
         # t_03a74bae (us-info flip-flop): a lazy-loaded block (the street) appears AFTER the first readable render.
         # t_0c4ebee8: this ONE load is also the stability check (it replaces the second, back-to-back confirm load). Without the canonical NAP: stop once the text held
         # still for 3 polls. With it: stop once the NAP matches AND the text did not change across 2 polls, else after 3 still polls (a page that really lacks the street).
         # Never longer than STABLE_MAX_S after the page first read.
         readable += 1
-        same = same + 1 if text == prev else 0; prev = text
+        if canonical is None:   # no NAP to judge: the whole text must hold still
+            key, verdict = text, None
+        else:   # t_0c4ebee8 round 1: stability is the NAP READ (verdict + the NAP found) holding still, not the body (a rotating ad / timestamp must not matter)
+            c = compare(text, canonical); verdict = c["verdict"]; key = (verdict, json.dumps(c.get("nap"), sort_keys=True, default=str))
+        seen.append(verdict)
+        same = same + 1 if key == prev else 0; prev = key
         if canonical is None:
             if same >= 2: break
-        elif (same >= 1 and compare(text, canonical)["verdict"] == "match") or same >= 2: break
-        if readable * STABLE_POLL_MS / 1000.0 >= STABLE_MAX_S: break
+        elif (same >= 1 and verdict == "match") or same >= 2: break
+        if readable * STABLE_POLL_MS / 1000.0 >= STABLE_MAX_S:
+            if canonical is not None and same == 0 and len(set(seen)) > 1 and info is not None: info["unstable"] = list(seen)   # cap hit while the NAP reads disagreed: never scored as a listing
+            break
     try: clicked = pg.evaluate(REVEAL_JS)
     except Exception: clicked = 0
     if isinstance(clicked, int) and not isinstance(clicked, bool) and clicked > 0:   # the phone sits behind a click (us-info): let it appear, then re-read
@@ -229,8 +237,9 @@ def chrome_fetch(url, cdp=CDP_URL, wait_s=30, canonical=None, referer=None):
         ctx = b.new_context()   # fresh, signed out (t_ac8b1bdd): contexts[0] is the signed-in build profile and shows owner-only pending edits
         pg = ctx.new_page()
         try:
-            status, text, links, raw = read_rendered(pg, url, wait_s, canonical, referer) if referer else read_rendered(pg, url, wait_s, canonical)
-            return Page(status, pg.url, text, links, html=raw)
+            info = {}
+            status, text, links, raw = read_rendered(pg, url, wait_s, canonical, referer, info) if referer else read_rendered(pg, url, wait_s, canonical, None, info)
+            return Page(status, pg.url, text, links, html=raw, unstable=info.get("unstable"))
         finally:
             try: pg.close()
             except Exception: pass
@@ -339,6 +348,10 @@ def read_listing(url, plain, chrome, canonical, confirm=True):
     if getattr(page, "limited", None) or wall_reason(page):   # t_e34fc55c: a quota / wall page is never scored as a listing
         return page, how, {"verdict": "rate-limited", "wrong": [], "gaps": [], "nap": None, "why": getattr(page, "limited", None) or wall_reason(page)}
     cmp_ = compare(page.text, canonical, getattr(page, "html", None))
+    if getattr(page, "unstable", None):   # t_0c4ebee8 round 1: the rendered read never settled (its NAP verdicts disagreed at the cap): the most severe non-match, never live, whatever phase the last poll was in
+        vs = list(page.unstable); bad = min((v for v in vs if v != "match"), key=lambda v: SEVERITY.index(v) if v in SEVERITY else 99, default="mismatch")
+        c = dict(cmp_); c["verdict"] = bad; c["unstable"] = vs
+        return page, how, c
     again = {"osm": lambda: osm_fetch(url)}.get(how)   # t_0c4ebee8: the rendered route is confirmed INSIDE its one load (read_rendered waits for stable text), never by a second back-to-back load
     if again is None or not confirm or cmp_["verdict"] not in ("match", "nap-incomplete"): return page, how, cmp_   # confirm=False: a row already live is read ONCE
     reads = [(page, cmp_)]

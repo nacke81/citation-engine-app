@@ -77,6 +77,32 @@ def chrome_args(profile=PROFILE, port=PORT, chrome=CHROME):
             "--no-first-run", "--no-default-browser-check", *CLEAN_FLAGS, "about:blank"]
 
 
+def set_window(show, port=PORT, cdp=None):
+    """--show / --hide (t_0c4ebee8, no restart): move EVERY window of the Chrome on `port` to 40,40 (show) or off-screen (hide), over CDP Browser.getWindowForTarget +
+    Browser.setWindowBounds. This is how a person reaches the build Chrome for a WALL:cloudflare-click while it sits off-screen. `cdp(method, params) -> dict` is injectable
+    (the test uses a fake); the real one is a Playwright browser-level CDP session. -> list of window ids moved."""
+    pos = (40, 40) if show else tuple(int(x) for x in OFFSCREEN_POS.split(","))
+    if cdp is None:
+        from playwright.sync_api import sync_playwright
+        p = sync_playwright().start()
+        try:
+            b = p.chromium.connect_over_cdp("http://127.0.0.1:%d" % port)
+            s = b.new_browser_cdp_session()
+            return set_window(show, port, lambda m, params=None: s.send(m, params or {}))
+        finally:
+            p.stop()
+    done = []
+    for t in cdp("Target.getTargets").get("targetInfos", []):
+        if t.get("type") != "page": continue
+        try: wid = cdp("Browser.getWindowForTarget", {"targetId": t["targetId"]})["windowId"]
+        except Exception: continue
+        if wid in done: continue
+        cdp("Browser.setWindowBounds", {"windowId": wid, "bounds": {"windowState": "normal"}})   # a minimized / maximized window ignores left/top
+        cdp("Browser.setWindowBounds", {"windowId": wid, "bounds": {"left": pos[0], "top": pos[1]}})
+        done.append(wid)
+    return done
+
+
 def _detached_flags():
     # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: not a child of this console, not in this process's Job Object
     return (0x00000008 | 0x00000200) if sys.platform == "win32" else 0
@@ -132,3 +158,14 @@ class Lease:
     def touch(self): lease_write(self.card, self.path, self.now)
     def __enter__(self): self.touch(); return self
     def __exit__(self, *a): lease_release(self.path); return False
+
+if __name__ == "__main__":   # t_0c4ebee8: python job/chrome_keepalive.py --show | --hide   (the build Chrome on 9333, no restart)
+    import argparse
+    ap = argparse.ArgumentParser(description="Bring the running build Chrome on screen (--show) or put it back off-screen (--hide)")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--show", action="store_true"); g.add_argument("--hide", action="store_true")
+    ap.add_argument("--port", type=int, default=PORT)
+    a = ap.parse_args()
+    if not cdp_alive(a.port): print("no Chrome answers on port %d" % a.port, file=sys.stderr); sys.exit(1)
+    moved = set_window(a.show, a.port)
+    print("%s %d window(s) on port %d" % ("showed" if a.show else "hid", len(moved), a.port))
