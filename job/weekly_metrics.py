@@ -30,6 +30,16 @@ def run_day(run, checks):
     return days[-1] if days else str(run.get("started_at") or "")[:10]
 
 
+def skip_reason(status, day, last_point):
+    """THE week rule, used by the backfill (classify_runs) and the live snapshot (snapshot_run). Returns why a run is NOT a weekly point, or None.
+    last_point: {'day', 'week'} of the newest point so far, or None."""
+    if status != "ok":
+        return "run status " + str(status)
+    if last_point and last_point["day"] == day:
+        return "same-day rerun of week %d (ad-hoc)" % last_point["week"]
+    return None
+
+
 def classify_runs(runs, days):
     """Which ce_runs are weekly points. runs: rows with id/started_at/status; days: {run_id: 'YYYY-MM-DD'}.
     Week 0 = the first ok run (the baseline sweep). Every later ok run is the next week, EXCEPT a rerun on the same calendar day as the previous
@@ -37,10 +47,9 @@ def classify_runs(runs, days):
     pts, skipped = [], []
     for r in sorted(runs, key=lambda x: x["started_at"]):
         d = days.get(r["id"]) or str(r["started_at"])[:10]
-        if r.get("status") != "ok":
-            skipped.append({"run_id": r["id"], "day": d, "why": "run status " + str(r.get("status"))}); continue
-        if pts and pts[-1]["day"] == d:
-            skipped.append({"run_id": r["id"], "day": d, "why": "same-day rerun of week %d (ad-hoc)" % pts[-1]["week"]}); continue
+        why = skip_reason(r.get("status"), d, pts[-1] if pts else None)
+        if why:
+            skipped.append({"run_id": r["id"], "day": d, "why": why}); continue
         pts.append({"run_id": r["id"], "week": len(pts), "day": d})
     return pts, skipped
 
@@ -67,12 +76,18 @@ def snapshot_run(db, run_id, day=None, node=node_run):
     status = _get(db, "ce_directory_biz?select=*")
     dirs = _get(db, "ce_directories?select=*&order=priority")
     day = day or run_day({}, checks)
+    rr = _get(db, "ce_runs?select=id,started_at,status&id=eq.%s" % run_id)
+    rstatus = rr[0].get("status") if rr else None
     out = {}
     for biz in BIZS:
         have = _get(db, "%s?select=id&biz=eq.%s&run_id=eq.%s" % (TABLE, biz, run_id))
         if have:
             out[biz] = "exists"; continue
-        mx = _get(db, "%s?select=week_index&biz=eq.%s&order=week_index.desc&limit=1" % (TABLE, biz))
+        mx = _get(db, "%s?select=week_index,captured_on&biz=eq.%s&order=week_index.desc&limit=1" % (TABLE, biz))
+        why = skip_reason(rstatus, day, {"day": str(mx[0].get("captured_on"))[:10], "week": mx[0]["week_index"]} if mx else None)
+        if why:
+            print("WEEKLY METRICS SKIPPED %s %s: %s" % (biz, run_id, why), flush=True)
+            out[biz] = "skipped: " + why; continue
         if mx:
             week = mx[0]["week_index"] + 1
         else:   # no history table rows yet: position among the classified weekly runs
@@ -80,7 +95,11 @@ def snapshot_run(db, run_id, day=None, node=node_run):
             allc = _get(db, "ce_checks?select=run_id,checked_on&limit=5000")
             days = {r["id"]: run_day(r, [c for c in allc if c["run_id"] == r["id"]]) for r in runs}
             pts, _ = classify_runs(runs, days)
-            week = next((p["week"] for p in pts if p["run_id"] == run_id), len(pts))
+            mine = next((p["week"] for p in pts if p["run_id"] == run_id), None)
+            if mine is None:
+                print("WEEKLY METRICS SKIPPED %s %s: not a weekly point" % (biz, run_id), flush=True)
+                out[biz] = "skipped: not a weekly point"; continue
+            week = mine
         res = node([{"mode": "snapshot", "checks": [c for c in checks if c["biz"] == biz], "status": [s for s in status if s.get("biz") == biz], "dirs": dirs}])[0]
         row = {"owner": db.owner, "biz": biz, "run_id": run_id, "week_index": week, "captured_on": day, "metrics": res["metrics"], "sources": {k: "snapshot" for k in KEYS}}
         db.call("POST", TABLE + "?on_conflict=owner,biz,run_id", [row], "resolution=ignore-duplicates,return=minimal")

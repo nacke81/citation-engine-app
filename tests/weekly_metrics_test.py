@@ -66,6 +66,7 @@ class Fake:
             return None
         raise AssertionError("unexpected " + method)
 
+wsrc0 = open(os.path.join(JOB, "weekly_metrics.py"), encoding="utf-8").read()
 db = Fake()
 r1 = W.snapshot_run(db, "r1", "2026-10-18")
 check("S1 one row per business written", len(db.t["ce_weekly_metrics"]) == 2 and set(r1) == {"SCC", "NM"})
@@ -80,6 +81,26 @@ check("S6 snapshot has the 12 tile keys, all ints (none is a gap going forward)"
 node_m = W.node_run([{"mode": "snapshot", "checks": [c for c in CHECKS if c["run_id"] == "r2" and c["biz"] == "SCC"], "status": [s for s in STATUS if s["biz"] == "SCC"], "dirs": DIRS}])[0]["metrics"]
 check("S7 snapshot equals the page's weeklyMetrics for the same rows", m == node_m)
 check("S8 submitted row is waiting; claimed found row and the unchecked row are not To build", m["waiting"] == 1 and m["toBuild"] == 0, str(m))
+
+# ---- round 3: the live path uses the SAME week rule as the backfill
+def mk(extra_runs, extra_days, preload):
+    for r in extra_runs:
+        RUNS.append(r); DAY[r["id"]] = extra_days[r["id"]]
+        CHECKS.extend([ck(r["id"], "SCC", "a.example", "found"), ck(r["id"], "NM", "a.example", "found")])
+    return Fake(preload)
+pre = [{"biz": b, "run_id": "r2", "week_index": 3, "captured_on": "2026-11-01"} for b in W.BIZS]
+db3 = mk([{"id": "w_fail", "started_at": "2026-11-08T16:00:00Z", "status": "failed"}, {"id": "w_ok", "started_at": "2026-11-08T17:00:00Z", "status": "ok"},
+          {"id": "w_ok2", "started_at": "2026-11-08T18:00:00Z", "status": "ok"}], {"w_fail": "2026-11-08", "w_ok": "2026-11-08", "w_ok2": "2026-11-08"}, pre)
+n0 = len(db3.t["ce_weekly_metrics"])
+rf_ = W.snapshot_run(db3, "w_fail", "2026-11-08")
+check("R1 failed weekly run gives no row, does not raise", len(db3.t["ce_weekly_metrics"]) == n0 and all(str(v).startswith("skipped") for v in rf_.values()), str(rf_))
+rok = W.snapshot_run(db3, "w_ok", "2026-11-08")
+check("R2 ok rerun the same day after a FAILED run becomes the next week (N+1)", sorted({r["week_index"] for r in db3.t["ce_weekly_metrics"] if r["run_id"] == "w_ok"}) == [4], str(rok))
+n1 = len(db3.t["ce_weekly_metrics"])
+rdup = W.snapshot_run(db3, "w_ok2", "2026-11-08")
+check("R3 same-day ok rerun after an ok point gives no row", len(db3.t["ce_weekly_metrics"]) == n1 and all(str(v).startswith("skipped") for v in rdup.values()), str(rdup))
+check("R4 one week rule: classify_runs and snapshot_run both call skip_reason", bool(W.skip_reason("failed", "d", None)) and bool(W.skip_reason("ok", "d", {"day": "d", "week": 1})) and W.skip_reason("ok", "d", {"day": "e", "week": 1}) is None
+      and "skip_reason(" in wsrc0.split("def classify_runs")[1].split("def _get")[0] and "skip_reason(" in wsrc0.split("def snapshot_run")[1].split("def queue_rows_for")[0])
 
 # ---- ad hoc runs add no point: only run.py --weekly writes a snapshot; weekly.cmd passes it
 src = open(os.path.join(JOB, "run.py"), encoding="utf-8").read()
