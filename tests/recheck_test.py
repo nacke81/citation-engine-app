@@ -107,11 +107,11 @@ check("R6 readable plain page: Chrome not used", chrome_calls == [])
 res, q, plain_calls, chrome_calls, *_ = run([row("r7", "a.example", "pending-verify", U1)], {U1: R.Page(200, U1, "Performing a quick security check..." + PAD)}, {U1: page_text()})
 check("R6 Turnstile text on a 200 page counts as a wall", chrome_calls == [U1] * R.STABLE_READS and q["fix_queue"][0]["state"] == "live")
 res, q, plain_calls, chrome_calls, *_ = run([row("r7", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "Just a moment...")}, {U1: page_text()}, use_chrome=False)
-check("R6 --no-chrome: walled page writes nothing", chrome_calls == [] and q["fix_queue"][0]["state"] == "pending-verify" and res[0]["verdict"] == "unreadable")
+check("R6 --no-chrome: walled page writes nothing", chrome_calls == [] and q["fix_queue"][0]["state"] == "pending-verify" and res[0]["verdict"] == "rate-limited")   # t_e34fc55c: a Cloudflare wall is rate-limited, still nothing written
 
 # R7 unreadable
 res, q, *_ = run([row("r8", "a.example", "pending-verify", U1)], {U1: R.Page(403, U1, "denied")}, {U1: "Just a moment..."})
-check("R7 walled in both: unreadable, nothing written", res[0]["verdict"] == "unreadable" and not q["fix_queue"][0]["history"])
+check("R7 walled in both: rate-limited (t_e34fc55c), nothing written", res[0]["verdict"] == "rate-limited" and not q["fix_queue"][0]["history"])
 res, q, *_ = run([row("r8", "a.example", "pending-verify", U1)], {U1: "Welcome to a directory about other businesses. " * 20})
 check("R7 page without the business: not-public (t_3ac43137), not a mismatch, state unchanged; only a 2-day recheck_due note is written (t_962161f4)", res[0]["verdict"] == "not-public" and q["fix_queue"][0]["state"] == "pending-verify" and all(h.get("recheck_due") and h["from"] == h["to"] for h in q["fix_queue"][0]["history"]))
 

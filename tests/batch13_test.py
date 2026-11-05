@@ -71,7 +71,7 @@ E404 = R.Page(404, U, "Page not found " * 20)
 WALL = R.Page(200, U, "Just a moment... " * 20)
 EMPTY = R.Page(0, U, "", err="TimeoutError")
 for label, pg, want in (("login redirect", LOGIN, "not-public"), ("'We couldn't find' page", NF, "not-public"), ("HTTP 404", E404, "not-public"),
-                        ("Cloudflare wall", WALL, "unreadable"), ("timeout / error page", EMPTY, "unreadable")):
+                        ("Cloudflare wall", WALL, "rate-limited"), ("timeout / error page", EMPTY, "unreadable")):
     _, q = queue([row("create-js", "js.example", "submitted", U)])
     res = R.recheck(q, IDENT, plain=lambda u: R.Page(200, u, "Loading..."), chrome=Rd({U: pg}), record=lambda *a, **k: {}, today="2026-11-02", write=False)
     check("A3 %s -> %s" % (label, want), res[0]["verdict"] == want, str(res[0]))
