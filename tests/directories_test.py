@@ -204,7 +204,7 @@ PROMOTED = {"yellowpagecity.com", "bizhwy.com", "expressbusinessdirectory.com", 
 HUNT_ENUM = dict(agent_access=("blocked", "unknown"), build_route=("none", "agent"), weekly_scope=("none",))
 check("D8 148 unique domains load from the seed and no hunt domain is in the 86", len({r["domain"] for r in SEED}) == 148 and not ({r["domain"] for r in HUNT} & {r["domain"] for r in V1}))
 check("D8 every hunt row is catalog-only: build_eligible false, route none except the promoted list (agent), priority 4, scope none, not checked weekly",
-      all(r["build_eligible"] is (r["domain"] in PROMOTED) and r["build_route"] == ("agent" if r["domain"] in PROMOTED else "none") and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
+      all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com"}) and r["build_route"] == ("agent" if r["domain"] in PROMOTED | {"salespider.com"} else "none") and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
 check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1))
 check("D8 hunt agent_access is mapped to the enum: 403/429 walls blocked (21), everything else unknown, probe text kept",
       all(r["agent_access"] in ("blocked", "unknown") for r in HUNT) and sum(r["agent_access"] == "blocked" for r in HUNT) == 21
@@ -225,7 +225,7 @@ check("D8 split: 008 has NO rows (no insert, no $seed$) and 009 has NO DDL (no a
       not re.search(INS, sql8, re.I) and "$seed$" not in sql8 and not re.search(r"^\s*(alter|create|drop)\s", sql9, re.I | re.M))
 check("D8 hazard gone: with only 008 applied the table gains 0 rows (008 has no insert, 009 is the only row source and every row is build_eligible false)",
       len(re.findall(INS, sql8, re.I)) == 0 and len(re.findall(INS, sql9, re.I)) == 1 and len(json.loads(m9.group(1))) == 62
-      and all(r["build_eligible"] is (r["domain"] in PROMOTED) for r in json.loads(m9.group(1))))
+      and all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com"}) for r in json.loads(m9.group(1))))
 check("D8 order is written in the files: 009 requires 008 and the merge first, 008 names step 3", "REQUIRES 008" in sql9 and "AFTER the app change is merged" in sql9 and "(3) apply 009" in sql8)
 check("D8 hunt seed file equals the hunt rows in directories_seed.json", json.load(open(os.path.join(ROOT, "db", "directories_hunt_seed.json"), encoding="utf-8")) == HUNT)
 check("D8 008 is additive and idempotent: columns if not exists, build_eligible default true, no drop table, no delete",
@@ -249,9 +249,20 @@ check("D9 010 is exactly one update of build_eligible = true, no other column, n
 dom10 = set(re.findall(r"'([^']+)'", body10.split("domain in", 1)[1]))
 check("D9 010 names exactly the 8 promoted domains, all hunt rows, same list as the generator", dom10 == PROMOTED == set(G.PROMOTED_SCC) and PROMOTED <= {r["domain"] for r in HUNT})
 check("D9 010 also sets build_route = agent and the Nate note", re.search(r"build_route\s*=\s*'agent'", body10) and G.PROMOTED_NOTE in body10)
-check("D9 seed: promoted rows carry build_route agent plus the note, the other 54 stay none", all(r["build_route"] == "agent" and r["build_route_note"] == G.PROMOTED_NOTE for r in HUNT if r["domain"] in PROMOTED)
-      and sum(r["build_route"] == "none" for r in HUNT) == 54)
-check("D9 seed: build_eligible true on exactly the 8 hunt rows, the other 54 hunt rows false",
-      {r["domain"] for r in HUNT if r["build_eligible"] is True} == PROMOTED and sum(r["build_eligible"] is False for r in HUNT) == 54)
+check("D9 seed: promoted rows carry build_route agent plus the note, the other 53 stay none", all(r["build_route"] == "agent" and r["build_route_note"] == G.PROMOTED_NOTE for r in HUNT if r["domain"] in PROMOTED)
+      and sum(r["build_route"] == "none" for r in HUNT) == 53)
+PROMOTED13 = {"salespider.com"}
+sql13 = open(os.path.join(ROOT, "db", "013_promote_salespider.sql"), encoding="utf-8").read()
+body13 = "\n".join(l for l in sql13.replace(CRLF, LF).split(LF) if not l.lstrip().startswith("--"))
+check("D10 013 is exactly one update of build_eligible, build_route, build_route_note on salespider.com, no insert/delete/DDL",
+      len(re.findall(r"\bupdate\b", body13, re.I)) == 1 and re.search(r"set\s+build_eligible\s*=\s*true\s*,\s*build_route\s*=\s*'agent'\s*,\s*build_route_note\s*=\s*'[^']*'\s+where\s+domain\s+in\s*\(\s*'salespider\.com'\s*\)", body13, re.I)
+      and body13.count("=") == 3 and not re.search(r"\b(insert|delete|truncate|drop|alter|create)\b", body13, re.I))
+check("D10 013 names exactly salespider.com, a hunt row, same as the generator, with the t_1061017b note", set(re.findall(r"'([^']+)'", body13.split("domain in", 1)[1])) == PROMOTED13 == set(G.PROMOTED_013)
+      and PROMOTED13 <= {r["domain"] for r in HUNT} and G.PROMOTED_013_NOTE in body13 and not (PROMOTED13 & PROMOTED))
+check("D10 seed: salespider.com eligible/agent with the note; 9 promoted in all, the other 53 hunt rows false/none",
+      all(r["build_eligible"] is True and r["build_route"] == "agent" and r["build_route_note"] == G.PROMOTED_013_NOTE for r in HUNT if r["domain"] in PROMOTED13)
+      and sum(r["build_eligible"] is True for r in HUNT) == 9 and sum(r["build_eligible"] is False for r in HUNT) == 53 and sum(r["build_route"] == "none" for r in HUNT) == 53)
+check("D9 seed: build_eligible true on the 8 010 rows plus salespider (013), the other 53 hunt rows false",
+      {r["domain"] for r in HUNT if r["build_eligible"] is True} == PROMOTED | {"salespider.com"} and sum(r["build_eligible"] is False for r in HUNT) == 53)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

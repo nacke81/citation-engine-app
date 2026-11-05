@@ -72,6 +72,12 @@ PROMOTED_SCC = frozenset({"yellowpagecity.com", "bizhwy.com", "expressbusinessdi
                           "usbizs.com", "usaypage.com", "trustpilot.com", "threebestrated.com"})
 
 
+# Promoted by migration 013 (t_41f55574): free claim page, Nate ruling on t_1061017b.
+PROMOTED_013 = frozenset({"salespider.com"})
+PROMOTED_013_NOTE = 'Promoted t_1061017b: free claim page; agent builds, parks before any code or CAPTCHA step it cannot do free.'
+PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013
+
+
 PROMOTED_NOTE = 'Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.'
 
 
@@ -88,12 +94,13 @@ def main_hunt():
 
 def write_seed(rows, hunt):
     assert len(rows) == 86 and len({r["domain"] for r in rows}) == 86, "v1 catalog must be 86 unique Directories"
-    assert PROMOTED_SCC <= {r["domain"] for r in hunt}, "every promoted domain must be a hunt row"
+    assert PROMOTED_ALL <= {r["domain"] for r in hunt}, "every promoted domain must be a hunt row"
     hunt = [dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_NOTE) if r["domain"] in PROMOTED_SCC
+            else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTE) if r["domain"] in PROMOTED_013
             else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
     everything = rows + hunt
     assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
-    assert all(r["build_eligible"] is (r["domain"] in PROMOTED_SCC) and (r["build_route"] == "agent") is (r["domain"] in PROMOTED_SCC) for r in hunt), "hunt rows are catalog-only (build_eligible false, route none) except the promoted list"
+    assert all(r["build_eligible"] is (r["domain"] in PROMOTED_ALL) and (r["build_route"] == "agent") is (r["domain"] in PROMOTED_ALL) for r in hunt), "hunt rows are catalog-only (build_eligible false, route none) except the promoted list"
     with open(HUNT_SEED, "w", encoding="utf-8", newline="\n") as f:
         json.dump(hunt, f, indent=1, ensure_ascii=False); f.write("\n")
     with open(SEED_JSON, "w", encoding="utf-8", newline="\n") as f:

@@ -3908,8 +3908,8 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "none",
-  "build_route_note": null,
+  "build_route": "agent",
+  "build_route_note": "Promoted t_1061017b: free claim page; agent builds, parks before any code or CAPTCHA step it cannot do free.",
   "agent_access": "blocked",
   "agent_blocker": "bot wall (HTTP 403)",
   "agent_blocker_seen_on": "2026-10-30",
@@ -3919,7 +3919,7 @@
   "vertical": "general",
   "weekly_checkable": "unknown",
   "source": "S,F,R",
-  "build_eligible": false
+  "build_eligible": true
  },
  {
   "domain": "site.cards",
