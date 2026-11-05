@@ -182,8 +182,8 @@ def guard_fetchers(core, guard):
 
 
 def known_listings(queue=None, runs_dir=None, skip=None):
-    """{(biz, directory): listing url} we already hold: SCC queue rows with a listing_url, and the newest earlier weekly run's rows.jsonl `found` rows (SCC + NM). The weekly reads that URL instead of searching the Directory again."""
-    out = {}
+    """{(biz, directory): listing url} we already hold: SCC queue rows with a listing_url, and the newest earlier weekly run's rows.jsonl `found` rows (SCC + NM). The weekly reads that URL instead of searching the Directory again. Best per pair: resolver permalink > permalink-shaped > first found."""
+    best = {}
     try:
         q = queue if isinstance(queue, dict) else (json.load(open(queue, encoding="utf-8")) if queue else {})
     except (OSError, ValueError):
@@ -192,7 +192,7 @@ def known_listings(queue=None, runs_dir=None, skip=None):
         v = q.get(key)
         for r in (v if isinstance(v, list) else (v or {}).get("rows", []) if isinstance(v, dict) else []):
             if isinstance(r, dict) and r.get("listing_url") and r.get("directory") and r.get("state") in ("live", "found", "submitted", "pending-verify"):
-                out[("SCC", r["directory"])] = r["listing_url"]
+                _offer(best, ("SCC", r["directory"]), r["listing_url"], False)
     if runs_dir and os.path.isdir(runs_dir):
         for d in sorted(os.listdir(runs_dir), reverse=True):
             p = os.path.join(runs_dir, d, "rows.jsonl")
@@ -202,6 +202,27 @@ def known_listings(queue=None, runs_dir=None, skip=None):
                 try: r = json.loads(ln)
                 except ValueError: continue
                 if r.get("kind") == "dir" and r.get("status") == "found" and r.get("url") and r.get("biz") in ("SCC", "NM"):
-                    out.setdefault((r["biz"], r["dir"]), r["url"]); got += 1
+                    _offer(best, (r["biz"], r["dir"]), r["url"], r.get("method") == "chrome-resolver"); got += 1
             if got: break   # newest run that holds any; older ones are staler
-    return out
+    return {k: v[1] for k, v in best.items()}
+
+
+def _offer(best, key, url, resolver):
+    """Keep the best URL per pair: the resolver's permalink beats any permalink-shaped URL beats the first found page. Ties keep the earlier offer."""
+    try:
+        import permalink
+        shaped = permalink.is_permalink(key[1], url)[0]
+    except Exception:
+        shaped = False
+    rank = 0 if resolver else (1 if shaped else 2)
+    if key not in best or rank < best[key][0]: best[key] = (rank, url)
+
+
+def guard_mapnap(lookup, guard):
+    """Wrap mapnap.lookup(ctx, rec, d, b, kind, q, caption, tag) with the SiteGuard (the map boxes drive their own Chrome page). A refused read returns a not-verified result: couldnt, never noresult."""
+    def f(ctx, rec, d, b, kind, q, caption, tag, *a, **k):
+        g = guard.reserve(d, key=tag)
+        if not g["ok"]:
+            return {"text": "", "url": "", "shot": "", "note": "site-guard: " + g["why"], "verified": False, "results": 0, "links": []}
+        return lookup(ctx, rec, d, b, kind, q, caption, tag, *a, **k)
+    return f

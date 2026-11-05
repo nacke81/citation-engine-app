@@ -79,9 +79,9 @@ def discover_live():
     # t_e34fc55c: BOTH core fetchers + the own-search boxes share one SiteGuard (gap, daily cap, cooldown); known listings are read, not searched for
     import sitegate as SG, buildqueue
     guard = SG.SiteGuard(); undo_guard = SG.guard_fetchers(core, guard)
-    discover.GUARD = guard; discover.SETTLED.clear()
+    discover.GUARD = guard; discover.SETTLED.clear(); discover.TRIED.clear()
     discover.KNOWN.clear(); discover.KNOWN.update(SG.known_listings(buildqueue.QUEUE_PATH, RUNS, skip=os.environ.get("CE_ROWS")))
-    ol = mapnap.lookup
+    ol = SG.guard_mapnap(mapnap.lookup, guard)   # map boxes are Directory reads too (mapquest shares its domain with the ladder)
     def lk(*a, **k):
         r = ol(*a, **k)
         if r.get("text"): texts[r["url"]] = r["text"]

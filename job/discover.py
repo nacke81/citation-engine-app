@@ -29,13 +29,22 @@ CAPPED = set(__import__("sitegate").DAILY_CAP)   # domains with a daily read cap
 SETTLED = set() # (biz, directory) already answered found by an earlier read this run
 def blocked(b, d): return "yellowpages.com" if (b == "FAKE" and d == "yellowpages.com") else None
 
-def plan_or_known(method, d, b):
-    """(plan, skip). A listing URL we already hold is read directly, not searched for (t_e34fc55c). A capped domain is not asked again once answered, and the made-up control is not run there."""
+TRIED = set()   # (transport, biz, directory): the known URL was already requested on this transport this run
+
+def plan_or_known(method, d, b, transport=""):
+    """(plan, skip). A listing URL we already hold is read directly, not searched for (t_e34fc55c), ONCE per transport: if that read misses, later methods use the normal plan. A capped domain is not asked again once answered, and the made-up control is not run there."""
     if b == "FAKE" and d in CAPPED: return None, "made-up control not run on a read-capped domain"
     if (b, d) in SETTLED: return None, ""
     u = KNOWN.get((b, d))
-    if u: return [("pattern", u)], ""
-    return plan_for(method, d, b), ""
+    if u and (transport, b, d) not in TRIED:
+        TRIED.add((transport, b, d))
+        return [("search" if d in __import__("core").MAPDIRS else "pattern", u)], ""
+    if u and method == "pattern": method = "search"   # the known URL stood in for the guessed pattern; a miss still gets ONE search (a moved listing)
+    plan = list(dict.fromkeys(plan_for(method, d, b)))   # pattern_urls can list one URL twice (NM mapquest): ask once
+    if u:   # never request the known URL again on this transport (a found search page IS the search URL)
+        plan = [(k, x) for k, x in plan if x != u]
+        if not plan: return None, "same-url"
+    return plan, ""
 
 def settle(b, d, status):
     if status == "found" or (status == "noresult" and d in CAPPED): SETTLED.add((b, d))   # a capped domain is not asked again once it answered
@@ -46,8 +55,8 @@ def ladder(F, method_tag, methods, rec_label):
             for method in methods:
                 if b == "FAKE" and method != "search": continue
                 F.block = blocked(b, d); F.caption = f"[CE weekly | {rec_label} | {b} | {method}]"
-                plan, skip = plan_or_known(method, d, b); log = []
-                if not plan and (b, d) in SETTLED: continue
+                plan, skip = plan_or_known(method, d, b, method_tag); log = []
+                if not plan and ((b, d) in SETTLED or skip == "same-url"): continue
                 if not plan:
                     emit(dict(kind="dir", method=f"{method_tag}-{method}", biz=b, dir=d, status="couldnt", url="", note=skip or "no plan", blocked_on_purpose=False)); continue
                 try: r = discover(F, d, b, plan, log)
@@ -117,8 +126,8 @@ def discover_all(on_chrome=lambda oc: None, on_complete=lambda fetcher: None):
             for b in BIZS:
                 for d in DIRS:
                     if b == "FAKE" and method != "search": continue
-                    H.block = blocked(b, d); plan, skip = plan_or_known(method, d, b); log = []
-                    if not plan and (b, d) in SETTLED: continue
+                    H.block = blocked(b, d); plan, skip = plan_or_known(method, d, b, "http"); log = []
+                    if not plan and ((b, d) in SETTLED or skip == "same-url"): continue
                     if not plan: emit(dict(kind="dir", method=f"http-{method}", biz=b, dir=d, status="couldnt", url="", note=skip or "no plan", blocked_on_purpose=False)); continue
                     r = discover(H, d, b, plan, log)
                     settle(b, d, r["status"])
