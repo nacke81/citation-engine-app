@@ -1,7 +1,7 @@
 // t_43e88fb7: the weekly chart. Gaps are drawn as gaps, a toggle hides and restores its line and survives a reload, tiles keep click-to-filter.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chartHtml, chartSvg, loadHidden, saveHidden, toggleHidden, wireChart, chartKey, driftNote } from "../site/chart.js";
+import { chartHtml, chartSvg, loadHidden, saveHidden, toggleHidden, wireChart, chartKey, driftNote, COLORS, GAP_NOTE, hasVisibleGap } from "../site/chart.js";
 import { overviewHtml } from "../site/render.js";
 import { METRICS } from "../site/metrics.js";
 
@@ -38,7 +38,7 @@ test("one line per tile, 12 legend checkboxes, all on by default", () => {
   assert.equal((h.match(/<g data-line=/g) || []).length, 12);
   assert.equal((h.match(/<input type="checkbox" data-metric=/g) || []).length, 12);
   assert.equal((h.match(/<input type="checkbox"[^>]* checked>/g) || []).length, 12);
-  for (const [, label] of METRICS) assert.ok(h.includes(`</i>${label.replace("'", "&#39;")}</label>`), label);
+  for (const [, label] of METRICS) assert.ok(h.includes(`</svg>${label.replace("'", "&#39;")}</label>`), label);
   assert.equal(h.includes("display:none"), false);
 });
 test("toggle hides and restores its line, and the choice survives a reload (per business)", () => {
@@ -57,6 +57,44 @@ test("toggle hides and restores its line, and the choice survives a reload (per 
   // restore
   saveHidden(st, "SCC", toggleHidden(toggleHidden(loadHidden(st, "SCC"), "claimed"), "fixed"));
   assert.equal(chartHtml("SCC", points, loadHidden(st, "SCC")).includes("display:none"), false);
+});
+test("round 2: 12 distinct colors; check lines solid, in-flight/result lines dashed; legend swatch matches the line", () => {
+  assert.equal(COLORS.length, 12);
+  assert.equal(new Set(COLORS.map((c) => c.toLowerCase())).size, 12);
+  const h = chartHtml("SCC", points);
+  METRICS.forEach(([k], i) => {
+    const g = h.match(new RegExp(`<g data-line="${k}".*?</g>`))[0];
+    const path = g.match(/<path[^>]*>/)[0];
+    const sw = h.match(new RegExp(`<line [^>]*data-testid="sw-${k}"/>`))[0];
+    const dashed = i >= 6;
+    assert.equal(path.includes(`stroke="${COLORS[i]}"`), true, k + " line color");
+    assert.equal(sw.includes(`stroke="${COLORS[i]}"`), true, k + " swatch color");
+    assert.equal(path.includes("stroke-dasharray"), dashed, k + " line dash");
+    assert.equal(sw.includes("stroke-dasharray"), dashed, k + " swatch dash");
+    if (dashed) assert.equal(path.match(/stroke-dasharray="([^"]+)"/)[1], sw.match(/stroke-dasharray="([^"]+)"/)[1], k + " same pattern");
+  });
+});
+test("round 2: gap note shows only when a visible line has a gap", () => {
+  const NOTE = "Gaps = not recorded before weekly snapshots began (11/08).";
+  const shown = (hid, pts = points) => !/data-testid="chart-gap-note" style="display:none"/.test(chartHtml("SCC", pts, hid)) && chartHtml("SCC", pts, hid).includes(NOTE);
+  assert.equal(GAP_NOTE, NOTE);
+  assert.equal(shown([]), true);
+  assert.equal(hasVisibleGap(points, ["toBuild", "needsPerson", "found"]), false);
+  assert.equal(shown(["toBuild", "needsPerson", "found"]), false);        // gappy lines hidden -> note hidden
+  assert.equal(shown(["toBuild", "needsPerson"]), true);                   // found still gappy and visible
+  const clean = [{ week: 0, date: "2026-11-08", metrics: full(1) }];
+  assert.equal(shown([], clean), false);                                   // no gaps at all
+});
+test("round 2: toggling in the page flips the gap note", () => {
+  const { root, inputs } = fakeBox();
+  const note = { style: { display: "" } };
+  const box = root.querySelector();
+  const orig = box.querySelector; box.querySelector = (s) => (s === ".wgap" ? note : orig(s));
+  wireChart(root, "SCC", points, memStore());
+  for (const k of ["toBuild", "needsPerson", "found"]) { const i = inputs.find((x) => x.dataset.metric === k); i.checked = false; i.listeners.change(); }
+  assert.equal(note.style.display, "none");
+  const i = inputs.find((x) => x.dataset.metric === "found"); i.checked = true; i.listeners.change();
+  assert.equal(note.style.display, "");
 });
 test("junk or blocked storage falls back to all on", () => {
   assert.deepEqual(loadHidden({ getItem: () => "{not json" }, "SCC"), []);

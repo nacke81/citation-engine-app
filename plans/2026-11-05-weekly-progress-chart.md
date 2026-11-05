@@ -24,3 +24,10 @@ Applied here: the backfill dry run prints the source of every cell, and the snap
 
 ## Out of scope / not done by this card
 Applying migration 012 or the backfill to prod, merging: Nate/Mike gate. No directory traffic.
+
+## Round 2 (Nate review: colors, gap note, stack on #81, deploy)
+Latest lesson still docs/lessons/2026-11-05-a-rebuilt-past-is-only-the-values-every-possibility-agrees-on.md.
+1. Palette: 12 distinct colorblind-safe colors (Okabe-Ito/Tol); six check lines solid, six in-flight/result lines dashed. Legend swatch is a tiny SVG line with the same color and dash. Tests: 12 unique colors, dashed = last six, swatch dash matches line dash.
+2. One muted line under the chart "Gaps = not recorded before weekly snapshots began (11/08)." only when a VISIBLE line has a null point. Tests: shown with gaps, hidden when gappy lines toggled off, hidden with no gaps.
+3. Stack on PR #81 head 78186e3 (merged into the branch, no conflict; a plain merge because a force push is not allowed from this seat). Snapshot step is already the last line of main(), after the guarded sweep; weekly_metrics tests re-run on the merged head.
+4. After CI green on the new head: apply db/012, `weekly_metrics.py --backfill --write`, read back rows per biz vs dry run. No merge.

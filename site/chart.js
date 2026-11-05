@@ -2,7 +2,10 @@
 // Points come from ce_weekly_metrics (site/metrics.js pointsFor). A null value is a gap: the line breaks there, nothing is drawn, nothing is guessed.
 import { METRICS } from './metrics.js';
 
-export const COLORS = ['#1e8e3e', '#b06000', '#0b57d0', '#c5221f', '#6b6b6b', '#1a1a1a', '#7b1fa2', '#00838f', '#e65100', '#2e7d32', '#ad1457', '#4e342e'];
+// 12 distinct, colorblind-safe (Okabe-Ito + Tol). First six (check counts) solid, last six (in-flight/result) dashed.
+export const COLORS = ['#0072B2', '#D55E00', '#009E73', '#E69F00', '#7B3FA0', '#CC79A7', '#56B4E9', '#882255', '#8A8A00', '#332288', '#8C510A', '#111111'];
+export const DASH = '6 3';
+export const GAP_NOTE = 'Gaps = not recorded before weekly snapshots began (11/08).';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const mmdd = (d) => (/^\d{4}-\d\d-\d\d/.test(d || '') ? `${d.slice(5, 7)}/${d.slice(8, 10)}` : '');
 
@@ -30,7 +33,7 @@ export function chartSvg(points, hidden = [], width = 700) {
   const grid = [0, 1, 2, 3, 4].map((i) => { const v = (max * i) / 4; return `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#e3e5e8"/><text x="${L - 5}" y="${y(v) + 4}" text-anchor="end" class="ax">${Math.round(v)}</text>`; }).join('');
   const xl = points.map((p, i) => (i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 28}" text-anchor="middle" class="ax">Wk ${p.week}</text><text x="${x(i)}" y="${H - 14}" text-anchor="middle" class="ax">${esc(mmdd(p.date))}</text>` : '')).join('');
   const lines = METRICS.map(([k, label], mi) => {
-    const col = COLORS[mi], dash = mi >= 6 ? ' stroke-dasharray="6 3"' : '';
+    const col = COLORS[mi], dash = mi >= 6 ? ` stroke-dasharray="${DASH}"` : '';
     let d = '', pen = false, dots = '';
     points.forEach((p, i) => {
       const v = p.metrics[k];
@@ -44,7 +47,7 @@ export function chartSvg(points, hidden = [], width = 700) {
 }
 
 export function legendHtml(biz, hidden = []) {
-  return `<div class="wlegend" data-testid="chart-legend">${METRICS.map(([k, label], mi) => `<label class="wchip"><input type="checkbox" data-metric="${k}" data-testid="tog-${k}"${hidden.includes(k) ? '' : ' checked'}><i style="background:${COLORS[mi]}${mi >= 6 ? ';opacity:.8' : ''}"></i>${esc(label)}</label>`).join('')}</div>`;
+  return `<div class="wlegend" data-testid="chart-legend">${METRICS.map(([k, label], mi) => `<label class="wchip"><input type="checkbox" data-metric="${k}" data-testid="tog-${k}"${hidden.includes(k) ? '' : ' checked'}><svg class="wsw" width="22" height="8" viewBox="0 0 22 8" aria-hidden="true"><line x1="0" x2="22" y1="4" y2="4" stroke="${COLORS[mi]}" stroke-width="2.5"${mi >= 6 ? ` stroke-dasharray="${DASH}"` : ''} data-testid="sw-${k}"/></svg>${esc(label)}</label>`).join('')}</div>`;
 }
 
 // live (optional) = what the tiles show now for the same run. If the queue moved since the weekly snapshot, say so instead of letting the two disagree silently.
@@ -58,8 +61,13 @@ export function driftNote(points, live, runId) {
 export function chartHtml(biz, points, hidden = [], opts = {}) {
   const head = '<div class="bhead">Weekly progress</div>';
   if (!points.length) return `<div class="wchart" data-testid="weekly-chart" data-biz="${esc(biz)}">${head}<div class="note" data-testid="chart-empty">No weekly history yet.</div></div>`;
-  return `<div class="wchart" data-testid="weekly-chart" data-biz="${esc(biz)}">${head}<div class="wplot">${chartSvg(points, hidden, opts.width || 700)}</div>${legendHtml(biz, hidden)}${opts.note || ''}</div>`;
+  return `<div class="wchart" data-testid="weekly-chart" data-biz="${esc(biz)}">${head}<div class="wplot">${chartSvg(points, hidden, opts.width || 700)}</div>${gapNoteHtml(points, hidden)}${legendHtml(biz, hidden)}${opts.note || ''}</div>`;
 }
+
+// True when any VISIBLE line has a gap (null / non-integer point).
+export const hasVisibleGap = (points, hidden = []) => METRICS.some(([k]) => !hidden.includes(k) && points.some((p) => !Number.isInteger(p.metrics[k])));
+// Always rendered (so toggling can flip it); display:none when nothing visible has a gap.
+export const gapNoteHtml = (points, hidden = []) => `<div class="note wgap" data-testid="chart-gap-note"${hasVisibleGap(points, hidden) ? '' : ' style="display:none"'}>${esc(GAP_NOTE)}</div>`;
 
 // Wire one chart in the page. A checkbox hides or shows its line (the scale stays put) and the choice is saved per business. Re-draws at the real card width.
 export function wireChart(root, biz, points, storage) {
@@ -71,6 +79,8 @@ export function wireChart(root, biz, points, storage) {
     const g = box.querySelector(`g[data-line="${i.dataset.metric}"]`);
     if (g) g.style.display = i.checked ? '' : 'none';
     saveHidden(storage, biz, hiddenNow());
+    const gn = box.querySelector('.wgap');
+    if (gn) gn.style.display = hasVisibleGap(points, hiddenNow()) ? '' : 'none';
   }));
   draw();
   if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('resize', draw);
