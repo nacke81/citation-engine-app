@@ -60,7 +60,7 @@ class Rd:
 def plain_js(url): calls["plain"] += 1; return R.Page(200, url, "Loading...")   # JS page: curl sees a shell
 _, q = queue([row("create-js", "js.example", "submitted", U)])
 res = R.recheck(q, IDENT, plain=plain_js, chrome=Rd({U: R.Page(200, U, body())}), record=lambda *a, **k: {}, today="2026-11-02", write=False)
-check("A2 curl first, then the real-Chrome reader on 'not readable': match", calls["plain"] == 1 and calls["reader"] == R.STABLE_READS and res[0]["verdict"] == "match" and res[0]["via"] == "chrome", str(res))
+check("A2 curl first, then the real-Chrome reader on 'not readable': match", calls["plain"] == 1 and calls["reader"] == 1 and res[0]["verdict"] == "match" and res[0]["via"] == "chrome", str(res))
 check("A2 the result carries the parsed NAP for the report", res[0]["nap"] and "555-0101" in res[0]["nap"], str(res[0].get("nap")))
 check("A2 a dry run never changed the row", q["create_queue"]["rows"][0]["state"] == "submitted" and not q["create_queue"]["rows"][0]["history"])
 

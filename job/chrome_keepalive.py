@@ -16,6 +16,10 @@ PROFILE = os.environ.get("CE_BUILD_PROFILE") or os.path.join(LOCAL, "citation-en
 LEASE_PATH = os.environ.get("CE_BUILD_LEASE") or os.path.join(LOCAL, "citation-engine", "build-chrome.lease")
 CHROME = os.environ.get("CE_CHROME") or "C:/Program Files/Google/Chrome/Application/chrome.exe"
 PORT = 9333
+# t_0c4ebee8: every Chrome this repo starts opens OFF-SCREEN so a headed read (Cloudflare still passes a real headed Chrome) never takes over Mike's screen.
+# CE_CHROME_VISIBLE=1 puts the window back at 40,40 (watching a build on purpose).
+OFFSCREEN_POS = "-32000,-32000"
+def window_pos(env=None): return "40,40" if (os.environ if env is None else env).get("CE_CHROME_VISIBLE") == "1" else OFFSCREEN_POS
 LEASE_TTL = 900   # seconds without a refresh before a lease no longer holds Chrome open
 
 
@@ -69,7 +73,7 @@ def cdp_alive(port=PORT, urlopen=urllib.request.urlopen, timeout=2):
 
 
 def chrome_args(profile=PROFILE, port=PORT, chrome=CHROME):
-    return [chrome, "--remote-debugging-port=%d" % port, "--user-data-dir=%s" % profile, "--window-position=40,40", "--window-size=1400,900",
+    return [chrome, "--remote-debugging-port=%d" % port, "--user-data-dir=%s" % profile, "--window-position=%s" % window_pos(), "--window-size=1400,900",
             "--no-first-run", "--no-default-browser-check", *CLEAN_FLAGS, "about:blank"]
 
 

@@ -2,6 +2,7 @@
 Never attaches to an existing Chrome. Covers crash: if python dies, the OS closes the job handle and kills the tree."""
 import os, socket, subprocess, tempfile, time, shutil, urllib.request, ctypes
 from ctypes import wintypes
+from chrome_keepalive import window_pos   # t_0c4ebee8: off-screen by default (CE_CHROME_VISIBLE=1 to watch)
 CHROME = r"C:/Program Files/Google/Chrome/Application/chrome.exe"
 k32 = ctypes.WinDLL("kernel32", use_last_error=True); u32 = ctypes.WinDLL("user32")
 k32.CreateJobObjectW.restype = wintypes.HANDLE
@@ -89,7 +90,7 @@ class OwnedChrome:
         else: self.profile = tempfile.mkdtemp(prefix="ce-s3-chrome-")
         self.port = self.port or _free_port()
         self.job = _make_kill_job()
-        args = [CHROME, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile}", "--window-position=40,40",
+        args = [CHROME, f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile}", f"--window-position={window_pos()}",
                 "--window-size=1400,900", "--no-first-run", "--no-default-browser-check", "--disable-session-crashed-bubble", "--hide-crash-restore-bubble", "about:blank"]
         try:
             self.proc = subprocess.Popen(args)
