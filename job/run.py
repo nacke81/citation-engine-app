@@ -76,6 +76,11 @@ def discover_live():
             return r
         cls.fetch = f
     wrap_fetch(core.HttpFetcher); wrap_fetch(core.ChromeFetcher)
+    # t_e34fc55c: BOTH core fetchers + the own-search boxes share one SiteGuard (gap, daily cap, cooldown); known listings are read, not searched for
+    import sitegate as SG, buildqueue
+    guard = SG.SiteGuard(); undo_guard = SG.guard_fetchers(core, guard)
+    discover.GUARD = guard; discover.SETTLED.clear()
+    discover.KNOWN.clear(); discover.KNOWN.update(SG.known_listings(buildqueue.QUEUE_PATH, RUNS, skip=os.environ.get("CE_ROWS")))
     ol = mapnap.lookup
     def lk(*a, **k):
         r = ol(*a, **k)
@@ -103,6 +108,7 @@ def discover_live():
         discover.discover_all(on_chrome, on_complete=on_complete)
     except BaseException as e:
         err = f"{type(e).__name__}: {str(e)[:200]}"
+    undo_guard(); discover.GUARD = None
     time.sleep(2)
     after = window_count()
     alive = chrome_procs_with(state.get("profile"))
@@ -325,8 +331,15 @@ def recheck_step(run=None, **kw):
     try:
         import recheck as RC
         kw.setdefault("include_live", True)   # t_f6267312: every live row gets a NAP read on each run (stored as nap_check, no state change)
+        if run is None:   # t_e34fc55c: the real weekly sweep reads through the per-domain guard (gap, daily cap, cooldown after a wall)
+            import sitegate as SG
+            kw.setdefault("guard", SG.SiteGuard())
         res = (run or RC.recheck_file)(write=True, **kw)
         print("RECHECK OK", json.dumps([{k: r[k] for k in ("row", "before", "after", "verdict")} for r in res]), flush=True)
+        try:
+            import sitegate as SG
+            print(SG.render_counts(SG.wall_counts(7)), flush=True)   # t_e34fc55c: the build-loop gate sees "site X walled N times"
+        except Exception: pass
         errs = [r for r in res if r.get("error") and r.get("verdict") != "unreadable"]
         for r in errs: print("RECHECK ROW FAILED: %s: %s" % (r["row"], r["error"]), file=sys.stderr, flush=True)
         return not errs

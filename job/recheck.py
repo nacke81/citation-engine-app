@@ -11,6 +11,10 @@ For every queue row in submitted / pending-verify / found (and live, report only
 A note identical to the row's last history note is not written again, so a weekly run does not pile up duplicates.
 
   python job/recheck.py [--queue PATH] [--write] [--include-live] [--row ID ...] [--any-state] [--no-chrome]
+                        [--live-sweep-ok] [--save-pages DIR | --replay DIR]
+t_e34fc55c: one read per row (a row about to change state is confirmed once more, spaced by the site guard); per-domain gap / daily cap / cooldown (sitegate.py);
+a quota or Cloudflare wall gives verdict `rate-limited` (nothing written, domain cooled down, one line in logs/site-walls.jsonl); --include-live over the whole queue needs
+--live-sweep-ok (weekly job only); --replay DIR scores pages saved by --save-pages with no network.
 Without --write nothing is written (dry run); the report still shows before -> after and any mismatch.
 """
 import html, json, os, re, sys, urllib.parse, urllib.request, urllib.error
@@ -18,13 +22,14 @@ from urllib.parse import quote, urljoin, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buildqueue as Q
+import sitegate as SG
 import fixlist as F
 import listing as L
 import walls as W
 import mail_scan as MS
 
 US_STATES = {n.lower(): a for n, a in (("Alabama", "AL"), ("Alaska", "AK"), ("Arizona", "AZ"), ("Arkansas", "AR"), ("California", "CA"), ("Colorado", "CO"), ("Connecticut", "CT"), ("Delaware", "DE"), ("Florida", "FL"), ("Georgia", "GA"), ("Hawaii", "HI"), ("Idaho", "ID"), ("Illinois", "IL"), ("Indiana", "IN"), ("Iowa", "IA"), ("Kansas", "KS"), ("Kentucky", "KY"), ("Louisiana", "LA"), ("Maine", "ME"), ("Maryland", "MD"), ("Massachusetts", "MA"), ("Michigan", "MI"), ("Minnesota", "MN"), ("Mississippi", "MS"), ("Missouri", "MO"), ("Montana", "MT"), ("Nebraska", "NE"), ("Nevada", "NV"), ("New Hampshire", "NH"), ("New Jersey", "NJ"), ("New Mexico", "NM"), ("New York", "NY"), ("North Carolina", "NC"), ("North Dakota", "ND"), ("Ohio", "OH"), ("Oklahoma", "OK"), ("Oregon", "OR"), ("Pennsylvania", "PA"), ("Rhode Island", "RI"), ("South Carolina", "SC"), ("South Dakota", "SD"), ("Tennessee", "TN"), ("Texas", "TX"), ("Utah", "UT"), ("Vermont", "VT"), ("Virginia", "VA"), ("Washington", "WA"), ("West Virginia", "WV"), ("Wisconsin", "WI"), ("Wyoming", "WY"))}   # t_11f5b2b0: full state names on listing pages
-STABLE_READS = 3   # a Chrome-route match must hold on this many fresh signed-out reads (t_ac8b1bdd)
+STABLE_READS = 2   # a Chrome/OSM match on a row that is NOT yet live is confirmed by one more read (t_ac8b1bdd); a row already live is read once (t_e34fc55c)
 WAITING = ("submitted", "pending-verify", "found", "created-unlisted")
 CDP_URL = "http://127.0.0.1:9333"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -48,13 +53,83 @@ MASKED_PHONE_RE = re.compile(r"\*{2,}|reveal phone|show phone|click to (call|vie
 
 
 class Page:
-    def __init__(self, status, url, text, links=None, err=None, html=None):
+    def __init__(self, status, url, text, links=None, err=None, html=None, limited=None):
         self.status, self.url, self.text, self.links, self.err, self.html = status, url, text or "", links or [], err, html
+        self.limited = limited   # t_e34fc55c: why the site guard refused / the page is a quota or wall (rate-limited verdict)
 
 
 # ---- fetching (every edge injectable) -----------------------------------------------------------------------------
 def walled(page):
     return page.status in (None, 0, 401, 403, 429) or (page.status or 0) >= 500 or bool(WALL_RE.search(page.text[:4000])) or len(page.text.strip()) < 200
+
+
+QUOTA_URL_RE = re.compile(r"(?i)bizapedia\.com/pro-search-subscription")
+QUOTA_TEXT_RE = re.compile(r"(?i)run out of (your )?free searches|out of free searches")
+CF_WALL_RE = re.compile(r"(?i)just a moment|quick security check|performing a quick|verify you are (a )?human|attention required|checking your browser|press (&|and) hold|error 1020|security verification")
+
+
+def quota_reason(page):
+    """The site's own quota / paywall page (Bizapedia: redirected to pro-search-subscription.aspx, a 200)."""
+    if QUOTA_URL_RE.search(page.url or "") or QUOTA_TEXT_RE.search((page.text or "")[:6000]): return "quota page: out of free searches (%s)" % urlparse(page.url or "").path[:60]
+    return None
+
+
+def wall_reason(page):
+    """Why this FINAL page is a quota or Cloudflare wall, else None. A plain 403 is not enough here (the Chrome route often passes it); text of the wall page or a 429 is."""
+    q = quota_reason(page)
+    if q: return q
+    if page.status == 429: return "HTTP 429 rate limit"
+    if CF_WALL_RE.search((page.text or "")[:4000]): return "Cloudflare wall"
+    return None
+
+
+def guarded(fn, guard, route):
+    """Wrap a reader (url -> Page) with the per-domain guard: gap / cap / cooldown before the read, quota detection after it. A refused read is a limited Page, nothing fetched."""
+    def read(url, *a, **k):
+        dom = SG.domain_of(url)
+        g = guard.reserve(dom, key=url) if dom else {"ok": True}
+        if not g["ok"]: return Page(0, url, "", err="site guard: " + g["why"], limited=g["why"])
+        pg = fn(url, *a, **k)
+        q = quota_reason(pg)
+        if q:
+            guard.wall(dom, q, url=pg.url)
+            pg.limited = q
+        return pg
+    return read
+
+
+class PageStore:
+    """--save-pages / --replay (t_e34fc55c). One JSON file per read: <route>-<sha1(url)[:12]>-<n>.json, n counting the reads of that URL on that route in call order.
+    save: wraps a reader and stores what it returned. replay: serves the saved pages in the same order, never touches the network; a URL with no saved page is `err`."""
+    def __init__(self, folder, replay=False):
+        self.dir, self.replay, self.n = folder, replay, {}
+        if not replay: os.makedirs(folder, exist_ok=True)
+
+    def _path(self, route, url):
+        import hashlib
+        k = (route, url); self.n[k] = self.n.get(k, 0) + 1
+        return os.path.join(self.dir, "%s-%s-%d.json" % (route, hashlib.sha1(url.encode("utf-8")).hexdigest()[:12], self.n[k]))
+
+    def saving(self, fn, route):
+        def read(url, *a, **k):
+            pg = fn(url, *a, **k)
+            d = {"url": url, "status": pg.status, "final": pg.url, "text": pg.text, "links": pg.links, "err": pg.err, "html": pg.html, "limited": getattr(pg, "limited", None)}
+            with open(self._path(route, url), "w", encoding="utf-8") as f: json.dump(d, f, ensure_ascii=False, sort_keys=True)
+            return pg
+        return read
+
+    def replaying(self, route):
+        def read(url, *a, **k):
+            p = self._path(route, url)
+            if not os.path.exists(p):   # more reads than were saved: the last one repeats; none saved: an error page
+                p2 = p.rsplit("-", 1)[0] + "-1.json"
+                n = self.n[(route, url)]
+                while n > 1 and not os.path.exists(p2): n -= 1; p2 = p.rsplit("-", 1)[0] + "-%d.json" % n
+                if not os.path.exists(p2): return Page(0, url, "", err="replay: no saved page", limited=None)
+                p = p2
+            d = json.load(open(p, encoding="utf-8"))
+            return Page(d["status"], d["final"], d["text"], d["links"], d["err"], d["html"], d.get("limited"))
+        return read
 
 
 def plain_fetch(url):
@@ -220,6 +295,7 @@ def get_page(url, plain=None, chrome=None, canonical=None):
     if osm_node_id(url):   # the API tags ARE the public listing; the map page has no text, so no plain/Chrome fallback
         return osm_fetch(url), "osm"
     page = (plain or plain_fetch)(url)
+    if getattr(page, "limited", None) or quota_reason(page): return page, "plain"   # t_e34fc55c: a quota page or a guard refusal is final: no second route to the same site
     if not walled(page) and (canonical is None or chrome is None or compare(page.text, canonical, getattr(page, "html", None))["verdict"] == "match"):
         if canonical is None or read_block(page.text, canonical): return page, "plain"
     if chrome is None:
@@ -231,17 +307,21 @@ def get_page(url, plain=None, chrome=None, canonical=None):
 SEVERITY = ("mismatch", "not-public", "nap-incomplete", "unreadable")   # which non-match verdict wins when the repeat reads disagree
 
 
-def read_listing(url, plain, chrome, canonical):
+def read_listing(url, plain, chrome, canonical, confirm=True):
     """THE read and verdict for one listing URL (t_03a74bae). Dry run and --write both come through here, so they cannot disagree: one route choice (get_page),
-    then STABLE_READS reads on that route. Every read must give the same verdict; a `match` needs all of them to match. Reads that disagree (a street that
+    then (only for a row not yet live) one confirming read on that route. Every read must give the same verdict; a `match` needs all of them to match. Reads that disagree (a street that
     loaded late, an old and a new copy of the data) are never live: the most severe non-match wins and `unstable` lists the verdicts. -> (page, how, cmp_)"""
     page, how = get_page(url, plain, chrome, canonical)
+    if getattr(page, "limited", None) or wall_reason(page):   # t_e34fc55c: a quota / wall page is never scored as a listing
+        return page, how, {"verdict": "rate-limited", "wrong": [], "gaps": [], "nap": None, "why": getattr(page, "limited", None) or wall_reason(page)}
     cmp_ = compare(page.text, canonical, getattr(page, "html", None))
     again = {"osm": lambda: osm_fetch(url), "chrome": (lambda: chrome(url)) if chrome else None}.get(how)
-    if again is None or cmp_["verdict"] not in ("match", "nap-incomplete"): return page, how, cmp_
+    if again is None or not confirm or cmp_["verdict"] not in ("match", "nap-incomplete"): return page, how, cmp_   # confirm=False: a row already live is read ONCE
     reads = [(page, cmp_)]
     for _ in range(STABLE_READS - 1):
-        p2 = again(); reads.append((p2, compare(p2.text, canonical, getattr(p2, "html", None))))
+        p2 = again()
+        if getattr(p2, "limited", None) or wall_reason(p2): return p2, how, {"verdict": "rate-limited", "wrong": [], "gaps": [], "nap": None, "why": getattr(p2, "limited", None) or wall_reason(p2)}
+        reads.append((p2, compare(p2.text, canonical, getattr(p2, "html", None))))
     if len({c["verdict"] for _p, c in reads}) == 1: return page, how, cmp_
     bad = min((r for r in reads if r[1]["verdict"] != "match"), key=lambda r: SEVERITY.index(r[1]["verdict"]) if r[1]["verdict"] in SEVERITY else 99)
     c = dict(bad[1]); c["unstable"] = [x["verdict"] for _p, x in reads]
@@ -690,7 +770,7 @@ def _last_note(row):
     return (h[-1].get("note") if h and isinstance(h[-1], dict) else None)
 
 
-def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False, any_state=False):
+def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False, any_state=False, guard=None, store=None):
     """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row.
     any_state (t_89f4aebf): read the NAMED rows (`only`) in any state, e.g. a needs-human row after a ruling. Dry-run reads only: it refuses write / backoff / proof."""
     import datetime
@@ -710,7 +790,13 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
     if use_chrome and chrome is None: chrome = own_reader = SignedOutReader(); own_reader.canonical = canonical   # t_3ac43137: a clean signed-out Chrome of its own, never 9333 / the build profile
     elif not use_chrome: chrome = None
     try:
-        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail, backoff_only, any_state)
+        if guard is not None:   # t_e34fc55c: every Directory read goes through the per-domain guard (the plain and rendered routes; OSM's API is not a Directory)
+            plain = guarded(plain or plain_fetch, guard, "plain")
+            if chrome is not None: chrome = guarded(chrome, guard, "chrome")
+        if store is not None and not store.replay:   # --save-pages: outside the guard, so a refused / quota read is saved as it was returned
+            plain = store.saving(plain or plain_fetch, "plain")
+            if chrome is not None: chrome = store.saving(chrome, "chrome")
+        return _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail, backoff_only, any_state, guard)
     finally:
         if own_reader: own_reader.close()
 
@@ -726,6 +812,16 @@ def final_url(url, page):
     if b.scheme not in ("http", "https") or not b.netloc or "@" in b.netloc: return url
     if b.netloc.lower().removeprefix("www.") != a.netloc.lower().removeprefix("www."): return url
     return url if (a.path.rstrip("/"), a.query) == (b.path.rstrip("/"), b.query) else f
+
+
+def _limited(page, guard, rid, res, why=None):
+    """t_e34fc55c: True (and res filled) when `page` is a quota / wall page or the guard refused the read. One cooldown + one log line per wall; no row change."""
+    why = why or getattr(page, "limited", None) or wall_reason(page)
+    if not why: return False
+    if guard is not None and not getattr(page, "limited", None):   # a guard refusal / quota hit already has its cooldown; a fresh Cloudflare wall starts one
+        guard.wall(SG.domain_of(res.get("url") or page.url), why, url=page.url, row=rid)
+    res["verdict"] = "rate-limited"; res["note"] = "rate-limited: " + why + " (read stopped, nothing written)"; res["error"] = None
+    return True
 
 
 def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
@@ -758,7 +854,7 @@ def _written(queue_path, rid, due):
     except Exception: return False
 
 
-def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False, any_state=False):
+def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False, any_state=False, guard=None):
     results = []
     bw = write or backoff_only   # t_2d15878c: a dry-run batch still moves recheck_due (backoff only; no transition, never live)
     for kind, row in candidates(q, include_live, only, day, any_state):
@@ -769,6 +865,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
             url = _permalink(row)
             if url is None and d == "bbb.org":
                 sp, _how = get_page(_bbb_search_url(ident), plain, chrome)
+                if _limited(sp, guard, rid, res): continue
                 url = resolve_bbb(sp, ident)
                 if url:
                     note = "weekly recheck: found the BBB profile URL"
@@ -782,6 +879,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 su = search_url_for(d, ident)
                 if su:
                     sp, _how = get_page(su, plain, chrome)
+                    if _limited(sp, guard, rid, res): continue
                     url = resolve_by_search(d, sp, ident)
                     searched_ok = not url and not walled(sp) and not sp.err and (sp.status or 0) < 400   # a readable search page with no card for us: not public
                     res["search"] = search_log(su, sp, _how, url)   # t_bbc32230: what search ran and what it got (no page text)
@@ -803,7 +901,9 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 _backoff(res, row, bw, record, queue_path, day, no_url=True)   # t_8d1865a3: EVERY row with no URL gets a date (dnb, discoverourtown had none) and counts toward the cap
                 continue
             res["url"] = url
-            page, how, cmp_ = read_listing(url, plain, chrome, canonical)   # t_03a74bae: the one read + verdict path for dry run and --write
+            page, how, cmp_ = read_listing(url, plain, chrome, canonical, confirm=(before != "live"))   # t_03a74bae: the one read + verdict path for dry run and --write
+            if cmp_["verdict"] == "rate-limited":   # t_e34fc55c: a quota / wall page. Nothing is written, the row is not demoted, the domain cools down
+                _limited(page, guard, rid, res, why=cmp_.get("why")); continue
             res["verdict"] = cmp_["verdict"]; res["fields"] = cmp_["wrong"] or cmp_["gaps"]; res["via"] = how; res["nap"] = cmp_.get("nap"); res["masked"] = bool(cmp_.get("masked"))
             if cmp_["verdict"] == "unreadable":
                 why = not_public(page, how)
@@ -839,6 +939,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
     # t_f6267312: every live row that was read gets its NAP result stored on the queue row, whatever the verdict (unread = consistent None + a reason).
     for res in results:
         if res["before"] != "live": continue
+        if res.get("verdict") == "rate-limited": continue   # t_e34fc55c: a quota page says nothing about the NAP; the stored nap_check stays as it was
         res["nap_check"] = nap_check_from_result(res, canonical, day)
         if write and queue_path:
             try:
@@ -913,7 +1014,7 @@ def format_report(results):
     lines = []
     for r in results:
         f = "; ".join("%s=%s" % (a, b) if isinstance(a, str) and b else str(a) for a, b in [(x if isinstance(x, tuple) else (x, "")) for x in r["fields"]])
-        lines.append("%-26s %-14s -> %-14s %-12s %s%s%s" % (r["row"], r["before"], r["after"], (r["verdict"] or "") + (" (masked)" if r.get("masked") and r["verdict"] == "match" else ""), f, ("  ERR " + r["error"]) if r["error"] else "", ("  NAP[%s]" % r["nap"]) if r.get("nap") else (("  (%s)" % r["note"]) if r.get("note") and r["verdict"] == "not-public" else "")))
+        lines.append("%-26s %-14s -> %-14s %-12s %s%s%s" % (r["row"], r["before"], r["after"], (r["verdict"] or "") + (" (masked)" if r.get("masked") and r["verdict"] == "match" else ""), f, ("  ERR " + r["error"]) if r["error"] else "", ("  NAP[%s]" % r["nap"]) if r.get("nap") else (("  (%s)" % r["note"]) if r.get("note") and r["verdict"] in ("not-public", "rate-limited") else "")))
         if "recheck_due" in r:   # t_8d1865a3: old -> new for every backed-off row, and whether the queue file really holds it
             tag = {True: " (written)", False: " (NOT WRITTEN)", None: " (dry run: not stored)"}[r["written"]] if "written" in r else " (dry run: not stored)"
             if r.get("parked"): lines.append("    parked: %s -> needs-human, reason %s (3 no-URL backoffs used)" % (r["before"], r["parked"]))
@@ -922,7 +1023,16 @@ def format_report(results):
     return "\n".join(lines)
 
 
-def main(argv=None):
+def _save_osm(store, real):
+    fn = store.saving(lambda url, *a, **k: real(url, *a, **k), "osm")
+    return fn
+
+
+def _replay_osm(store):
+    return store.replaying("osm")
+
+
+def main(argv=None, plain=None, chrome=None):
     import argparse
     a = argparse.ArgumentParser(description="Recheck waiting queue rows against their public listing page")
     a.add_argument("--queue", default=None)
@@ -935,7 +1045,14 @@ def main(argv=None):
     a.add_argument("--any-state", action="store_true", help="with --row ID: read the row in ANY state (e.g. needs-human after a ruling). Dry run only; refused with --write")
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
+    a.add_argument("--live-sweep-ok", action="store_true", help="t_e34fc55c: --include-live over the whole queue (no --row) reads every live row on the Directories; the weekly job only")
+    a.add_argument("--save-pages", default=None, metavar="DIR", help="store every page this run reads, for --replay")
+    a.add_argument("--replay", default=None, metavar="DIR", help="score pages saved by --save-pages: no network, no mail, dry run only")
     n = a.parse_args(argv)
+    if n.include_live and not n.row and not n.live_sweep_ok and not n.replay:
+        print("REFUSED: --include-live without --row reads every live row on the Directories (that is how we got blocked). Use --row ID, --replay DIR on saved pages, or --live-sweep-ok (weekly job only)", file=sys.stderr); return 1
+    if n.replay and (n.write or n.backoff_only or n.proof_live or n.proof_backfill or n.save_pages):
+        print("REFUSED: --replay reads saved pages only; never with --write / --backoff-only / --proof-live / --proof-backfill / --save-pages", file=sys.stderr); return 1
     if n.any_state and (n.write or n.backoff_only or n.proof_live or not n.row):
         print("REFUSED: --any-state is a dry-run read of named rows (--row ID); never with --write / --backoff-only / --proof-live", file=sys.stderr); return 1
     if n.proof_backfill:   # t_d660babc: eligible = named LIVE rows whose stored Proof is incomplete; reads via the existing signed-out path, writes via transitions.record_proof
@@ -949,9 +1066,17 @@ def main(argv=None):
             print("REFUSED: --proof-backfill takes live rows with incomplete Proof only; not eligible: %s" % ", ".join(bad), file=sys.stderr); return 1
         n.include_live = True; n.proof_live = True
     from cfg import IDENT
-    mail = MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal.
-    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, use_chrome=not n.no_chrome, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write, any_state=n.any_state)
-    if mail.error: print("MAILBOX NOT READ: %s (rows that need the approval mail were left alone)" % mail.error, file=sys.stderr)
+    mail = None if n.replay else MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal. Replay: no mail.
+    store = PageStore(n.replay, replay=True) if n.replay else (PageStore(n.save_pages) if n.save_pages else None)
+    kw = {}
+    if n.replay:
+        kw = {"plain": store.replaying("plain"), "chrome": store.replaying("chrome"), "use_chrome": True}
+        globals()["osm_fetch"] = _replay_osm(store)
+    else:
+        kw = {"plain": plain, "chrome": chrome, "use_chrome": not n.no_chrome, "guard": SG.SiteGuard()}
+        if store: globals()["osm_fetch"] = _save_osm(store, globals()["osm_fetch"])
+    res = recheck_file(n.queue, write=n.write, include_live=n.include_live, only=set(n.row) if n.row else None, today=n.today, proof_live=n.proof_live, mail=mail, backoff_only=n.backoff_only and not n.write, any_state=n.any_state, store=store, **kw)
+    if mail is not None and mail.error: print("MAILBOX NOT READ: %s (rows that need the approval mail were left alone)" % mail.error, file=sys.stderr)
     print(format_report(res))
     print("%d rows read; %d to live; mode=%s" % (len(res), sum(1 for r in res if r["after"] == "live" and r["before"] != "live"), "WRITE" if n.write else ("dry run + backoff-only" if n.backoff_only else "dry run")))
     return 1 if any(r["error"] and r["verdict"] != "unreadable" for r in res) else 0

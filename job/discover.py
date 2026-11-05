@@ -23,7 +23,22 @@ class NullRec:
     def attach(self, ctx, pg): return _NullCdp()
     def render(self, out): return None
 BIZS = ["SCC", "NM", "FAKE"]
+KNOWN = {}      # (biz, directory) -> a listing URL we already hold (sitegate.known_listings); set by run.discover_live
+GUARD = None    # the run's SiteGuard, for the Directory own-search boxes that drive Chrome directly
+CAPPED = set(__import__("sitegate").DAILY_CAP)   # domains with a daily read cap (bizapedia.com)
+SETTLED = set() # (biz, directory) already answered found by an earlier read this run
 def blocked(b, d): return "yellowpages.com" if (b == "FAKE" and d == "yellowpages.com") else None
+
+def plan_or_known(method, d, b):
+    """(plan, skip). A listing URL we already hold is read directly, not searched for (t_e34fc55c). A capped domain is not asked again once answered, and the made-up control is not run there."""
+    if b == "FAKE" and d in CAPPED: return None, "made-up control not run on a read-capped domain"
+    if (b, d) in SETTLED: return None, ""
+    u = KNOWN.get((b, d))
+    if u: return [("pattern", u)], ""
+    return plan_for(method, d, b), ""
+
+def settle(b, d, status):
+    if status == "found" or (status == "noresult" and d in CAPPED): SETTLED.add((b, d))   # a capped domain is not asked again once it answered
 
 def ladder(F, method_tag, methods, rec_label):
     for b in BIZS:
@@ -31,17 +46,23 @@ def ladder(F, method_tag, methods, rec_label):
             for method in methods:
                 if b == "FAKE" and method != "search": continue
                 F.block = blocked(b, d); F.caption = f"[CE weekly | {rec_label} | {b} | {method}]"
-                plan = plan_for(method, d, b); log = []
+                plan, skip = plan_or_known(method, d, b); log = []
+                if not plan and (b, d) in SETTLED: continue
                 if not plan:
-                    emit(dict(kind="dir", method=f"{method_tag}-{method}", biz=b, dir=d, status="couldnt", url="", note="no plan", blocked_on_purpose=False)); continue
+                    emit(dict(kind="dir", method=f"{method_tag}-{method}", biz=b, dir=d, status="couldnt", url="", note=skip or "no plan", blocked_on_purpose=False)); continue
                 try: r = discover(F, d, b, plan, log)
                 except Exception as e: r = {"status": "couldnt", "url": "", "ev": None, "note": "error " + type(e).__name__}
+                settle(b, d, r["status"])
                 emit(dict(kind="dir", method=f"{method_tag}-{method}", biz=b, dir=d, status=r["status"], url=r["url"], ev=r["ev"], note=r["note"],
                           log=" | ".join(log), blocked_on_purpose=bool(F.block), verified=False, results=0))
 
 def own_search_box(ctx, rec, d, b, tag):
     """hotfrog / brownbook / n49 homepage search box, typed like a person. n49: pick 'Nashville, Tennessee' from the dropdown."""
-    x = S(b); pg = ctx.new_page(); cdp = rec.attach(ctx, pg); note = []; text = ""; links = []; u = ""; shot = ""
+    x = S(b)
+    if GUARD is not None:
+        g = GUARD.reserve(d, key="own-search-" + b)
+        if not g["ok"]: return Result(None, "", "", [], "site-guard: " + g["why"]), "", "site-guard: " + g["why"]
+    pg = ctx.new_page(); cdp = rec.attach(ctx, pg); note = []; text = ""; links = []; u = ""; shot = ""
     try:
         home = {"hotfrog.com": "https://www.hotfrog.com/", "brownbook.net": "https://www.brownbook.net/", "n49.com": "https://www.n49.com/"}[d]
         pg.goto(home, timeout=40000, wait_until="domcontentloaded"); pg.wait_for_timeout(5000)
@@ -96,9 +117,11 @@ def discover_all(on_chrome=lambda oc: None, on_complete=lambda fetcher: None):
             for b in BIZS:
                 for d in DIRS:
                     if b == "FAKE" and method != "search": continue
-                    H.block = blocked(b, d); plan = plan_for(method, d, b); log = []
-                    if not plan: emit(dict(kind="dir", method=f"http-{method}", biz=b, dir=d, status="couldnt", url="", note="no plan", blocked_on_purpose=False)); continue
+                    H.block = blocked(b, d); plan, skip = plan_or_known(method, d, b); log = []
+                    if not plan and (b, d) in SETTLED: continue
+                    if not plan: emit(dict(kind="dir", method=f"http-{method}", biz=b, dir=d, status="couldnt", url="", note=skip or "no plan", blocked_on_purpose=False)); continue
                     r = discover(H, d, b, plan, log)
+                    settle(b, d, r["status"])
                     emit(dict(kind="dir", method=f"http-{method}", biz=b, dir=d, status=r["status"], url=r["url"], ev=r["ev"], note=r["note"],
                               log=" | ".join(log), blocked_on_purpose=bool(H.block), verified=False, results=0))
         # B. owned Chrome: ladder + own-search methods

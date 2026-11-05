@@ -137,7 +137,7 @@ def classify(q, today):
     return out
 
 
-def render(res, today):
+def render(res, today, walls=None):
     def table(items, cols, heads):
         w = [max(len(h), *(len(str(i.get(c) or "-")) for i in items)) if items else len(h) for c, h in zip(cols, heads)]
         ln = [" | ".join(h.ljust(n) for h, n in zip(heads, w)), "-+-".join("-" * n for n in w)]
@@ -152,7 +152,13 @@ def render(res, today):
     lines += table(res["out_of_scope"], ("row", "state", "why"), ("row", "state", "why"))
     now = sum(1 for i in res["workable"] if i["opens"] <= today)
     lines += ["", "open now: %d; open later: %d; needs Mike/client: %d; out of scope: %d" % (now, len(res["workable"]) - now, len(res["needs_human"]), len(res["out_of_scope"]))]
+    lines += ["", _walls_line(walls)]
     return "\n".join(lines)
+
+
+def _walls_line(walls):
+    import sitegate as SG
+    return SG.render_counts(walls if walls is not None else SG.wall_counts(7))   # t_e34fc55c: wall / quota hits per domain, last 7 days
 
 
 def main(argv=None):

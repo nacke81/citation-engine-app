@@ -95,7 +95,7 @@ reads = []
 urllib.request.urlopen = lambda req, timeout=0: (reads.append(req.full_url), fake_open()(req))[1]
 res, q, db = run([mkrow("create-openstreetmap", "openstreetmap.org", NODE)], write=True, include_live=True, only={"create-openstreetmap"}, proof_live=True)
 proofs = [c for c in db.calls if "ce_directory_status" in c[1] and c[2][0].get("proof_nap_match") is True]
-check("L1 OSM live row: 3 stable API reads", len(reads) == R.STABLE_READS, str(len(reads)))
+check("L1 OSM live row: ONE API read (t_e34fc55c)", len(reads) == 1, str(len(reads)))
 check("L1 Proof written once, url = node page, nap quoted", len(proofs) == 1 and proofs[0][2][0]["proof_url"] == NODE and "Alder Care" in proofs[0][2][0]["proof_nap"], str(proofs))
 check("L1 build_action new (create row), state stays live, no transition", proofs[0][2][0]["build_action"] == "new" and res[0]["after"] == "live" and q["create_rows"][0]["state"] == "live" and q["create_rows"][0]["history"] == [])
 
@@ -114,8 +114,8 @@ def flip(req, timeout=0):
     state["n"] += 1
     return fake_open(TAGS if state["n"] != 2 else dict(TAGS, phone="+1 502 555 0199"))(req)
 urllib.request.urlopen = flip
-res, q, db = run([mkrow("create-openstreetmap", "openstreetmap.org", NODE)], write=True, include_live=True, only={"create-openstreetmap"}, proof_live=True)
-check("L5 unstable OSM read (phone flips on read 2): no Proof", not [c for c in db.calls if "ce_directory_status" in c[1]] and res[0]["verdict"] == "mismatch", str(res[0]["verdict"]))
+res, q, db = run([mkrow("create-openstreetmap", "openstreetmap.org", NODE, "submitted")], write=True, only={"create-openstreetmap"})   # a row about to go live is confirmed by a 2nd read (t_e34fc55c)
+check("L5 unstable OSM read (phone flips on read 2): no Proof, row not live", not [c for c in db.calls if "ce_directory_status" in c[1] and c[2][0].get("proof_nap_match") is True] and q["create_rows"][0]["state"] == "submitted" and res[0]["verdict"] == "mismatch", str(res[0]["verdict"]))
 
 # manta: plain 403 -> Chrome route (signed-out), 3 stable chrome reads, Proof
 MANTA = "https://www.manta.com/c/m0example/alder-care-consulting-solutions"
@@ -125,7 +125,7 @@ def chrome(u): calls.append(u); return R.Page(200, u, mtxt, html="<html>%s</html
 urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(AssertionError("network"))
 res, q, db = run([mkrow("create-manta", "manta.com", MANTA)], chrome=chrome, write=True, include_live=True, only={"create-manta"}, proof_live=True)
 proofs = [c for c in db.calls if "ce_directory_status" in c[1] and c[2][0].get("proof_nap_match") is True]
-check("M1 manta: plain 403 -> Chrome, 3 stable reads", res[0]["via"] == "chrome" and len(calls) >= R.STABLE_READS, str((res[0].get("via"), len(calls))))
+check("M1 manta live row: plain 403 -> Chrome, ONE read", res[0]["via"] == "chrome" and len(calls) == 1, str((res[0].get("via"), len(calls))))
 check("M1 manta Proof written with the permalink", len(proofs) == 1 and proofs[0][2][0]["proof_url"] == MANTA and proofs[0][2][0]["directory"] == "manta.com")
 calls.clear()
 res, q, db = run([mkrow("create-manta", "manta.com", MANTA)], chrome=lambda u: R.Page(403, u, "Just a moment..."), write=True, include_live=True, only={"create-manta"}, proof_live=True)

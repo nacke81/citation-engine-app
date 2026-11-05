@@ -107,6 +107,8 @@ jobs:
         run: python tests/recheck_phone_test.py
       - name: Recheck reads signed out (fresh context, never the signed-in profile)
         run: python tests/recheck_signedout_test.py
+      - name: Site guard, quota wall, one read per row, replay (t_e34fc55c)
+        run: python tests/sitegate_test.py
       - name: CAPTCHA router (widget type, sitekey, capsolver-cli.js command, interstitial stays WALL:cloudflare-click)
         run: python tests/captcha_route_test.py
       - name: Batch 11 playbooks (manta, citysquares, openstreetmap; dry run, no guessed pin, mocked)
