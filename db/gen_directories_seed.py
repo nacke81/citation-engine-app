@@ -73,8 +73,9 @@ PROMOTED_SCC = frozenset({"yellowpagecity.com", "bizhwy.com", "expressbusinessdi
 
 
 # Promoted by migration 013 (t_41f55574): free claim page, Nate ruling on t_1061017b.
-PROMOTED_013 = frozenset({"salespider.com"})
-PROMOTED_013_NOTE = 'Promoted t_1061017b: free claim page; agent builds, parks before any code or CAPTCHA step it cannot do free.'
+PROMOTED_013 = frozenset({"salespider.com", "hub.biz"})
+PROMOTED_013_NOTES = {"salespider.com": 'Promoted t_1061017b: free claim page; agent builds, parks before any code or CAPTCHA step it cannot do free.',
+                      "hub.biz": 'Promoted t_1061017b: free .hub.biz business page with public NAP; agent builds, parks before any code or CAPTCHA step it cannot do free.'}
 PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013
 
 
@@ -96,7 +97,7 @@ def write_seed(rows, hunt):
     assert len(rows) == 86 and len({r["domain"] for r in rows}) == 86, "v1 catalog must be 86 unique Directories"
     assert PROMOTED_ALL <= {r["domain"] for r in hunt}, "every promoted domain must be a hunt row"
     hunt = [dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_NOTE) if r["domain"] in PROMOTED_SCC
-            else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTE) if r["domain"] in PROMOTED_013
+            else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTES[r["domain"]]) if r["domain"] in PROMOTED_013
             else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
     everything = rows + hunt
     assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
