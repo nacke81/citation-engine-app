@@ -16,10 +16,10 @@ PROMOTE (5, free self-serve path seen 2026-11-09):
 - elder-care.us: /for-business "List your business free", claim only after confirming ownership.
 - findhelp.org: /signup provider claim; nonprofit-leaning, may refuse a for-profit advocate, agent parks.
 Listing host per row (where a listing permalink lives; from pages already fetched, no new sweep). The row's domain must be this host's registrable domain (recheck.resolve_by_search, lookup.py:46, mail_scan.host_ok, your_turn_gate.py:53):
-- kentuckyonline.us: https://madisonville.kentuckyonline.us/profile/... and www.kentuckyonline.us/local/... (city subdomain of the row domain; reviewer-confirmed).
+- kentuckyonline.us: https://<city>.kentuckyonline.us/profile/... and www.kentuckyonline.us/local/... (city subdomain of the row domain; reviewer-confirmed).
 - kentuckyizze.com: https://kentuckyizze.com/ (records "appear as published" on the same host). Same host as the row.
 - findcarez.com: https://www.findcarez.com/pages/free-senior-care-listing is the signup page; listing pages are on www.findcarez.com. Same host as the row. No example permalink was captured.
-- elder-care.us: https://elder-care.us/louisville-ky (city pages hold the listings). Same host as the row.
+- elder-care.us: https://elder-care.us/<city>-ky (city pages hold the listings). Same host as the row.
 - findhelp.org: https://www.findhelp.org/provider/<agency-slug>/<id> (e.g. an area development district agency page). Same host as the row.
 No row other than usaonline.us needed a re-key.
 Verification method: only elder-care.us states one ("listed only after ownership confirmed", method not stated); it is in account_note. Others stay unknown.
