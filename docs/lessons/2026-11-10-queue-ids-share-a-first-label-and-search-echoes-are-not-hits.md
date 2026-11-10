@@ -9,3 +9,7 @@ Rule: a first label or brand is never an identity. Before adding a Directory, se
 
 2. Directory search pages print your query in the title, the breadcrumb and a "results for" heading. A grep for the client name or phone matches that echo on every site. Count a hit only when the match sits in a result row with the client's street or city. Where a site cannot be searched (Cloudflare interstitial, 403, down) write "not checkable", never "not listed".
 Also: a full-page Cloudflare "Just a moment" page is a wall, not a CAPTCHA widget, so it is a skip even when the same domain also loads Turnstile on a form.
+
+## Addendum (review round 2): tighten matching against the alias pairs, and fail closed
+- A rule that rejects "another host with the same brand" also rejects alias TLDs (tupalo.co for tupalo.com, acompio.com for acompio.us). Reject only a host that is a DIFFERENT Catalog domain, the same rule `same_directory` uses. Check every tightened match against the alias pairs.
+- `catalog_domains.domains()` returns None (not an empty set, not cached) when the Catalog file is unreadable. `same_directory` then treats two different domains as different, and `mail_is_from` rejects a same-brand From on another host. It never falls back to brand matching. The read is a local file and does not depend on CE_DIRECTORIES_WRITE.

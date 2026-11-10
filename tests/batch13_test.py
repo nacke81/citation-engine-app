@@ -269,6 +269,12 @@ check("F1 listyourbusiness /category/<cat>/<state>/<slug> is a permalink, a cate
 check("F1 recheck treats /dashboard, /account and /businesses/new as entry pages", all(R._is_entry_page(u) for u in ("https://www.showmelocal.com/dashboard/correct-data.aspx", "https://listyourbusiness.us/account/businesses/4321", "https://www.localsolution.com/businesses/new")))
 
 check("D2 (t_24ffb698) yellowpages.net is NOT the same Directory as yellowpages.com, both orders", not B.same_directory("yellowpages.net", "yellowpages.com") and not B.same_directory("yellowpages.com", "yellowpages.net"))
+import catalog_domains as _CDM
+_p, _c = _CDM.PATH, _CDM._CACHE
+_CDM.PATH, _CDM._CACHE = os.path.join(tempfile.gettempdir(), "no-such-catalog-t24ff.json"), None
+try: _fc = not B.same_directory("yellowpages.net", "yellowpages.com") and not B.same_directory("acompio.us", "acompio.com") and B.same_directory("acompio.us", "acompio.us")
+finally: _CDM.PATH, _CDM._CACHE = _p, _c
+check("D2 (t_24ffb698) Catalog unreadable: same_directory fails closed (different domains are different), equal still equal", _fc)
 check("D2 aliases still hold: acompio.us ~ acompio.com, tupalo.com ~ tupalo.co, and a domain equals itself", B.same_directory("acompio.us", "acompio.com") and B.same_directory("tupalo.com", "tupalo.co") and B.same_directory("yellowpages.net", "yellowpages.net"))
 shutil.rmtree(TMP, ignore_errors=True)
 print(("ALL PASS (%d/%d)" if all(ok) else "FAILED (%d/%d)") % (sum(ok), len(ok)))

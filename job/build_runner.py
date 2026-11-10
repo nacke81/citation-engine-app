@@ -326,6 +326,7 @@ def same_directory(row_dir, site_domain):
     r, s = (row_dir or "").lower(), (site_domain or "").lower()
     if r == s: return True
     cat = CD.domains()
+    if cat is None: return False   # Catalog unreadable: fail closed, two different domains are different Directories
     if r in cat and s in cat: return False
     return bool(_brand(r)) and _brand(r) == _brand(s)
 
