@@ -1734,14 +1734,15 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "agent",
-  "build_route_note": null,
+  "build_route": "none",
+  "build_route_note": "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
   "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
-  "last_verified": "2026-10-19"
+  "last_verified": "2026-10-19",
+  "build_eligible": false
  },
  {
   "domain": "citylocalpro.com",
@@ -4707,7 +4708,7 @@
    "unknown"
   ],
   "build_route": "none",
-  "build_route_note": null,
+  "build_route_note": "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -4783,7 +4784,7 @@
    "unknown"
   ],
   "build_route": "none",
-  "build_route_note": null,
+  "build_route_note": "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -5475,44 +5476,6 @@
   "notes": "hunt-3 t_df418e7f row; High-authority social-care finder; may refuse a for-profit advocate, agent parks if so. Hunt probe access: open.",
   "last_verified": "2026-11-09",
   "vertical": "health-senior-care",
-  "weekly_checkable": "unknown",
-  "source": "R",
-  "build_eligible": true
- },
- {
-  "domain": "whosinmycity.com",
-  "name": "Who's In My City",
-  "cut": "cycle3-2026-11-09",
-  "priority": 4,
-  "da": null,
-  "category": "local-regional",
-  "checked_weekly": false,
-  "weekly_scope": "none",
-  "search_method": "not checked",
-  "search_url_template": null,
-  "zero_marker_known": false,
-  "zero_marker_text": null,
-  "claim_markers_verified": false,
-  "claim_markers": null,
-  "signup_url": "https://whosinmycity.com/get-listed/",
-  "claim_url": null,
-  "help_url": null,
-  "cost": "free",
-  "cost_note": "Free for businesses rated 4.2+ on Google (page text 2026-11-09). SCC Google rating is 5.0 (Nate, t_e20d28d9).",
-  "account_needed": "unknown",
-  "account_note": null,
-  "verification_methods": [
-   "unknown"
-  ],
-  "build_route": "agent",
-  "build_route_note": "Promoted t_e20d28d9: free add form loads (JS), fields business, name, email, phone, website, city; address comes from the Google Places match (page HTML and onboard.js read 2026-11-09). Agent builds, parks before any code or CAPTCHA step it cannot do free.",
-  "agent_access": "unknown",
-  "agent_blocker": null,
-  "agent_blocker_seen_on": null,
-  "agent_blocker_source": null,
-  "notes": "t_e20d28d9 substitute row. Listing host whosinmycity.com/<city>/<biz>/. The site is Florida-heavy (sitemap has no KY city yet), so the client city is unproven: agent parks if the form refuses the city or finds no Google match. Hunt probe access: open.",
-  "last_verified": "2026-11-09",
-  "vertical": "local-regional",
   "weekly_checkable": "unknown",
   "source": "R",
   "build_eligible": true

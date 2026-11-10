@@ -1,6 +1,6 @@
 """Directory database tests. Run: python tests/directories_test.py (CI). No network: the database is an in-memory fake.
 
-  D1 seed: exactly 154 unique Directories (86 v1 + 68 hunt, t_ab039aed), the weekly 25 all inside, the four 10/21 blockers, Bing = agency account, no client NAP
+  D1 seed: exactly 153 unique Directories (86 v1 + 67 hunt, t_ab039aed), the weekly 25 all inside, the four 10/21 blockers, Bing = agency account, no client NAP
   D2 migration: generated SQL carries the 86 v1 rows, RLS + force RLS, view is security_invoker, no secret
   D3 weekly sync: check results, claim_status, queue state, create-discovery verdicts land as status rows (SCC + NM)
   D4 transitions: a transition writes queue state; needs-human marks the Directory agent-blocked with the note
@@ -43,8 +43,8 @@ HUNT = [r for r in SEED if str(r["cut"]).startswith(("cycle1-", "cycle2-", "cycl
 V1 = [r for r in SEED if r not in HUNT]
 
 # D1 seed
-check("D1 seed count is 154 unique domains (86 v1 + 59 cycle 1 + 3 cycle 2 + 5 cycle 3 + 1 substitute)", len(SEED) == 154 and len(by) == 154 and len(V1) == 86 and len(HUNT) == 68
-      and sum(r["cut"].startswith("cycle1-") for r in HUNT) == 59 and sum(r["cut"].startswith("cycle2-") for r in HUNT) == 3 and sum(r["cut"].startswith("cycle3-") for r in HUNT) == 6, (len(SEED), len(by)))
+check("D1 seed count is 153 unique domains (86 v1 + 59 cycle 1 + 3 cycle 2 + 5 cycle 3)", len(SEED) == 153 and len(by) == 153 and len(V1) == 86 and len(HUNT) == 67
+      and sum(r["cut"].startswith("cycle1-") for r in HUNT) == 59 and sum(r["cut"].startswith("cycle2-") for r in HUNT) == 3 and sum(r["cut"].startswith("cycle3-") for r in HUNT) == 5, (len(SEED), len(by)))
 check("D1 every weekly-25 domain is in the seed and checked weekly", all(d in by and by[d]["checked_weekly"] for d in cfg.DIRS))
 import create_discovery as CD
 check("D1 the 10 create-discovery domains are in the seed and checked weekly", all(d in by and by[d]["checked_weekly"] for d in CD.CREATE_DIRS))
@@ -208,13 +208,13 @@ check("D7 job reads and PATCHes only ce_directories columns that the migration c
 check("D7 job upserts only ce_directory_status columns that the migration creates", seen_stat and seen_stat <= cols_stat, sorted(seen_stat - cols_stat))
 check("D7 migration adds agent_blocker_source for older tables", "add column if not exists agent_blocker_source" in sql)
 
-# D8 hunt catalog rows (t_ab039aed): 154 unique domains, catalog-only, unknown stays unknown, migration 008 carries the same rows
+# D8 hunt catalog rows (t_ab039aed): 153 unique domains, catalog-only, unknown stays unknown, migration 008 carries the same rows
 PROMOTED = {"yellowpagecity.com", "bizhwy.com", "expressbusinessdirectory.com", "smartcustomer.com", "usbizs.com", "usaypage.com", "trustpilot.com", "threebestrated.com"}
 HUNT_ENUM = dict(agent_access=("blocked", "unknown"), build_route=("none", "agent"), weekly_scope=("none",))
-check("D8 154 unique domains load from the seed and no hunt domain is in the 86", len({r["domain"] for r in SEED}) == 154 and not ({r["domain"] for r in HUNT} & {r["domain"] for r in V1}))
+check("D8 153 unique domains load from the seed and no hunt domain is in the 86", len({r["domain"] for r in SEED}) == 153 and not ({r["domain"] for r in HUNT} & {r["domain"] for r in V1}))
 check("D8 every hunt row is catalog-only: build_eligible false, route none except the promoted list (agent), priority 4, scope none, not checked weekly",
-      all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) | set(G.PROMOTED_015)) and r["build_route"] == ("agent" if r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) | set(G.PROMOTED_015) else "none") and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
-check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1))
+      all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014)) and r["build_route"] == ("agent" if r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) else "none") and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
+check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1 if r["domain"] not in G.EXCLUDED_REFERRAL))
 check("D8 hunt agent_access is mapped to the enum: 403/429 walls blocked (21), everything else unknown, probe text kept",
       all(r["agent_access"] in ("blocked", "unknown") for r in HUNT) and sum(r["agent_access"] == "blocked" for r in HUNT) == 21
       and all(("Hunt probe access:" in r["notes"]) if r["agent_access"] == "unknown" else r["agent_blocker"] for r in HUNT))
@@ -233,8 +233,8 @@ check("D8 committed 009_hunt_catalog_seed.sql equals template + hunt seed, byte 
 check("D8 split: 008 has NO rows (no insert, no $seed$) and 009 has NO DDL (no alter, create, drop)",
       not re.search(INS, sql8, re.I) and "$seed$" not in sql8 and not re.search(r"^\s*(alter|create|drop)\s", sql9, re.I | re.M))
 check("D8 hazard gone: with only 008 applied the table gains 0 rows (008 has no insert, 009 is the only row source and every row is build_eligible false)",
-      len(re.findall(INS, sql8, re.I)) == 0 and len(re.findall(INS, sql9, re.I)) == 1 and len(json.loads(m9.group(1))) == 68
-      and all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) | set(G.PROMOTED_015)) for r in json.loads(m9.group(1))))
+      len(re.findall(INS, sql8, re.I)) == 0 and len(re.findall(INS, sql9, re.I)) == 1 and len(json.loads(m9.group(1))) == 67
+      and all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014)) for r in json.loads(m9.group(1))))
 check("D8 order is written in the files: 009 requires 008 and the merge first, 008 names step 3", "REQUIRES 008" in sql9 and "AFTER the app change is merged" in sql9 and "(3) apply 009" in sql8)
 check("D8 hunt seed file equals the hunt rows in directories_seed.json", json.load(open(os.path.join(ROOT, "db", "directories_hunt_seed.json"), encoding="utf-8")) == HUNT)
 check("D8 008 is additive and idempotent: columns if not exists, build_eligible default true, no drop table, no delete",
@@ -270,11 +270,11 @@ check("D10 013 is exactly two updates (build_eligible, build_route, build_route_
 check("D10 013 names exactly salespider.com and hub.biz, both hunt rows, same list and notes as the generator",
       {d for _, d in UPD13} == PROMOTED13 == set(G.PROMOTED_013) and all(G.PROMOTED_013_NOTES[d] == n for n, d in UPD13)
       and PROMOTED13 <= {r["domain"] for r in HUNT} and not (PROMOTED13 & PROMOTED))
-check("D10 seed: the two 013 rows are eligible/agent with their own note; 16 promoted in all, the other 52 hunt rows false/none",
+check("D10 seed: the two 013 rows are eligible/agent with their own note; 15 promoted in all, the other 52 hunt rows false/none",
       all(r["build_eligible"] is True and r["build_route"] == "agent" and r["build_route_note"] == G.PROMOTED_013_NOTES[r["domain"]] for r in HUNT if r["domain"] in PROMOTED13)
-      and sum(r["build_eligible"] is True for r in HUNT) == 16 and sum(r["build_eligible"] is False for r in HUNT) == 52 and sum(r["build_route"] == "none" for r in HUNT) == 52)
+      and sum(r["build_eligible"] is True for r in HUNT) == 15 and sum(r["build_eligible"] is False for r in HUNT) == 52 and sum(r["build_route"] == "none" for r in HUNT) == 52)
 check("D9 seed: build_eligible true on the 8 010 rows plus salespider (013), the other 52 hunt rows false",
-      {r["domain"] for r in HUNT if r["build_eligible"] is True} == PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) | set(G.PROMOTED_015) and sum(r["build_eligible"] is False for r in HUNT) == 52)
+      {r["domain"] for r in HUNT if r["build_eligible"] is True} == PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) and sum(r["build_eligible"] is False for r in HUNT) == 52)
 # D11 migration 014 (t_9736bbe4): add + promote 5 hunt-3 Directories, insert only, idempotent
 P14 = {"kentuckyonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"}
 DROPPED14 = {"owensboroonline.us", "eldercarematters.com", "seniordirectory.com", "101eldercare.com",
@@ -293,27 +293,24 @@ check("D11 the 5 rows are eligible/agent, free, cut cycle3, with a signup_url, n
           and r["cut"] == "cycle3-2026-11-09" and r["signup_url"] and r["agent_access"] == "unknown" for r in rows14))
 check("D11 none of the dropped/excluded domains is in the seed (dup, paid, no path, competitor, chamber, weak)", not (DROPPED14 & set(by)))
 check("D11 014 names no Directory action: no portal seed, no submit path in the rows", "portal" not in body14.lower() and all("submit" not in (r["signup_url"] or "").lower() for r in rows14))
-# D12 migration 015 (t_e20d28d9): one probed substitute row, insert only, idempotent
-P15 = {"whosinmycity.com"}
-DROPPED15 = {"nearspotusa.com", "yplocal.com", "openlocaldirectory.com", "localcitation.site", "christiancountyconnection.com",
-             "uscompanieslist.com", "dominionlocalbusinessdirectory.com"}
-sql15 = open(os.path.join(ROOT, "db", "015_add_scc_substitutes.sql"), encoding="utf-8").read().replace(CRLF, LF)
+# D12 (t_e20d28d9): exclusions hold on ALL seed rows (v1 + hunt); migration 015 is a generated UPDATE
+EXC_REF = {"caring.com", "agingcare.com", "senioradvisor.com", "seniorly.com", "payingforseniorcare.com", "aplaceformom.com"}
+check("D12 referral/lead-gen class is pinned as literals: caring.com (paid lead form, Mike 10/26), APFM family", EXC_REF == set(G.EXCLUDED_REFERRAL))
+check("D12 agency lead magnet whosinmycity.com is excluded with the reason 'agency lead magnet'", G.EXCLUDED_AGENCY_LEAD_MAGNET == {"whosinmycity.com": "agency lead magnet"})
+EXC = EXC_REF | set(G.EXCLUDED_AGENCY_LEAD_MAGNET)
+check("D12 no excluded domain is promoted", not (EXC & set(G.PROMOTED_ALL)))
+check("D12 every excluded row in the WHOLE seed (v1 + hunt) is build_eligible false, route none, with the 10/26 ruling note",
+      all(r["build_eligible"] is False and r["build_route"] == "none" and "declined: paid lead form (Mike 10/26)" in r["build_route_note"] for r in SEED if r["domain"] in EXC_REF) and by["caring.com"]["build_eligible"] is False)
+check("D12 no excluded domain is eligible or route agent anywhere in the seed (null counts as eligible)",
+      not any(r["domain"] in EXC and (r.get("build_eligible") is not False or r["build_route"] == "agent") for r in SEED))
+check("D12 excluded agency lead magnet is not in the seed at all", "whosinmycity.com" not in by)
+sql15 = open(os.path.join(ROOT, "db", "015_exclude_referral_directories.sql"), encoding="utf-8").read().replace(CRLF, LF)
 body15 = "\n".join(l for l in sql15.split(LF) if not l.lstrip().startswith("--"))
-m15 = re.search(r"\$seed\$(.*?)\$seed\$", body15, re.S)
-rows15 = json.loads(m15.group(1)) if m15 else []
-check("D12 015 is one insert ... on conflict (domain) do nothing: no update, delete, DDL",
-      len(re.findall(INS, body15, re.I)) == 1 and re.search(r"on conflict \(domain\) do nothing;\s*$", body15) and not re.search(r"\b(update|delete|truncate|drop|alter|create)\b", body15, re.I))
-check("D12 015 carries exactly whosinmycity.com, same as the generator, and its row equals the seed row",
-      {r["domain"] for r in rows15} == P15 == set(G.PROMOTED_015) and rows15 == [by[d] for d in [r["domain"] for r in rows15]])
-check("D12 committed 015 equals the generator output, byte for byte", sql15 == G.build_015_sql(HUNT).replace(CRLF, LF))
-check("D12 015 shares no domain with 014 and the 014 text is unchanged by 015", not (P15 & set(G.PROMOTED_014)) and "whosinmycity" not in sql14)
-check("D12 the row is eligible/agent, free, a signup_url that is the get-listed form, listing host = row domain",
-      all(r["build_eligible"] is True and r["build_route"] == "agent" and r["cost"] == "free" and r["signup_url"] == "https://whosinmycity.com/get-listed/"
-          and r["agent_access"] == "unknown" and r["signup_url"].split("/")[2].endswith(r["domain"]) for r in rows15))
-check("D12 every probed-and-dropped substitute is absent from the seed", not (DROPPED15 & set(by)))
-check("D12 referral/lead-gen class is never promoted or hunt-eligible: caring.com (paid lead form, Mike 10/26), APFM family",
-      {"caring.com", "agingcare.com", "senioradvisor.com", "seniorly.com", "payingforseniorcare.com", "aplaceformom.com"} == set(G.EXCLUDED_REFERRAL)
-      and not (set(G.EXCLUDED_REFERRAL) & set(G.PROMOTED_ALL)) and not any(r["domain"] in G.EXCLUDED_REFERRAL and r["build_eligible"] for r in HUNT))
-check("D12 015 names no Directory action: no portal seed", "portal" not in body15.lower())
+check("D12 committed 015 equals the generator output, byte for byte", sql15 == G.build_015_sql())
+check("D12 015 is updates only on the three columns: no insert, delete, DDL, portal", len(re.findall(r"\bupdate public\.ce_directories\b", body15)) == 2
+      and not re.search(r"\b(insert|delete|truncate|drop|alter|create)\b", body15, re.I) and "portal" not in body15.lower()
+      and set(re.findall(r"^\s+(?:set\s+)?(\w+) = ", body15, re.M)) == {"build_eligible", "build_route", "build_route_note"})
+check("D12 015 names exactly the excluded domains", set(re.findall(r"'([a-z0-9.-]+\.[a-z]+)'", body15)) == EXC)
+check("D12 no 015 insert migration: nothing passed review as a substitute", not os.path.exists(os.path.join(ROOT, "db", "015_add_scc_substitutes.sql")))
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
