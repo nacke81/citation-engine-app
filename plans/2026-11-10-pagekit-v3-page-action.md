@@ -14,4 +14,4 @@ findcarez.com (reCAPTCHA v3, action `register`) needed hand steps in t_5d6deb42:
 - tests/pagekit_v3_test.py + CI step.
 
 ## Gates
-PR to main, CI green, reviewer nacke-media. No live submit, no spend.
+PR to main, CI green, independent review. No live submit, no spend.
