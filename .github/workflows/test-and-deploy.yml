@@ -157,6 +157,8 @@ jobs:
         run: python tests/proof_gap_test.py
       - name: Mirror DB Proof into live queue rows (fill missing, never overwrite complete, sink off skips)
         run: python tests/mirror_proof_test.py
+      - name: reCAPTCHA v3 pageAction + inject + logged CLI wrapper (fake CapSolver, no spend)
+        run: python tests/pagekit_v3_test.py
       - name: Sign-in Send (gate, fail closed, no secret in output, flag-gated write)
         run: python tests/signin_send_test.py
       - name: Activity channel_label (SEO & Local SEO on every listing activity)

@@ -44,12 +44,12 @@ check("I4 a real form with a turnstile widget is a widget, not an interstitial",
 
 # commands
 cmd = C.command({"type": "recaptcha-v2", "sitekey": KEY}, URL)
-check("C1 v2 command exact", cmd == "node capsolver-cli.js --kind recaptcha-v2 --url %s --sitekey %s --cap 2" % (URL, KEY), cmd)
+check("C1 v2 command exact (logged wrapper)", cmd == "python job/capsolver_solve.py --row <row-id> --kind recaptcha-v2 --url %s --sitekey %s" % (URL, KEY), cmd)
 check("C1b v2 command never passes isInvisible", "isInvisible" not in cmd)
-check("C2 turnstile command", C.command({"type": "turnstile", "sitekey": "0x4AAAAAAABkMYinukE8nzYS"}, URL).startswith("node capsolver-cli.js --kind turnstile "))
+check("C2 turnstile command", C.command({"type": "turnstile", "sitekey": "0x4AAAAAAABkMYinukE8nzYS"}, URL).startswith("python job/capsolver_solve.py --row <row-id> --kind turnstile "))
 check("C3 v3 command", "--kind recaptcha-v3" in C.command({"type": "recaptcha-v3", "sitekey": KEY}, URL))
 check("C4 image command carries the base64 body placeholder", "--kind image" in C.command({"type": "image", "sitekey": None}, URL) and "\"body\"" in C.command({"type": "image", "sitekey": None}, URL))
-check("C5 custom cli path", C.command({"type": "turnstile", "sitekey": "0x4AAAAAAABkMYinukE8nzYS"}, URL, cli="C:/x/dist/src/capsolver-cli.js").startswith("node C:/x/dist/src/capsolver-cli.js "))
+check("C5 argv takes a custom cli path and stays on the real CLI", C.argv({"type": "turnstile", "sitekey": "0x4AAAAAAABkMYinukE8nzYS"}, URL, cli="C:/x/dist/src/capsolver-cli.js")[:2] == ["node", "C:/x/dist/src/capsolver-cli.js"])
 for bad, why in (({"type": "hcaptcha", "sitekey": "10000000-ffff-ffff-ffff-000000000001"}, "hcaptcha"), ({"type": "recaptcha-v2", "sitekey": None}, "no sitekey"),
                  ({"type": "recaptcha-v2", "sitekey": "a b; rm -rf /"}, "shell-unsafe sitekey")):
     try: C.command(bad, URL); raised = False
@@ -78,12 +78,44 @@ open(tmp, "w", encoding="utf-8").write(V2)
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf): rc = C.main(["--url", URL, "--html", tmp])
 out = json.loads(buf.getvalue())
-check("M1 CLI prints the command and exits 0", rc == 0 and out["commands"][0].endswith("--cap 2"), buf.getvalue()[:120])
+check("M1 CLI prints the command and exits 0", rc == 0 and out["commands"][0].startswith("python job/capsolver_solve.py --row <row-id> "), buf.getvalue()[:120])
 open(tmp, "w", encoding="utf-8").write(INTER)
 with contextlib.redirect_stdout(io.StringIO()): rc = C.main(["--url", URL, "--html", tmp])
 check("M2 CLI exits 3 for a parked wall", rc == 3)
 os.remove(tmp)
 check("M3 module never reads the CapSolver key", "CAPSOLVER_API_KEY" not in open(C.__file__, encoding="utf-8").read())
+
+# t_bc10b2d3: every printed command is the logged wrapper; argv() stays on the real CLI
+V3A = V3 + "<script>grecaptcha.execute('%s', {action: 'register'}).then(function(t){});</script>" % KEY
+V3TWO = V3 + "<script>grecaptcha.execute('%s',{action:'homepage'});</script><script>grecaptcha.execute('%s',{action:'submit'});</script>" % (KEY, KEY)
+p = C.plan(V3A, URL, row="create-findcarez")
+check("W1 v3 plan prints the wrapper with --page-action register", p["commands"] == ["python job/capsolver_solve.py --row create-findcarez --kind recaptcha-v3 --url %s --sitekey %s --page-action register" % (URL, KEY)], str(p["commands"]))
+p = C.plan(V2 + "<script>grecaptcha.execute('%s',{action:'x'})</script>" % KEY, URL)
+check("W2 v2 plan prints the wrapper, no --page-action, <row-id> placeholder", p["commands"] == ["python job/capsolver_solve.py --row <row-id> --kind recaptcha-v2 --url %s --sitekey %s" % (URL, KEY)], str(p["commands"]))
+check("W3 v3 with no execute call: no --page-action", "--page-action" not in C.plan(V3, URL)["commands"][0])
+check("W4 image plan is the wrapper with --extra", C.plan(IMG, URL)["commands"][0].startswith("python job/capsolver_solve.py --row <row-id> --kind image --url ") and "--extra" in C.plan(IMG, URL)["commands"][0])
+p = C.plan(V3TWO, URL)
+check("W5 two execute actions: first is printed, a note names both", "--page-action homepage" in p["commands"][0] and any("homepage" in n and "submit" in n for n in p["notes"]), str(p["notes"]))
+check("W6 detect_page_actions lists all, in order, no dupes", C.detect_page_actions(V3TWO + V3TWO) == ["homepage", "submit"])
+for name, h in (("v2", V2), ("v3", V3A), ("ts", TS), ("img", IMG), ("v3two", V3TWO)):
+    cs = C.plan(h, URL)["commands"]
+    check("W7 %s: no printed command is a raw node capsolver-cli call" % name, cs and all(c.startswith("python job/capsolver_solve.py ") and not c.startswith("node") and "capsolver-cli" not in c for c in cs), str(cs))
+try: C.command({"type": "recaptcha-v3", "sitekey": KEY}, URL, page_action="a; b"); raised = False
+except ValueError: raised = True
+check("W8 shell-unsafe page_action refused", raised)
+av = C.argv({"type": "recaptcha-v3", "sitekey": KEY}, URL, cli="cli.js", extra={"pageAction": "register"})
+check("W9 argv still starts node <cli> and carries --extra", av[:2] == ["node", "cli.js"] and av[av.index("--extra") + 1] == '{"pageAction": "register"}' and av[-2:] == ["--cap", "2"], str(av))
+check("W9b argv default cli is capsolver-cli.js", C.argv({"type": "turnstile", "sitekey": "0x4AAAAAAABkMYinukE8nzYS"}, URL)[:2] == ["node", C.CLI])
+for bad in ({"type": "hcaptcha", "sitekey": "10000000-ffff-ffff-ffff-000000000001"}, {"type": "recaptcha-v2", "sitekey": None}, {"type": "recaptcha-v2", "sitekey": "a b; c"}):
+    try: C.argv(bad, URL); raised = False
+    except ValueError: raised = True
+    check("W10 argv refuses %s" % bad["type"], raised)
+tmp2 = tmp + ".w"
+open(tmp2, "w", encoding="utf-8").write(V3A)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf): rc = C.main(["--url", URL, "--html", tmp2, "--row", "create-findcarez"])
+check("W11 CLI --row fills the row id and page action", rc == 0 and "--row create-findcarez " in json.loads(buf.getvalue())["commands"][0] and "--page-action register" in buf.getvalue(), buf.getvalue()[:200])
+os.remove(tmp2)
 
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

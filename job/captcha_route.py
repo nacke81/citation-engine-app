@@ -1,4 +1,4 @@
-"""CAPTCHA router (kanban t_1c503c7f). Reads a page's HTML and says what kind of widget it holds, its sitekey, and the exact capsolver-cli.js command.
+"""CAPTCHA router (kanban t_1c503c7f). Reads a page's HTML and says what kind of widget it holds, its sitekey, and the exact logged command (python job/capsolver_solve.py ...) to run.
 
 Rules (Mike 10/26, citation-submit skill):
   * reCAPTCHA v2 / v3 and Cloudflare Turnstile WIDGETS on a form -> CapSolver via capsolver-cli.js, 3 tries at most per row.
@@ -60,30 +60,52 @@ def verdict(widget_type):
     return "park", "WALL:unknown-captcha"
 
 
-def command(widget, url, cli=None):
-    """The exact capsolver-cli.js command for one widget. Raises ValueError for a widget CapSolver does not handle here."""
+def _check(widget, url):
     t = widget["type"]
     if verdict(t)[0] != "capsolver": raise ValueError("%s is not routed to CapSolver (%s)" % (t, verdict(t)[1]))
     if not re.match(r"^https?://", url or ""): raise ValueError("url must be an http(s) page URL")
-    cli = cli or CLI
+    if t != "image":
+        if not widget.get("sitekey"): raise ValueError("%s widget has no sitekey" % t)
+        if not re.match(r"^[A-Za-z0-9_\-]{10,}$", widget["sitekey"]): raise ValueError("sitekey has an unexpected shape")
+    return t
+
+
+def command(widget, url, row=None, page_action=None):
+    """The command a worker runs: job/capsolver_solve.py, which calls pagekit.solve_captcha so the solve is logged (one line in the solve log) and
+    the 3-tries-per-row cap applies. `row` fills --row (else the <row-id> placeholder). page_action (reCAPTCHA v3 only) adds --page-action.
+    Never returns the raw capsolver-cli.js line: that path writes no log. Raises ValueError for a widget CapSolver does not handle here."""
+    t = _check(widget, url)
+    if page_action is not None and not re.match(r"^[A-Za-z0-9_/]{1,100}$", page_action): raise ValueError("page_action has an unexpected shape")
+    line = "python job/capsolver_solve.py --row %s --kind %s --url %s" % (row or "<row-id>", t, url)
     if t == "image":
-        return "node %s --kind image --url %s --extra '{\"body\":\"<base64 of the captcha image, no data: prefix>\"}' --cap %s" % (cli, url, CAP)
-    if not widget.get("sitekey"): raise ValueError("%s widget has no sitekey" % t)
-    if not re.match(r"^[A-Za-z0-9_\-]{10,}$", widget["sitekey"]): raise ValueError("sitekey has an unexpected shape")
-    return "node %s --kind %s --url %s --sitekey %s --cap %s" % (cli, t, url, widget["sitekey"], CAP)
+        return line + " --extra '{\"body\":\"<base64 of the captcha image, no data: prefix>\"}'"
+    line += " --sitekey %s" % widget["sitekey"]
+    if page_action and t == "recaptcha-v3": line += " --page-action %s" % page_action
+    return line
 
 
 def argv(widget, url, cli=None, extra=None):
-    """The same command as command(), as an argument list for subprocess (no shell quoting). Image widgets pass extra={"body": <base64>}."""
-    line = command(widget, url, cli)
-    t = widget["type"]
+    """The subprocess list pagekit runs: the REAL capsolver-cli.js (the logging wrapper calls pagekit, which calls this). Not for workers to paste.
+    Image widgets pass extra={"body": <base64>}; v3 passes extra={"pageAction": a}."""
+    t = _check(widget, url)
     base = ["node", cli or CLI, "--kind", t, "--url", url]
     if t != "image": base += ["--sitekey", widget["sitekey"]]
-    if t == "image" and extra: base += ["--extra", json.dumps(extra)]
+    if extra: base += ["--extra", json.dumps(extra)]
     return base + ["--cap", CAP]
 
 
-def plan(html, url, cli=None):
+PAGE_ACTION_RE = re.compile(r"""grecaptcha(?:\.enterprise)?\.execute\(\s*[^,)]+,\s*\{[^}]*?\baction\s*:\s*["']([A-Za-z0-9_/]{1,100})["']""", re.I)
+
+
+def detect_page_actions(html):
+    """-> every distinct action string in visible grecaptcha.execute(key, {action: 'x'}) calls, in page order."""
+    out = []
+    for m in PAGE_ACTION_RE.finditer(html or ""):
+        if m.group(1) not in out: out.append(m.group(1))
+    return out
+
+
+def plan(html, url, cli=None, row=None):
     """One dict the caller can print or act on: {"route", "wall", "commands", "max_tries", "notes"}."""
     d = detect(html, url)
     if d["interstitial"]:
@@ -91,11 +113,14 @@ def plan(html, url, cli=None):
     if not d["widgets"]:
         return {"route": "none", "wall": None, "commands": [], "max_tries": 0, "notes": ["no CAPTCHA widget found on this page"]}
     cmds, notes, wall = [], [], None
+    acts = detect_page_actions(html)
     for w in d["widgets"]:
         route, w_wall = verdict(w["type"])
         if route == "park":
             wall = wall or w_wall; notes.append("%s: capsolver-cli.js has no such kind, park %s" % (w["type"], w_wall)); continue
-        try: cmds.append(command(w, url, cli))
+        act = acts[0] if (acts and w["type"] == "recaptcha-v3") else None
+        if act and len(acts) > 1: notes.append("page calls grecaptcha.execute with %d actions %s: --page-action %s is the first one; pass the submit action instead if it differs" % (len(acts), acts, act))
+        try: cmds.append(command(w, url, row=row, page_action=act))
         except ValueError as e: notes.append(str(e))
     if cmds: wall = None
     return {"route": "capsolver" if cmds else "park", "wall": wall, "commands": cmds, "max_tries": MAX_TRIES, "notes": notes + ["%d tries at most per row; after that park needs-human with the CAPTCHA note and --reason-code captcha" % MAX_TRIES]}
@@ -103,13 +128,14 @@ def plan(html, url, cli=None):
 
 def main(argv=None):
     import argparse
-    a = argparse.ArgumentParser(description="Read a saved page, print the CAPTCHA widget type, sitekey and the capsolver-cli.js command")
+    a = argparse.ArgumentParser(description="Read a saved page, print the CAPTCHA widget type, sitekey and the logged capsolver_solve.py command")
     a.add_argument("--url", required=True)
+    a.add_argument("--row", help="queue row id to put in the printed command (else <row-id>)")
     g = a.add_mutually_exclusive_group(required=True)
     g.add_argument("--html"); g.add_argument("--stdin", action="store_true")
     n = a.parse_args(argv)
     html = sys.stdin.read() if n.stdin else open(n.html, encoding="utf-8", errors="replace").read()
-    p = plan(html, n.url)
+    p = plan(html, n.url, row=n.row)
     print(json.dumps(p, indent=1))
     return 0 if p["route"] in ("capsolver", "none") else 3
 
