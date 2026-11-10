@@ -214,7 +214,7 @@ HUNT_ENUM = dict(agent_access=("blocked", "unknown"), build_route=("none", "agen
 check("D8 153 unique domains load from the seed and no hunt domain is in the 86", len({r["domain"] for r in SEED}) == 153 and not ({r["domain"] for r in HUNT} & {r["domain"] for r in V1}))
 check("D8 every hunt row is catalog-only: build_eligible false, route none except the promoted list (agent), priority 4, scope none, not checked weekly",
       all(r["build_eligible"] is (r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014)) and r["build_route"] == ("agent" if r["domain"] in PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) else "none") and r["priority"] == 4 and r["weekly_scope"] == "none" and not r["checked_weekly"] for r in HUNT))
-check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1))
+check("D8 no v1 row carries build_eligible false", all(r.get("build_eligible") is not False for r in V1 if r["domain"] not in G.EXCLUDED_REFERRAL))
 check("D8 hunt agent_access is mapped to the enum: 403/429 walls blocked (21), everything else unknown, probe text kept",
       all(r["agent_access"] in ("blocked", "unknown") for r in HUNT) and sum(r["agent_access"] == "blocked" for r in HUNT) == 21
       and all(("Hunt probe access:" in r["notes"]) if r["agent_access"] == "unknown" else r["agent_blocker"] for r in HUNT))
@@ -293,5 +293,24 @@ check("D11 the 5 rows are eligible/agent, free, cut cycle3, with a signup_url, n
           and r["cut"] == "cycle3-2026-11-09" and r["signup_url"] and r["agent_access"] == "unknown" for r in rows14))
 check("D11 none of the dropped/excluded domains is in the seed (dup, paid, no path, competitor, chamber, weak)", not (DROPPED14 & set(by)))
 check("D11 014 names no Directory action: no portal seed, no submit path in the rows", "portal" not in body14.lower() and all("submit" not in (r["signup_url"] or "").lower() for r in rows14))
+# D12 (t_e20d28d9): exclusions hold on ALL seed rows (v1 + hunt); migration 015 is a generated UPDATE
+EXC_REF = {"caring.com", "agingcare.com", "senioradvisor.com", "seniorly.com", "payingforseniorcare.com", "aplaceformom.com"}
+check("D12 referral/lead-gen class is pinned as literals: caring.com (paid lead form, Mike 10/26), APFM family", EXC_REF == set(G.EXCLUDED_REFERRAL))
+check("D12 agency lead magnet whosinmycity.com is excluded with the reason 'agency lead magnet'", G.EXCLUDED_AGENCY_LEAD_MAGNET == {"whosinmycity.com": "agency lead magnet"})
+EXC = EXC_REF | set(G.EXCLUDED_AGENCY_LEAD_MAGNET)
+check("D12 no excluded domain is promoted", not (EXC & set(G.PROMOTED_ALL)))
+check("D12 every excluded row in the WHOLE seed (v1 + hunt) is build_eligible false, route none, with the 10/26 ruling note",
+      all(r["build_eligible"] is False and r["build_route"] == "none" and "declined: paid lead form (Mike 10/26)" in r["build_route_note"] for r in SEED if r["domain"] in EXC_REF) and by["caring.com"]["build_eligible"] is False)
+check("D12 no excluded domain is eligible or route agent anywhere in the seed (null counts as eligible)",
+      not any(r["domain"] in EXC and (r.get("build_eligible") is not False or r["build_route"] == "agent") for r in SEED))
+check("D12 excluded agency lead magnet is not in the seed at all", "whosinmycity.com" not in by)
+sql15 = open(os.path.join(ROOT, "db", "015_exclude_referral_directories.sql"), encoding="utf-8").read().replace(CRLF, LF)
+body15 = "\n".join(l for l in sql15.split(LF) if not l.lstrip().startswith("--"))
+check("D12 committed 015 equals the generator output, byte for byte", sql15 == G.build_015_sql())
+check("D12 015 is updates only on the three columns: no insert, delete, DDL, portal", len(re.findall(r"\bupdate public\.ce_directories\b", body15)) == 2
+      and not re.search(r"\b(insert|delete|truncate|drop|alter|create)\b", body15, re.I) and "portal" not in body15.lower()
+      and set(re.findall(r"^\s+(?:set\s+)?(\w+) = ", body15, re.M)) == {"build_eligible", "build_route", "build_route_note"})
+check("D12 015 names exactly the excluded domains", set(re.findall(r"'([a-z0-9.-]+\.[a-z]+)'", body15)) == EXC)
+check("D12 no 015 insert migration: nothing passed review as a substitute", not os.path.exists(os.path.join(ROOT, "db", "015_add_scc_substitutes.sql")))
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

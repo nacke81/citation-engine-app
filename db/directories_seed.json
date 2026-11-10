@@ -1734,14 +1734,15 @@
   "verification_methods": [
    "unknown"
   ],
-  "build_route": "agent",
-  "build_route_note": null,
+  "build_route": "none",
+  "build_route_note": "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
   "agent_blocker_source": null,
   "notes": "Signup page: re-read live by GET (read 2026-10-19).",
-  "last_verified": "2026-10-19"
+  "last_verified": "2026-10-19",
+  "build_eligible": false
  },
  {
   "domain": "citylocalpro.com",
@@ -4707,7 +4708,7 @@
    "unknown"
   ],
   "build_route": "none",
-  "build_route_note": null,
+  "build_route_note": "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,
@@ -4783,7 +4784,7 @@
    "unknown"
   ],
   "build_route": "none",
-  "build_route_note": null,
+  "build_route_note": "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote",
   "agent_access": "unknown",
   "agent_blocker": null,
   "agent_blocker_seen_on": null,

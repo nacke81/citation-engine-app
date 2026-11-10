@@ -79,6 +79,12 @@ PROMOTED_013_NOTES = {"salespider.com": 'Promoted t_1061017b: free claim page; a
 # Added and promoted by migration 014 (t_9736bbe4): hunt-3 rows, free self-serve path seen 2026-11-09. 014 INSERTs them (they are not in prod yet).
 PROMOTED_014 = frozenset({"kentuckyonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"})
 PROMOTED_014_NOTE = 'Promoted t_9736bbe4: free self-serve path seen 2026-11-09 (public GET only); agent builds, parks before any code or CAPTCHA step it cannot do free.'
+# Never promote (t_e20d28d9). Lead-gen / referral class (APFM family, paid lead forms): caring.com queue row create-caring is rejected, "declined: paid lead form (Mike 10/26)"; its get-listed page is a HubSpot lead form with a required care category.
+EXCLUDED_REFERRAL = frozenset({"caring.com", "agingcare.com", "senioradvisor.com", "seniorly.com", "payingforseniorcare.com", "aplaceformom.com"})
+EXCLUDED_REFERRAL_NOTE = "declined: paid lead form (Mike 10/26); lead-gen/referral class, never promote"
+# Agency lead magnets: a "get listed" page that hands the client's contact details to a competing agency. whosinmycity.com /get-listed/ is a Pichardo Marketing lead magnet (Nate ruling 2026-11-09). It has no row; the migration update is a no-op until one appears.
+EXCLUDED_AGENCY_LEAD_MAGNET = {"whosinmycity.com": "agency lead magnet"}
+EXCLUDED_AGENCY_LEAD_MAGNET_NOTE = "excluded: agency lead magnet (get-listed page hands contact details to a competing agency); never promote"
 PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014
 
 
@@ -94,6 +100,7 @@ def main_hunt():
     rows = [r for r in json.load(open(SEED_JSON, encoding="utf-8")) if not is_hunt(r)]
     hunt = json.load(open(HUNT_SEED, encoding="utf-8"))
     write_seed(rows, hunt)
+    write_sql(json.load(open(SEED_JSON, encoding="utf-8"))[:len(rows)])   # 002 carries the v1 rows incl. the exclusion
 
 
 def write_seed(rows, hunt):
@@ -103,8 +110,12 @@ def write_seed(rows, hunt):
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTES[r["domain"]]) if r["domain"] in PROMOTED_013
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_014_NOTE) if r["domain"] in PROMOTED_014
             else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
+    excl = lambda r: dict(r, build_eligible=False, build_route="none", build_route_note=EXCLUDED_REFERRAL_NOTE) if r["domain"] in EXCLUDED_REFERRAL else r
+    rows = [excl(r) for r in rows]
+    hunt = [excl(r) for r in hunt]   # migration 015 (t_e20d28d9): a reseed keeps the exclusion
     everything = rows + hunt
     assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
+    assert not (PROMOTED_ALL & (EXCLUDED_REFERRAL | set(EXCLUDED_AGENCY_LEAD_MAGNET))), "an excluded domain can never be promoted"
     assert all(r["build_eligible"] is (r["domain"] in PROMOTED_ALL) and (r["build_route"] == "agent") is (r["domain"] in PROMOTED_ALL) for r in hunt), "hunt rows are catalog-only (build_eligible false, route none) except the promoted list"
     with open(HUNT_SEED, "w", encoding="utf-8", newline="\n") as f:
         json.dump(hunt, f, indent=1, ensure_ascii=False); f.write("\n")
@@ -204,6 +215,7 @@ def main():
 
 def build_sql(rows):
     tpl = open(TEMPLATE, encoding="utf-8").read()
+    rows = [dict(r, build_eligible=False, build_route="none", build_route_note=EXCLUDED_REFERRAL_NOTE) if r["domain"] in EXCLUDED_REFERRAL else r for r in rows]   # same exclusion as the seed (t_e20d28d9)
     blob = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
     assert "$seed$" not in blob
     return tpl.replace("@@SEED_JSON@@", blob)
@@ -232,7 +244,27 @@ def build_014_sql(hunt):
     return HEADER_014 + body.replace("@@SEED_JSON@@", blob)
 
 
+MIGRATION_015 = os.path.join(HERE, "015_exclude_referral_directories.sql")
+HEADER_015 = ("-- Exclude the lead-gen/referral class and agency lead magnets from building (kanban t_e20d28d9; Nate ruling 2026-11-09). GENERATED: python db/gen_directories_seed.py --hunt.\n"
+              "-- Data only and idempotent: UPDATE of three columns (build_eligible, build_route, build_route_note) on exactly the excluded domains. No insert, no delete, no DDL, no other column.\n"
+              "-- caring.com is the live row it changes (build_eligible was true, route agent). A domain absent from ce_directories is simply not matched.\n")
+
+
+def sql_quote(t):
+    return "'" + t.replace("'", "''") + "'"
+
+
+def build_015_sql():
+    out = HEADER_015
+    for doms, note in ((sorted(EXCLUDED_REFERRAL), EXCLUDED_REFERRAL_NOTE), (sorted(EXCLUDED_AGENCY_LEAD_MAGNET), EXCLUDED_AGENCY_LEAD_MAGNET_NOTE)):
+        out += ("update public.ce_directories\n   set build_eligible = false,\n       build_route = 'none',\n       build_route_note = %s\n where domain in (%s);\n"
+                % (sql_quote(note), ", ".join(sql_quote(d) for d in doms)))
+    return out
+
+
 def write_hunt_sql(hunt):
+    with open(MIGRATION_015, "w", encoding="utf-8", newline="\n") as f:
+        f.write(build_015_sql())
     with open(MIGRATION_014, "w", encoding="utf-8", newline="\n") as f:
         f.write(build_014_sql(hunt))
     with open(HUNT_MIGRATION, "w", encoding="utf-8", newline="\n") as f:
