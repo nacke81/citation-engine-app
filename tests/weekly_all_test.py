@@ -24,7 +24,7 @@ class FakeDB:
         return self.rows
 
 seed = dirlist.seed_domains()
-check("W1 seed has 153 unique Directories and contains the 25 proven ones", len(seed) == 153 and len(set(seed)) == len(seed) and set(DIRS) <= set(seed), len(seed))
+check("W1 seed has 154 unique Directories and contains the 25 proven ones", len(seed) == 154 and len(set(seed)) == len(seed) and set(DIRS) <= set(seed), len(seed))
 
 db = FakeDB([{"domain": d} for d in seed])
 doms, src = dirlist.load_directories(db, log=lambda m: None)

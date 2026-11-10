@@ -59,7 +59,7 @@ dom = [r["directory"] for r in rows]
 # B1
 check("B1 every build-eligible seed Directory has exactly one row, except found-correct", set(dom) == {d["domain"] for d in DIRS if d["build_eligible"]} - {FOUND_OK} and len(dom) == len(set(dom)), (len(dom), len(set(dom))))
 check("B1 no duplicate row id", len(ids) == len(set(ids)))
-check("B1 report adds up to 153 (86 v1 + 15 promoted hunt + 52 catalog-only)", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 153 and rep["ineligible"] == 52, rep)
+check("B1 report adds up to 154 (86 v1 + 16 promoted hunt + 52 catalog-only)", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 154 and rep["ineligible"] == 52, rep)
 # B2
 check("B2 found + NAP correct + permalink gets no row", FOUND_OK not in dom and rep["none"] == 1)
 fx = [r for r in rows if r["directory"] == FOUND_ERR][0]
@@ -83,11 +83,11 @@ hq, hrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, HUNT, [
 check("B3b 52 catalog-only hunt rows on an empty queue -> added 0, nothing queued, nothing needs-human", len(HUNT) == 52 and hrep["added"] == 0 and hrep["ineligible"] == 52
       and hrep["create"] == 0 and hrep["fix"] == 0 and hrep["needs-human"] == 0 and B.counts(hq)[0] == [] and "build_order" not in hq, hrep)
 mix, mrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, DIRS, [], [], DAY)
-check("B3b mixed v1 + hunt: only v1 + the 15 promoted get rows, every catalog-only hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 101 and mrep["ineligible"] == 52, mrep)
+check("B3b mixed v1 + hunt: only v1 + the 16 promoted get rows, every catalog-only hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 102 and mrep["ineligible"] == 52, mrep)
 legacy = [dict(d) for d in DIRS if d["build_eligible"]]
 for d in legacy: d.pop("build_eligible")
 lq, lrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, legacy, [], [], DAY)
-check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 101 and lrep["ineligible"] == 0, lrep)
+check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 102 and lrep["ineligible"] == 0, lrep)
 check("B3b the load query reads build_eligible", "build_eligible" in open(os.path.join(ROOT, "job", "buildrows.py"), encoding="utf-8").read().split("def load_db_inputs")[1].split("status =")[0])
 # B4
 p = os.path.join(TMP, "queue.json"); json.dump(BASE, open(p, "w", encoding="utf-8"), indent=1)
@@ -108,7 +108,7 @@ check("B5 queue input is not mutated", BASE["fix_queue"][0]["mike_approval"]["no
 # B6
 stamped = [r for r in rows if r["directory"] not in ("mapquest.com", "acompio.us")]
 check("B6 every new row carries the blanket approval verbatim, row_id = id",
-      all(r["mike_approval"] == {"approved_by": "mike", "at": "2026-10-25T17:45:00+00:00", "row_id": r["id"], "scope": "blanket-2026-10-25", "note": RULING_NOTE} for r in stamped) and len(stamped) == rep["added"] == 98)
+      all(r["mike_approval"] == {"approved_by": "mike", "at": "2026-10-25T17:45:00+00:00", "row_id": r["id"], "scope": "blanket-2026-10-25", "note": RULING_NOTE} for r in stamped) and len(stamped) == rep["added"] == 99)
 check("B6 buildqueue.approval_ok accepts the new rows", all(Q.approval_ok(r) for r in stamped))
 import transitions as T
 os.environ["CE_QUEUE"] = p
@@ -137,5 +137,17 @@ check("B8 dry run writes nothing", open(p, "rb").read() == dry_before and dry_ba
 src = open(os.path.join(ROOT, "job", "buildrows.py"), encoding="utf-8").read()
 check("B9 buildrows makes no Directory request, no portal import, no transitions import", "urlopen" not in src and "import portal" not in src and "import transitions" not in src and "requests" not in src)
 check("B9 run.py wires buildrows after create_queue_step, non-fatal", "buildrows_step" in open(os.path.join(ROOT, "job", "run.py"), encoding="utf-8").read())
+# B10 (t_e20d28d9): why n49.com has no queue row, and the 015 row queues
+N49 = "n49.com"
+assert N49 in by and by[N49]["build_eligible"] and by[N49]["build_route"] == "agent"
+n49_status = [dict(directory=N49, last_result="found", last_url="https://www.n49.com/biz/1234567/test-biz-exampletown/", last_match=True, claim_status="unknown", queue_state=None)]
+nq, nrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, [by[N49]], n49_status, [], DAY)
+check("B10 n49 found + NAP correct + permalink: buildrows adds no row (by design, the SCC listing already exists; same path as google/apple)", nrep["added"] == 0 and nrep["none"] == 1 and N49 not in [r["directory"] for r in B.counts(nq)[0]], nrep)
+nq2, nrep2 = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, [by[N49]], [], [], DAY)
+check("B10 n49 never checked: it would get create-n49 (so the skip comes from the found-correct status, not the Catalog row)", nrep2["added"] == 1 and [r["id"] for r in B.counts(nq2)[0]] == ["create-n49"], nrep2)
+WIMC = "whosinmycity.com"
+wq, wrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, [by[WIMC]], [], [], DAY)
+wr = B.counts(wq)[0]
+check("B10 015 row whosinmycity.com queues one create row in state queued, no needs-human", wrep["added"] == 1 and wrep["needs-human"] == 0 and [(r["id"], r["state"], r["kind"]) for r in wr] == [("create-whosinmycity", "queued", "create")], wrep)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

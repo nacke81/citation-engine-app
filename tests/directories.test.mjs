@@ -6,12 +6,12 @@ import { filterDirs, sortDirs, directoriesHtml, detailHtml, tabsHtml, DEFAULT_FI
 const SEED = JSON.parse(readFileSync(new URL("../db/directories_seed.json", import.meta.url), "utf8"));
 const by = Object.fromEntries(SEED.map((d) => [d.domain, d]));
 
-test("seed has 153 Directories and the list renders all 153", () => {
-  assert.equal(SEED.length, 153);
-  assert.equal(new Set(SEED.map((d) => d.domain)).size, 153);
+test("seed has 154 Directories and the list renders all 154", () => {
+  assert.equal(SEED.length, 154);
+  assert.equal(new Set(SEED.map((d) => d.domain)).size, 154);
   const h = directoriesHtml(SEED, []);
-  assert.equal((h.match(/class="row dir/g) || []).length, 153);
-  assert.match(h, /153 of 153/);
+  assert.equal((h.match(/class="row dir/g) || []).length, 154);
+  assert.match(h, /154 of 154/);
 });
 test("filters: build route, agent access, cost, checked weekly", () => {
   assert.deepEqual(filterDirs(SEED, { ...DEFAULT_FILTERS, route: "agency-account" }).map((d) => d.domain), ["bing.com"]);
@@ -19,7 +19,7 @@ test("filters: build route, agent access, cost, checked weekly", () => {
   assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, access: "blocked" }).length, 25);
   assert.ok(filterDirs(SEED, { ...DEFAULT_FILTERS, cost: "paid" }).every((d) => d.cost === "paid"));
   assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, weekly: "y" }).length, 35);
-  assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, weekly: "n" }).length, 118);
+  assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, weekly: "n" }).length, 119);
   assert.deepEqual(filterDirs(SEED, { ...DEFAULT_FILTERS, q: "YELLOWBOT" }).map((d) => d.domain), ["yellowbot.com"]);
   assert.equal(filterDirs(SEED, { ...DEFAULT_FILTERS, route: "agent", access: "blocked", weekly: "y" }).length, 3);
 });

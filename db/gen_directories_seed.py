@@ -23,7 +23,7 @@ MIGRATION = os.path.join(HERE, "002_directories.sql")
 HUNT_SEED = os.path.join(HERE, "directories_hunt_seed.json")
 HUNT_TEMPLATE = os.path.join(HERE, "009_hunt_catalog_seed.sql.tpl")
 HUNT_MIGRATION = os.path.join(HERE, "009_hunt_catalog_seed.sql")
-TOTAL_ROWS = 153   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed) + 5 hunt cycle 3 (t_9736bbe4)
+TOTAL_ROWS = 154   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed) + 5 hunt cycle 3 (t_9736bbe4) + 1 substitute (t_e20d28d9)
 TEMPLATE = os.path.join(HERE, "002_directories.sql.tpl")
 
 CATEGORY_NICHE_SENIOR = {"caring.com"}
@@ -79,7 +79,12 @@ PROMOTED_013_NOTES = {"salespider.com": 'Promoted t_1061017b: free claim page; a
 # Added and promoted by migration 014 (t_9736bbe4): hunt-3 rows, free self-serve path seen 2026-11-09. 014 INSERTs them (they are not in prod yet).
 PROMOTED_014 = frozenset({"kentuckyonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"})
 PROMOTED_014_NOTE = 'Promoted t_9736bbe4: free self-serve path seen 2026-11-09 (public GET only); agent builds, parks before any code or CAPTCHA step it cannot do free.'
-PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014
+# Added and promoted by migration 015 (t_e20d28d9): substitute for the dead cortera/yellowbook/yellow.place/justlanded/localstack/whatsnearby. Only rows that passed a live probe (plans/2026-11-09-scc-substitute-rows-015.md).
+PROMOTED_015 = frozenset({"whosinmycity.com"})
+PROMOTED_015_NOTE = 'Promoted t_e20d28d9: free add form loads (JS) and takes phone; address from the Google Places match (page HTML read 2026-11-09). Agent builds, parks before any code or CAPTCHA step it cannot do free.'
+# Lead-gen / referral-network class (APFM family, paid lead forms). Never promote. caring.com: queue row create-caring rejected, "declined: paid lead form (Mike 10/26)"; get-listed page is a HubSpot lead form with a required care category.
+EXCLUDED_REFERRAL = frozenset({"caring.com", "agingcare.com", "senioradvisor.com", "seniorly.com", "payingforseniorcare.com", "aplaceformom.com"})
+PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014 | PROMOTED_015
 
 
 PROMOTED_NOTE = 'Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.'
@@ -102,6 +107,7 @@ def write_seed(rows, hunt):
     hunt = [dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_NOTE) if r["domain"] in PROMOTED_SCC
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTES[r["domain"]]) if r["domain"] in PROMOTED_013
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_014_NOTE) if r["domain"] in PROMOTED_014
+            else dict(r, build_eligible=True, build_route="agent") if r["domain"] in PROMOTED_015
             else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
     everything = rows + hunt
     assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
@@ -232,7 +238,25 @@ def build_014_sql(hunt):
     return HEADER_014 + body.replace("@@SEED_JSON@@", blob)
 
 
+MIGRATION_015 = os.path.join(HERE, "015_add_scc_substitutes.sql")
+HEADER_015 = ("-- Add and promote the SCC substitute Directories that passed a live probe (kanban t_e20d28d9). GENERATED: edit db/directories_hunt_seed.json and run python db/gen_directories_seed.py --hunt.\n"
+              "-- Data only and idempotent: INSERT of exactly these rows, ON CONFLICT (domain) DO NOTHING. No update, no delete, no DDL. REQUIRES 008 applied.\n"
+              "-- Rows land build_eligible=true, build_route=agent: the next buildrows --write queues them for the SCC submitter. Apply only after Nate's review.\n")
+
+
+def build_015_sql(hunt):
+    tpl = open(HUNT_TEMPLATE, encoding="utf-8").read().replace("\r\n", "\n")
+    body = "\n".join(l for l in tpl.split("\n") if not l.startswith("--"))
+    rows = [r for r in hunt if r["domain"] in PROMOTED_015]
+    assert len(rows) == len(PROMOTED_015)
+    blob = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
+    assert "$seed$" not in blob
+    return HEADER_015 + body.replace("@@SEED_JSON@@", blob)
+
+
 def write_hunt_sql(hunt):
+    with open(MIGRATION_015, "w", encoding="utf-8", newline="\n") as f:
+        f.write(build_015_sql(hunt))
     with open(MIGRATION_014, "w", encoding="utf-8", newline="\n") as f:
         f.write(build_014_sql(hunt))
     with open(HUNT_MIGRATION, "w", encoding="utf-8", newline="\n") as f:
