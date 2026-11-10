@@ -27,6 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "playbooks"))
 import pagekit as PK
 import walls as W
+import catalog_domains as CD
 from build_core import BuildError, Step, Site, KINDS
 
 CDP_URL = "http://127.0.0.1:9333"
@@ -317,10 +318,17 @@ def _brand(domain):
     return p[-2] if len(p) >= 2 else (p[0] if p else "")
 
 
+
+
 def same_directory(row_dir, site_domain):
     """A queue row's directory and a spec's domain name the same Directory: equal, or the same brand on a different TLD (row acompio.us, spec acompio.com;
-    row tupalo.com, spec tupalo.co). t_3ac43137"""
-    return row_dir == site_domain or (bool(_brand(row_dir)) and _brand(row_dir) == _brand(site_domain))
+    row tupalo.com, spec tupalo.co). t_3ac43137. Two separate Catalog domains are never the same Directory (yellowpages.com vs yellowpages.net, t_24ffb698)."""
+    r, s = (row_dir or "").lower(), (site_domain or "").lower()
+    if r == s: return True
+    cat = CD.domains()
+    if cat is None: return False   # Catalog unreadable: fail closed, two different domains are different Directories
+    if r in cat and s in cat: return False
+    return bool(_brand(r)) and _brand(r) == _brand(s)
 
 
 def find_row(row_id, site, queue_path=None):
