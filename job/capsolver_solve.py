@@ -32,7 +32,7 @@ def main(argv=None, runner=None, log_path=None, out=None):
     except (PK.CaptchaError, ValueError) as e:
         print(json.dumps({"ok": False, "reason": str(e)[:200]}), file=out)
         return 2
-    print(json.dumps({"ok": True, "solution": {"gRecaptchaResponse": tok}}), file=out)
+    print(json.dumps({"ok": True, "solution": {"token": tok, "gRecaptchaResponse": tok} if ns.kind != "image" else {"token": tok}}), file=out)
     return 0
 
 

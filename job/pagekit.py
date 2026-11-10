@@ -396,13 +396,13 @@ V3_EXECUTE_JS = """(tok) => {
   if (window.grecaptcha.enterprise) wrap(window.grecaptcha.enterprise);
   return n;
 }"""
-PAGE_ACTION_RE = re.compile(r"""grecaptcha(?:\.enterprise)?\.execute\(\s*[^,)]+,\s*\{[^}]*?\baction\s*:\s*["']([A-Za-z0-9_/]{1,100})["']""", re.I)
-
-
 def detect_page_action(html):
-    """-> the action string from a visible grecaptcha.execute(key, {action: 'x'}) call, or None."""
-    m = PAGE_ACTION_RE.search(html or "")
-    return m.group(1) if m else None
+    """-> the action string from the FIRST visible grecaptcha.execute(key, {action: 'x'}) call, or None. Pages with a load-time action (e.g. 'homepage')
+    plus a submit action make the first one wrong: an explicit page_action always wins, so pass it when the page has more than one
+    (captcha_route.detect_page_actions lists them all)."""
+    import captcha_route as CR
+    a = CR.detect_page_actions(html)
+    return a[0] if a else None
 
 
 def inject_token(page, token, v3=False):

@@ -15,3 +15,9 @@ findcarez.com (reCAPTCHA v3, action `register`) needed hand steps in t_5d6deb42:
 
 ## Gates
 PR to main, CI green, independent review. No live submit, no spend.
+
+## Round 2 (review: the router still printed the raw CLI line)
+- captcha_route.command() now prints `python job/capsolver_solve.py --row <row|<row-id>> --kind K --url U [--sitekey S] [--page-action A]` (image: --extra). plan() passes the detected v3 action; main() takes --row.
+- captcha_route.argv() is built on its own and stays `node <cli> ...` (pagekit runs it). detect_page_actions() lists every execute action; plan() notes when there are several.
+- capsolver_solve prints solution.token (plus gRecaptchaResponse for recaptcha kinds only).
+- Tests: tests/captcha_route_test.py W1-W11 (v3/v2/image plan output, no printed command is a raw node capsolver-cli call, argv still node <cli>).
