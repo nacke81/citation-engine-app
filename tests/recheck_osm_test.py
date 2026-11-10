@@ -106,7 +106,7 @@ check("L3 --proof-live without --row writes nothing (never a sweep)", not [c for
 res, q, db = run([mkrow("create-openstreetmap", "openstreetmap.org", NODE), mkrow("create-other", "other.example", "https://other.example/biz/1")],
                  chrome=lambda u: R.Page(200, u, "Home\nAlder Care Consulting & Solutions\n100 Example\nExampleton, KY 40000\n(502) 555-0101\n" + "Lorem ipsum dolor sit amet. " * 12),
                  write=True, include_live=True, only={"create-openstreetmap"}, proof_live=True)
-check("L4 only the named row gets Proof", len(res) == 1 and {c[2][0]["directory"] for c in db.calls if "ce_directory_status" in c[1]} == {"openstreetmap.org"}, str(res))
+check("L4 only the named row gets Proof", len(res) == 1 and {c[2][0]["directory"] for c in db.calls if "ce_directory_status" in c[1] and c[0] != "GET"} == {"openstreetmap.org"}, str(res))
 
 # flip on read 2 -> no Proof
 state = {"n": 0}

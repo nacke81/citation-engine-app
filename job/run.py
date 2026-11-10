@@ -410,7 +410,7 @@ def buildrows_step(checks, day, db=None, path=None):
             db = D.DirDB()
         dirs, status, _old = BR.load_db_inputs(db)
         scc = [c for c in checks if c.get("biz") == "SCC"]
-        rep, bak = BR.apply_file(path or buildqueue.QUEUE_PATH, dirs, status, scc, day)
+        rep, bak = BR.apply_file(path or buildqueue.QUEUE_PATH, dirs, status, scc, day, db_proof=BR.db_proof_or_none(db))
         print("BUILDROWS OK", json.dumps(rep), bak or "no change", flush=True)
         return True
     except Exception as e:
@@ -422,7 +422,8 @@ def create_queue_step(merge=None, path=None):
     """Weekly create-queue discovery on the 10 extra Directories, merged into the SCC queue file. Failure is loud but non-fatal."""
     try:
         import create_discovery as CD, buildqueue
-        dec, rows = (merge or CD.weekly_merge)(path or buildqueue.QUEUE_PATH)
+        import buildrows as BR
+        dec, rows = (merge or CD.weekly_merge)(path or buildqueue.QUEUE_PATH, **({} if merge else {"db_proof": BR.db_proof_or_none()}))
         print("CREATE QUEUE OK", json.dumps({k: v["state"] for k, v in dec.items()}), len(rows), "absent now", flush=True)
         return True
     except Exception as e:
