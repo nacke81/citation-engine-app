@@ -23,7 +23,7 @@ MIGRATION = os.path.join(HERE, "002_directories.sql")
 HUNT_SEED = os.path.join(HERE, "directories_hunt_seed.json")
 HUNT_TEMPLATE = os.path.join(HERE, "009_hunt_catalog_seed.sql.tpl")
 HUNT_MIGRATION = os.path.join(HERE, "009_hunt_catalog_seed.sql")
-TOTAL_ROWS = 148   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed)
+TOTAL_ROWS = 153   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed) + 5 hunt cycle 3 (t_9736bbe4)
 TEMPLATE = os.path.join(HERE, "002_directories.sql.tpl")
 
 CATEGORY_NICHE_SENIOR = {"caring.com"}
@@ -76,14 +76,17 @@ PROMOTED_SCC = frozenset({"yellowpagecity.com", "bizhwy.com", "expressbusinessdi
 PROMOTED_013 = frozenset({"salespider.com", "hub.biz"})
 PROMOTED_013_NOTES = {"salespider.com": 'Promoted t_1061017b: free claim page; agent builds, parks before any code or CAPTCHA step it cannot do free.',
                       "hub.biz": 'Promoted t_1061017b: free .hub.biz business page with public NAP; agent builds, parks before any code or CAPTCHA step it cannot do free.'}
-PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013
+# Added and promoted by migration 014 (t_9736bbe4): hunt-3 rows, free self-serve path seen 2026-11-09. 014 INSERTs them (they are not in prod yet).
+PROMOTED_014 = frozenset({"kentuckyonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"})
+PROMOTED_014_NOTE = 'Promoted t_9736bbe4: free self-serve path seen 2026-11-09 (public GET only); agent builds, parks before any code or CAPTCHA step it cannot do free.'
+PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014
 
 
 PROMOTED_NOTE = 'Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.'
 
 
 def is_hunt(r):
-    return str(r.get("cut") or "").startswith(("cycle1-", "cycle2-"))
+    return str(r.get("cut") or "").startswith(("cycle1-", "cycle2-", "cycle3-"))
 
 
 def main_hunt():
@@ -98,6 +101,7 @@ def write_seed(rows, hunt):
     assert PROMOTED_ALL <= {r["domain"] for r in hunt}, "every promoted domain must be a hunt row"
     hunt = [dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_NOTE) if r["domain"] in PROMOTED_SCC
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTES[r["domain"]]) if r["domain"] in PROMOTED_013
+            else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_014_NOTE) if r["domain"] in PROMOTED_014
             else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
     everything = rows + hunt
     assert len(everything) == TOTAL_ROWS and len({r["domain"] for r in everything}) == TOTAL_ROWS, "seed must be %d unique Directories" % TOTAL_ROWS
@@ -212,7 +216,25 @@ def build_hunt_sql(hunt):
     return tpl.replace("@@SEED_JSON@@", blob)
 
 
+MIGRATION_014 = os.path.join(HERE, "014_add_scc_hunt3.sql")
+HEADER_014 = ("-- Add and promote 5 hunt-3 Directories for SCC (kanban t_9736bbe4; Nate go on t_9736bbe4, hunt t_df418e7f). GENERATED: edit db/directories_hunt_seed.json and run python db/gen_directories_seed.py --hunt.\n"
+              "-- Data only and idempotent: INSERT of exactly these 5 rows, ON CONFLICT (domain) DO NOTHING. No update, no delete, no DDL. REQUIRES 008 applied.\n"
+              "-- Rows land build_eligible=true, build_route=agent: the next buildrows --write queues them for the SCC submitter. Apply only after Nate's review.\n")
+
+
+def build_014_sql(hunt):
+    tpl = open(HUNT_TEMPLATE, encoding="utf-8").read().replace("\r\n", "\n")
+    body = "\n".join(l for l in tpl.split("\n") if not l.startswith("--"))
+    rows = [r for r in hunt if r["domain"] in PROMOTED_014]
+    assert len(rows) == len(PROMOTED_014)
+    blob = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
+    assert "$seed$" not in blob
+    return HEADER_014 + body.replace("@@SEED_JSON@@", blob)
+
+
 def write_hunt_sql(hunt):
+    with open(MIGRATION_014, "w", encoding="utf-8", newline="\n") as f:
+        f.write(build_014_sql(hunt))
     with open(HUNT_MIGRATION, "w", encoding="utf-8", newline="\n") as f:
         f.write(build_hunt_sql(hunt))
 
