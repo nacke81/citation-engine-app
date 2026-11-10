@@ -322,6 +322,9 @@ rc_down = BS.main([os.path.join(TMP, "z.png"), "--port", "1"])
 urllib.request.urlopen = _no_net
 check("7 main() with the Chrome down prints a reason and returns 1", rc_down == 1)
 
+YPC = {"from": "YellowPages <noreply@yellowpages.com>", "subject": "Your listing is now live", "body": "See https://www.yellowpages.com/lexington-ky/mip/senior-care-consulting-1"}
+YPN = {"from": "Yellowpages.net <noreply@yellowpages.net>", "subject": "Your listing is now live", "body": "See https://www.yellowpages.net/ky/senior-care-consulting"}
+check("8 (t_24ffb698) a yellowpages.com mail is not a yellowpages.net mail; a .net mail is", not MS.mail_is_from(YPC, "yellowpages.net") and MS.mail_is_from(YPN, "yellowpages.net") and MS.mail_is_from(YPC, "yellowpages.com") and not MS.mail_is_from(YPN, "yellowpages.com"))
 shutil.rmtree(TMP, ignore_errors=True)
 print(("ALL PASS (%d/%d)" if all(ok) else "FAILED (%d/%d)") % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

@@ -77,7 +77,10 @@ def is_approval(subject, body):
 def mail_is_from(msg, domain):
     b = _brand(domain)
     frm = (msg.get("from") or "").lower()
-    return b in frm or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
+    fh = re.search(r"@([a-z0-9.-]+)", frm)   # t_24ffb698: a From on ANOTHER domain with the same brand (yellowpages.com vs .net) is not this Directory
+    fh = fh.group(1).rstrip(".") if fh else ""
+    other_site = bool(fh) and not (fh == domain or fh.endswith("." + domain)) and b in fh.split(".")
+    return (b in frm and not other_site) or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
 
 
 def find_approval(directory, messages, name=None):

@@ -160,6 +160,13 @@ check("B12 yellowpages.net and yellowpages.com share the first label: both rows 
       and len({r["id"] for r in B.counts(q16)[0]}) == len(B.counts(q16)[0]), (got16["yellowpages.net"]["id"], got16["yellowpages.com"]["id"]))
 SKIP16 = {"nearfinderus.com", "usa-co.com", "allbiz.com", "smallbusinessusa.com", "cataloxy.us", "yplocal.us", "zipcode2business.com"}
 check("B12 the 7 skipped BrightLocal domains get no queue row", not (SKIP16 & set(got16)))
+# B13 (t_24ffb698 rework): the prod queue shape has fix-yellowpages (.com) and NO create-yellowpages. The .net row must still get the full-domain id up front.
+live = {"fix_queue": [{"id": "fix-yellowpages", "directory": "yellowpages.com", "kind": "fix", "state": "queued"}], "create_queue": {"rows": []}}
+q13, r13 = B.build_rows(live, DIRS, [], [], DAY)
+g13 = {r["directory"]: r for r in B.counts(q13)[0]}
+check("B13 live-queue shape: yellowpages.net gets create-yellowpages-net, approval row_id = id", g13["yellowpages.net"]["id"] == "create-yellowpages-net" and g13["yellowpages.net"]["mike_approval"]["row_id"] == "create-yellowpages-net", g13["yellowpages.net"]["id"])
+check("B13 live-queue shape: existing fix-yellowpages row is untouched and no row is called create-yellowpages", live["fix_queue"][0]["id"] == "fix-yellowpages" and "create-yellowpages" not in {r["id"] for r in B.counts(q13)[0]})
+check("B13 a Directory whose first label is NOT shared keeps the short id (create-cityof)", g13["cityof.com"]["id"] == "create-cityof", g13["cityof.com"]["id"])
 q16b, r16b = B.build_rows(q16, DIRS, [], [], DAY)
 check("B12 second run on the result adds nothing (idempotent)", r16b["added"] == 0, r16b)
 shutil.rmtree(TMP, ignore_errors=True)

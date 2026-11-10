@@ -99,6 +99,9 @@ def build_rows(queue, dirs, status, checks, day):
     canon = q.get("canonical")
     added, rep = [], {"existing": 0, "none": 0, "fix": 0, "create": 0, "needs-human": 0, "ineligible": 0}
     taken = {r.get("id") for k in ("fix_queue", "create_rows") for r in q.get(k) or []} | {r.get("id") for r in (q.get("create_queue") or {}).get("rows", [])}
+    labels = {}
+    for d in dirs: labels.setdefault(d["domain"].split(".")[0], set()).add(d["domain"])
+    shared = {l for l, ds in labels.items() if len(ds) > 1}
     for d in dirs:
         dom = d["domain"]
         if dom in have:
@@ -109,7 +112,10 @@ def build_rows(queue, dirs, status, checks, day):
         if action == "none":
             rep["none"] += 1; continue
         row = make_row(d, action, why, url, diffs, day, canon)
-        if row["id"] in taken:   # two Directories share a first label (yellowpages.com / yellowpages.net, t_24ffb698): use the full domain, never abort the run
+        if dom.split(".")[0] in shared:   # another Catalog domain has this first label (yellowpages.com / yellowpages.net): full-domain id up front, t_24ffb698
+            rid = "%s-%s" % (row["id"].split("-")[0], dom.replace(".", "-"))
+            row["id"] = rid; row["mike_approval"] = approval(rid)
+        if row["id"] in taken:   # backstop: any other collision also uses the full domain and never aborts the run
             rid = "%s-%s" % (row["id"].split("-")[0], dom.replace(".", "-"))
             if rid in taken:
                 raise Q.QueueError("row id %s would collide" % rid)
