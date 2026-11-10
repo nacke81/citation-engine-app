@@ -59,7 +59,7 @@ dom = [r["directory"] for r in rows]
 # B1
 check("B1 every build-eligible seed Directory has exactly one row, except found-correct", set(dom) == {d["domain"] for d in DIRS if d["build_eligible"]} - {FOUND_OK} and len(dom) == len(set(dom)), (len(dom), len(set(dom))))
 check("B1 no duplicate row id", len(ids) == len(set(ids)))
-check("B1 report adds up to 153 (86 v1 + 15 promoted hunt + 52 catalog-only + caring.com excluded (t_e20d28d9))", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 153 and rep["ineligible"] == 53, rep)
+check("B1 report adds up to 160 (86 v1 + 22 promoted hunt + 52 catalog-only + caring.com excluded (t_e20d28d9))", rep["existing"] + rep["none"] + rep["added"] + rep["ineligible"] == 160 and rep["ineligible"] == 53, rep)
 # B2
 check("B2 found + NAP correct + permalink gets no row", FOUND_OK not in dom and rep["none"] == 1)
 fx = [r for r in rows if r["directory"] == FOUND_ERR][0]
@@ -83,11 +83,11 @@ hq, hrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, HUNT, [
 check("B3b 52 catalog-only hunt rows on an empty queue -> added 0, nothing queued, nothing needs-human", len(HUNT) == 53 and hrep["added"] == 0 and hrep["ineligible"] == 53
       and hrep["create"] == 0 and hrep["fix"] == 0 and hrep["needs-human"] == 0 and B.counts(hq)[0] == [] and "build_order" not in hq, hrep)
 mix, mrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, DIRS, [], [], DAY)
-check("B3b mixed v1 + hunt: only v1 + the 15 promoted get rows, every catalog-only hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 100 and mrep["ineligible"] == 53, mrep)
+check("B3b mixed v1 + hunt: only v1 + the 22 promoted get rows, every catalog-only hunt domain is absent from the queue", not ({d["domain"] for d in HUNT} & {r["directory"] for r in B.counts(mix)[0]}) and mrep["added"] == 107 and mrep["ineligible"] == 53, mrep)
 legacy = [dict(d) for d in DIRS if d["build_eligible"]]
 for d in legacy: d.pop("build_eligible")
 lq, lrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, legacy, [], [], DAY)
-check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 100 and lrep["ineligible"] == 0, lrep)
+check("B3b a row without the column (null / absent) behaves as before: eligible", lrep["added"] == 107 and lrep["ineligible"] == 0, lrep)
 check("B3b the load query reads build_eligible", "build_eligible" in open(os.path.join(ROOT, "job", "buildrows.py"), encoding="utf-8").read().split("def load_db_inputs")[1].split("status =")[0])
 # B4
 p = os.path.join(TMP, "queue.json"); json.dump(BASE, open(p, "w", encoding="utf-8"), indent=1)
@@ -108,7 +108,7 @@ check("B5 queue input is not mutated", BASE["fix_queue"][0]["mike_approval"]["no
 # B6
 stamped = [r for r in rows if r["directory"] not in ("mapquest.com", "acompio.us")]
 check("B6 every new row carries the blanket approval verbatim, row_id = id",
-      all(r["mike_approval"] == {"approved_by": "mike", "at": "2026-10-25T17:45:00+00:00", "row_id": r["id"], "scope": "blanket-2026-10-25", "note": RULING_NOTE} for r in stamped) and len(stamped) == rep["added"] == 97)
+      all(r["mike_approval"] == {"approved_by": "mike", "at": "2026-10-25T17:45:00+00:00", "row_id": r["id"], "scope": "blanket-2026-10-25", "note": RULING_NOTE} for r in stamped) and len(stamped) == rep["added"] == 104)
 check("B6 buildqueue.approval_ok accepts the new rows", all(Q.approval_ok(r) for r in stamped))
 import transitions as T
 os.environ["CE_QUEUE"] = p
@@ -149,5 +149,18 @@ EXCL = {"caring.com", "agingcare.com", "senioradvisor.com", "seniorly.com", "pay
 xq, xrep = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, DIRS, [], [], DAY)
 check("B11 the FULL seed on an empty queue gives no row for any excluded domain", not (EXCL & {r["directory"] for r in B.counts(xq)[0]}), sorted(EXCL & {r["directory"] for r in B.counts(xq)[0]}))
 check("B11 caring.com is in the seed and ineligible, so the skip is the exclusion, not absence", "caring.com" in by and by["caring.com"]["build_eligible"] is False)
+# B12 (t_24ffb698): the 7 ex-BrightLocal rows get queue rows from the real builder; a shared first label no longer aborts the run
+P16 = {"yellowpages.net", "cityof.com", "hours.com", "localstar.org", "zipleaf.us", "us-business.info", "whatsyourhours.com"}
+q16, r16 = B.build_rows({"fix_queue": [], "create_queue": {"rows": []}}, DIRS, [], [], DAY)
+got16 = {r["directory"]: r for r in B.counts(q16)[0]}
+check("B12 full seed on an empty queue: all 7 promoted ex-BrightLocal domains get a free create row, none a paid or needs-human row",
+      P16 <= set(got16) and all(got16[d]["kind"] == "create" and got16[d]["state"] == "queued" and got16[d].get("cost") != "paid" for d in P16), sorted(P16 - set(got16)))
+check("B12 yellowpages.net and yellowpages.com share the first label: both rows exist, ids differ, approval row_id = id",
+      got16["yellowpages.net"]["id"] != got16["yellowpages.com"]["id"] and got16["yellowpages.net"]["mike_approval"]["row_id"] == got16["yellowpages.net"]["id"]
+      and len({r["id"] for r in B.counts(q16)[0]}) == len(B.counts(q16)[0]), (got16["yellowpages.net"]["id"], got16["yellowpages.com"]["id"]))
+SKIP16 = {"nearfinderus.com", "usa-co.com", "allbiz.com", "smallbusinessusa.com", "cataloxy.us", "yplocal.us", "zipcode2business.com"}
+check("B12 the 7 skipped BrightLocal domains get no queue row", not (SKIP16 & set(got16)))
+q16b, r16b = B.build_rows(q16, DIRS, [], [], DAY)
+check("B12 second run on the result adds nothing (idempotent)", r16b["added"] == 0, r16b)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

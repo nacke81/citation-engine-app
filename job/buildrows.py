@@ -109,8 +109,11 @@ def build_rows(queue, dirs, status, checks, day):
         if action == "none":
             rep["none"] += 1; continue
         row = make_row(d, action, why, url, diffs, day, canon)
-        if row["id"] in taken:
-            raise Q.QueueError("row id %s would collide" % row["id"])
+        if row["id"] in taken:   # two Directories share a first label (yellowpages.com / yellowpages.net, t_24ffb698): use the full domain, never abort the run
+            rid = "%s-%s" % (row["id"].split("-")[0], dom.replace(".", "-"))
+            if rid in taken:
+                raise Q.QueueError("row id %s would collide" % rid)
+            row["id"] = rid; row["mike_approval"] = approval(rid)
         taken.add(row["id"]); added.append(row)
         rep["needs-human" if row["state"] == "needs-human" else row["kind"]] += 1
     cq = q.get("create_queue")

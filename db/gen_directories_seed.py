@@ -23,7 +23,7 @@ MIGRATION = os.path.join(HERE, "002_directories.sql")
 HUNT_SEED = os.path.join(HERE, "directories_hunt_seed.json")
 HUNT_TEMPLATE = os.path.join(HERE, "009_hunt_catalog_seed.sql.tpl")
 HUNT_MIGRATION = os.path.join(HERE, "009_hunt_catalog_seed.sql")
-TOTAL_ROWS = 153   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed) + 5 hunt cycle 3 (t_9736bbe4)
+TOTAL_ROWS = 160   # 86 v1 Catalog + 59 hunt cycle 1 + 3 hunt cycle 2 (t_ab039aed) + 5 hunt cycle 3 (t_9736bbe4) + 7 hunt cycle 4 (t_24ffb698)
 TEMPLATE = os.path.join(HERE, "002_directories.sql.tpl")
 
 CATEGORY_NICHE_SENIOR = {"caring.com"}
@@ -85,14 +85,17 @@ EXCLUDED_REFERRAL_NOTE = "declined: paid lead form (Mike 10/26); lead-gen/referr
 # Agency lead magnets: a "get listed" page that hands the client's contact details to a competing agency. whosinmycity.com /get-listed/ is a Pichardo Marketing lead magnet (Nate ruling 2026-11-09). It has no row; the migration update is a no-op until one appears.
 EXCLUDED_AGENCY_LEAD_MAGNET = {"whosinmycity.com": "agency lead magnet"}
 EXCLUDED_AGENCY_LEAD_MAGNET_NOTE = "excluded: agency lead magnet (get-listed page hands contact details to a competing agency); never promote"
-PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014
+# Added and promoted by migration 016 (t_24ffb698): the ex-BrightLocal sites with a free add route seen 2026-11-10. 016 INSERTs them.
+PROMOTED_016 = frozenset({"yellowpages.net", "cityof.com", "hours.com", "localstar.org", "zipleaf.us", "us-business.info", "whatsyourhours.com"})
+PROMOTED_016_NOTE = "Promoted t_24ffb698: free self-serve path seen 2026-11-10 (public GET only); agent builds, parks before any code, CAPTCHA, interstitial or paid step it cannot do free."
+PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014 | PROMOTED_016
 
 
 PROMOTED_NOTE = 'Promoted t_ff170c85: free self-serve signup; agent builds, parks before any code or CAPTCHA step it cannot do free.'
 
 
 def is_hunt(r):
-    return str(r.get("cut") or "").startswith(("cycle1-", "cycle2-", "cycle3-"))
+    return str(r.get("cut") or "").startswith(("cycle1-", "cycle2-", "cycle3-", "cycle4-"))
 
 
 def main_hunt():
@@ -109,6 +112,7 @@ def write_seed(rows, hunt):
     hunt = [dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_NOTE) if r["domain"] in PROMOTED_SCC
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_013_NOTES[r["domain"]]) if r["domain"] in PROMOTED_013
             else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_014_NOTE) if r["domain"] in PROMOTED_014
+            else dict(r, build_eligible=True, build_route="agent", build_route_note=PROMOTED_016_NOTE) if r["domain"] in PROMOTED_016
             else dict(r, build_eligible=False) for r in hunt]   # migration 010 (t_9675083c): a reseed keeps the promotion
     excl = lambda r: dict(r, build_eligible=False, build_route="none", build_route_note=EXCLUDED_REFERRAL_NOTE) if r["domain"] in EXCLUDED_REFERRAL else r
     rows = [excl(r) for r in rows]
@@ -244,6 +248,22 @@ def build_014_sql(hunt):
     return HEADER_014 + body.replace("@@SEED_JSON@@", blob)
 
 
+MIGRATION_016 = os.path.join(HERE, "016_add_scc_bl14.sql")
+HEADER_016 = ("-- Add and promote 7 ex-BrightLocal Directories for SCC (kanban t_24ffb698; Mike 2026-11-10, no BrightLocal). GENERATED: edit db/directories_hunt_seed.json and run python db/gen_directories_seed.py --hunt.\n"
+              "-- Data only and idempotent: INSERT of exactly these 7 rows, ON CONFLICT (domain) DO NOTHING. No update, no delete, no DDL. REQUIRES 008 applied. Independent of 015.\n"
+              "-- Rows land build_eligible=true, build_route=agent: the next buildrows --write queues them for the SCC submitter. Apply only after review and merge.\n")
+
+
+def build_016_sql(hunt):
+    tpl = open(HUNT_TEMPLATE, encoding="utf-8").read().replace("\r\n", "\n")
+    body = "\n".join(l for l in tpl.split("\n") if not l.startswith("--"))
+    rows = [r for r in hunt if r["domain"] in PROMOTED_016]
+    assert len(rows) == len(PROMOTED_016)
+    blob = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
+    assert "$seed$" not in blob
+    return HEADER_016 + body.replace("@@SEED_JSON@@", blob)
+
+
 MIGRATION_015 = os.path.join(HERE, "015_exclude_referral_directories.sql")
 HEADER_015 = ("-- Exclude the lead-gen/referral class and agency lead magnets from building (kanban t_e20d28d9; Nate ruling 2026-11-09). GENERATED: python db/gen_directories_seed.py --hunt.\n"
               "-- Data only and idempotent: UPDATE of three columns (build_eligible, build_route, build_route_note) on exactly the excluded domains. No insert, no delete, no DDL, no other column.\n"
@@ -265,6 +285,8 @@ def build_015_sql():
 def write_hunt_sql(hunt):
     with open(MIGRATION_015, "w", encoding="utf-8", newline="\n") as f:
         f.write(build_015_sql())
+    with open(MIGRATION_016, "w", encoding="utf-8", newline="\n") as f:
+        f.write(build_016_sql(hunt))
     with open(MIGRATION_014, "w", encoding="utf-8", newline="\n") as f:
         f.write(build_014_sql(hunt))
     with open(HUNT_MIGRATION, "w", encoding="utf-8", newline="\n") as f:
