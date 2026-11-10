@@ -1,10 +1,10 @@
 """Build rows: one SCC queue row per Directory Lis can work (kanban t_00821936). See plans/2026-10-25-buildrows.md.
 
 Adds rows only. A Directory that already has a row (any list) is never touched: state, history and mike_approval stay as they are.
-No Directory traffic, no portal call, no transitions.py call. New rows carry Mike's 2026-10-25 blanket approval, stamped verbatim.
+No Directory traffic of its own, no portal call. Only when the caller passes db_proof: the pure transitions.mirror_proof (t_78dc54b5). New rows carry Mike's 2026-10-25 blanket approval, stamped verbatim.
 Usage: python job/buildrows.py [--write]   (default is a dry run that prints counts; --write backs the queue up first)
 """
-import copy, datetime, json, os, shutil, sys, tempfile
+import copy, datetime, importlib, json, os, shutil, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -151,11 +151,14 @@ def backup(path, day):
     return bak
 
 
-def apply_file(path, dirs, status, checks, day, write=True):
+def apply_file(path, dirs, status, checks, day, write=True, db_proof=None):
     """Idempotent file step. Returns (report, bak). Writes (atomic) only when something changes; backs up first."""
     with open(path, encoding="utf-8") as f:
         q = json.load(f)
     new, rep = build_rows(q, dirs, status, checks, day)
+    if db_proof is not None:   # t_78dc54b5: live rows with a complete DB Proof but no queue proof
+        T = importlib.import_module("transitions")   # lazy, by name (B9: no module-level dependency on the transition writer)
+        rep["proof_mirrored"] = T.mirror_proof(new, db_proof)
     if new == q:
         return rep, None
     if not write:
@@ -182,13 +185,23 @@ def load_db_inputs(db):
     return dirs, status, checks
 
 
+def db_proof_or_none(db=None):
+    """Read-only Proof columns from ce_directory_status; None when the sink is off or the read fails (the mirror is skipped, the build is not blocked)."""
+    try:
+        T = importlib.import_module("transitions")   # lazy, by name (B9: no module-level dependency on the transition writer)
+        return T.db_proof_by_directory(db)
+    except Exception as e:
+        print("MIRROR-PROOF skipped: " + (str(e)[:200] or type(e).__name__), file=sys.stderr, flush=True)
+        return None
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     import directories as D
     db = D.DirDB()
     dirs, status, checks = load_db_inputs(db)
     day = datetime.date.today().isoformat()
-    rep, bak = apply_file(Q.QUEUE_PATH, dirs, status, checks, day, write="--write" in argv)
+    rep, bak = apply_file(Q.QUEUE_PATH, dirs, status, checks, day, write="--write" in argv, db_proof=db_proof_or_none(db))
     with open(Q.QUEUE_PATH, encoding="utf-8") as f:
         _, c = counts(json.load(f))
     print(json.dumps({"report": rep, "backup": bak, "by_kind_state": {"%s/%s" % k: v for k, v in sorted(c.items())}}, indent=1))

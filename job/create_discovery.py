@@ -147,11 +147,13 @@ def merge_create_queue(queue, decisions, rows, day):
     return queue
 
 
-def weekly_merge(queue_path, fetcher=None, day=None):
+def weekly_merge(queue_path, fetcher=None, day=None, db_proof=None):
     """Weekly-run hook (after the 25): GET-only discovery, then merge into the SCC queue file. No portal call, no payload schema change."""
     dec, rows = run_all(fetcher, day); day = day or date.today().isoformat()
     q = json.load(open(queue_path, encoding="utf-8"))
     merge_create_queue(q, dec, rows, day)
+    if db_proof is not None:   # t_78dc54b5: fill live rows whose DB Proof is complete but whose queue row has none
+        import transitions as T; T.mirror_proof(q, db_proof)
     tmp = queue_path + ".tmp"; json.dump(q, open(tmp, "w", encoding="utf-8"), indent=1); FSR.replace_retry(tmp, queue_path)
     return dec, rows
 
