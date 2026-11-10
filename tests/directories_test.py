@@ -276,7 +276,7 @@ check("D10 seed: the two 013 rows are eligible/agent with their own note; 15 pro
 check("D9 seed: build_eligible true on the 8 010 rows plus salespider (013), the other 52 hunt rows false",
       {r["domain"] for r in HUNT if r["build_eligible"] is True} == PROMOTED | {"salespider.com", "hub.biz"} | set(G.PROMOTED_014) and sum(r["build_eligible"] is False for r in HUNT) == 52)
 # D11 migration 014 (t_9736bbe4): add + promote 5 hunt-3 Directories, insert only, idempotent
-P14 = {"usaonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"}
+P14 = {"kentuckyonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"}
 DROPPED14 = {"owensboroonline.us", "eldercarematters.com", "seniordirectory.com", "101eldercare.com",
              "agingcare.com", "senioradvisor.com", "payingforseniorcare.com", "business.hopkinschamber.com", "business.christiancountychamber.com"}
 sql14 = open(os.path.join(ROOT, "db", "014_add_scc_hunt3.sql"), encoding="utf-8").read().replace(CRLF, LF)

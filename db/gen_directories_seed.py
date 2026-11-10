@@ -77,7 +77,7 @@ PROMOTED_013 = frozenset({"salespider.com", "hub.biz"})
 PROMOTED_013_NOTES = {"salespider.com": 'Promoted t_1061017b: free claim page; agent builds, parks before any code or CAPTCHA step it cannot do free.',
                       "hub.biz": 'Promoted t_1061017b: free .hub.biz business page with public NAP; agent builds, parks before any code or CAPTCHA step it cannot do free.'}
 # Added and promoted by migration 014 (t_9736bbe4): hunt-3 rows, free self-serve path seen 2026-11-09. 014 INSERTs them (they are not in prod yet).
-PROMOTED_014 = frozenset({"usaonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"})
+PROMOTED_014 = frozenset({"kentuckyonline.us", "kentuckyizze.com", "findcarez.com", "elder-care.us", "findhelp.org"})
 PROMOTED_014_NOTE = 'Promoted t_9736bbe4: free self-serve path seen 2026-11-09 (public GET only); agent builds, parks before any code or CAPTCHA step it cannot do free.'
 PROMOTED_ALL = PROMOTED_SCC | PROMOTED_013 | PROMOTED_014
 
