@@ -79,7 +79,7 @@ def argv(widget, url, cli=None, extra=None):
     t = widget["type"]
     base = ["node", cli or CLI, "--kind", t, "--url", url]
     if t != "image": base += ["--sitekey", widget["sitekey"]]
-    if t == "image" and extra: base += ["--extra", json.dumps(extra)]
+    if extra: base += ["--extra", json.dumps(extra)]
     return base + ["--cap", CAP]
 
 

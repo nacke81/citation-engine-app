@@ -381,25 +381,57 @@ def solve_captcha(row, widget, url, *, runner=None, log_path=None, max_tries=3, 
     raise CaptchaError("CAPTCHA: %s solve rejected x%d (last: %s)" % (widget["type"], max_tries, last or "cap already used"))
 
 
-def inject_token(page, token):
-    """Write the token into the page's response fields and call the widget callbacks. -> {'fields': n, 'callbacks': n}. CaptchaError when nothing took it."""
-    r = page.evaluate(INJECT_TOKEN_JS, token) or {}
-    if not r.get("fields") and not r.get("callbacks"):
+# reCAPTCHA v3 has no widget callback: the page calls grecaptcha.execute(key, {action}).then(token => ...) at submit time and a plain click
+# would mint a fresh (low-score) token. Make execute resolve to ours, on grecaptcha and grecaptcha.enterprise, and keep ready() working.
+V3_EXECUTE_JS = """(tok) => {
+  let n = 0;
+  const wrap = (g) => {
+    if (!g) return;
+    g.execute = function () { return Promise.resolve(tok); };
+    if (typeof g.ready !== 'function') g.ready = function (f) { try { f(); } catch (e) {} };
+    n++;
+  };
+  window.grecaptcha = window.grecaptcha || {};
+  wrap(window.grecaptcha);
+  if (window.grecaptcha.enterprise) wrap(window.grecaptcha.enterprise);
+  return n;
+}"""
+PAGE_ACTION_RE = re.compile(r"""grecaptcha(?:\.enterprise)?\.execute\(\s*[^,)]+,\s*\{[^}]*?\baction\s*:\s*["']([A-Za-z0-9_/]{1,100})["']""", re.I)
+
+
+def detect_page_action(html):
+    """-> the action string from a visible grecaptcha.execute(key, {action: 'x'}) call, or None."""
+    m = PAGE_ACTION_RE.search(html or "")
+    return m.group(1) if m else None
+
+
+def inject_token(page, token, v3=False):
+    """Write the token into the page's response fields and call the widget callbacks. -> {'fields': n, 'callbacks': n}. CaptchaError when nothing took it.
+    v3=True also makes grecaptcha.execute resolve to the token (and counts as a taker)."""
+    r = dict(page.evaluate(INJECT_TOKEN_JS, token) or {})
+    if v3:
+        r["execute"] = int(page.evaluate(V3_EXECUTE_JS, token) or 0)
+    if not r.get("fields") and not r.get("callbacks") and not r.get("execute"):
         raise CaptchaError("CAPTCHA token had nowhere to go: no response field and no widget callback on the page")
     return r
 
 
-def solve_and_inject(page, row, url=None, *, runner=None, log_path=None, max_tries=3, widget_type=None):
+def solve_and_inject(page, row, url=None, *, runner=None, log_path=None, max_tries=3, widget_type=None, page_action=None):
     """Read the page, find its CAPTCHA widget with captcha_route.detect, solve it, inject. -> {'kind', 'fields', 'callbacks', 'tries'}."""
     import captcha_route as CR
     url = (url or page.url).split("#")[0]
-    d = CR.detect(page.content(), url)
+    html = page.content()   # page_action (v3 only) is sent as pageAction; None => read from a visible grecaptcha.execute(key, {action}) call
+    d = CR.detect(html, url)
     if d["interstitial"]: raise CaptchaError("WALL:cloudflare-click (full-page interstitial: not a form widget, never CapSolver)")
     ws = [w for w in d["widgets"] if CR.verdict(w["type"])[0] == "capsolver" and (not widget_type or w["type"] == widget_type)]
     if not ws:
         parked = [w["type"] for w in d["widgets"]]
         raise CaptchaError("no CapSolver widget on the page%s" % (" (found %s: %s)" % (parked, CR.verdict(parked[0])[1]) if parked else ""))
     w = ws[0]
-    tok = solve_captcha(row, w, url, runner=runner, log_path=log_path, max_tries=max_tries)
-    r = inject_token(page, tok)
-    return {"kind": w["type"], "fields": r.get("fields", 0), "callbacks": r.get("callbacks", 0), "tries": solve_tries(row, log_path)}
+    v3 = w["type"] == "recaptcha-v3"
+    act = (page_action or detect_page_action(html)) if v3 else None
+    tok = solve_captcha(row, w, url, runner=runner, log_path=log_path, max_tries=max_tries, extra={"pageAction": act} if act else None)
+    r = inject_token(page, tok, v3=v3)
+    out = {"kind": w["type"], "fields": r.get("fields", 0), "callbacks": r.get("callbacks", 0), "tries": solve_tries(row, log_path)}
+    if v3: out["page_action"] = act
+    return out
