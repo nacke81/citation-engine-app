@@ -9,11 +9,14 @@ DIRS = ["google.com","maps.apple.com","bing.com","facebook.com","yelp.com","bbb.
  "dexknows.com","nextdoor.com","manta.com","merchantcircle.com","hotfrog.com","foursquare.com","chamberofcommerce.com","cybo.com",
  "bizapedia.com","brownbook.net","localstack.com","n49.com","yellowbook.com","yellowbot.com","ezlocal.com","showmelocal.com"]
 def S(b): return BIZ[b]
-def lc(b): return S(b)["city"].lower().replace(" ","-")
+def cities(b):
+    """The city first, then each alias (t_00a75d04: NM is Gallatin; the 12 listings found so far read Nashville, so discovery keeps asking for Nashville too)."""
+    return list(dict.fromkeys([S(b)["city"]] + list(S(b).get("city_aliases") or [])))
+def lc(b, city=None): return (city or S(b)["city"]).lower().replace(" ","-")
 def st_full(b): return {"KY":"kentucky","TN":"tennessee"}[S(b)["st"]]
 # method 1: directory's own site search URL
-def search_url(d,b):
-    x=S(b); n=qp(x["name"]); c=qp(f'{x["city"]}, {x["st"]}'); sn=qp(x["short"])
+def search_url(d,b,city=None):
+    x=dict(S(b), city=city or S(b)["city"]); n=qp(x["name"]); c=qp(f'{x["city"]}, {x["st"]}'); sn=qp(x["short"])
     return {
      "google.com": f"https://www.google.com/maps/search/{qp(x['name']+' '+x['city']+' '+x['st'])}",
      "maps.apple.com": f"https://maps.apple.com/?q={n}&near={c}",
@@ -28,22 +31,22 @@ def search_url(d,b):
      "nextdoor.com": f"https://nextdoor.com/search/?query={n}",
      "manta.com": f"https://www.manta.com/search?search={n}&search_location={c}",
      "merchantcircle.com": f"https://www.merchantcircle.com/search?q={n}&qn={qp(x['city']+' '+x['st'])}",
-     "hotfrog.com": f"https://www.hotfrog.com/search/{x['st'].lower()}/{lc(b)}/{qp(x['short'].lower())}",
+     "hotfrog.com": f"https://www.hotfrog.com/search/{x['st'].lower()}/{lc(b,x['city'])}/{qp(x['short'].lower())}",
      "foursquare.com": f"https://foursquare.com/explore?mode=url&near={c}&q={n}",
      "chamberofcommerce.com": f"https://www.chamberofcommerce.com/search?what={n}&where={c}",
      "cybo.com": f"https://www.cybo.com/US/search/?q={n}&l={c}",
      "bizapedia.com": f"https://www.bizapedia.com/search.aspx?q={n}",
-     "brownbook.net": f"https://www.brownbook.net/search/{lc(b)}-{x['st'].lower()}/{qp(x['short'].lower())}/",
+     "brownbook.net": f"https://www.brownbook.net/search/{lc(b,x['city'])}-{x['st'].lower()}/{qp(x['short'].lower())}/",
      "localstack.com": f"https://localstack.com/search?q={n}",
      "n49.com": f"https://www.n49.com/search/?q={n}&where={c}",
-     "yellowbook.com": f"https://www.yellowbook.com/s/{qp(x['short'].lower())}/{lc(b)}-{x['st'].lower()}/",
+     "yellowbook.com": f"https://www.yellowbook.com/s/{qp(x['short'].lower())}/{lc(b,x['city'])}-{x['st'].lower()}/",
      "yellowbot.com": f"https://www.yellowbot.com/search?q={n}&location={c}",
      "ezlocal.com": f"https://ezlocal.com/search?q={n}&loc={c}",
      "showmelocal.com": f"https://www.showmelocal.com/search.aspx?q={n}&where={c}",
     }[d]
 # method 2: URL pattern (slug from name + city), may return several guesses
-def pattern_urls(d,b):
-    x=S(b); s=x["slug"]; c=lc(b); st=x["st"].lower(); sf=st_full(b); sh=x["short"].lower().replace(" ","-").replace("&","")
+def pattern_urls(d,b,city=None):
+    x=dict(S(b), city=city or S(b)["city"]); s=x["slug"]; c=lc(b,x["city"]); st=x["st"].lower(); sf=st_full(b); sh=x["short"].lower().replace(" ","-").replace("&","")
     return {
      "google.com": [], "maps.apple.com": [], "bing.com": [],
      "facebook.com": [f"https://www.facebook.com/{x['short'].replace(' ','')}/"],

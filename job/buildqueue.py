@@ -120,9 +120,26 @@ def not_due(row, today=None):
     return str(due) if due and str(due) > str(day) else None
 
 
+NM_ROW_PREFIX = "nm-"   # rows of nm-fix-queue.json (t_00a75d04); SCC row ids never start with it
+
+
+def is_nm_row(row):
+    return str((row or {}).get("id") or "").startswith(NM_ROW_PREFIX)
+
+
+def nate_approval_ok(row):
+    """Nate's release on an NM queue row (no Mike gate on NM citations, plan 11/10). {by: nate, card: t_<id>, at: <iso>, row_id: <this row's id>}, stamped by
+    job/release.py. Valid on NM rows only: an SCC row with the same field is still refused."""
+    a = (row or {}).get("approval")
+    return (is_nm_row(row) and isinstance(a, dict) and a.get("by") == "nate" and bool(a.get("at"))
+            and str(a.get("card") or "").startswith("t_") and a.get("row_id") == row.get("id"))
+
+
 def approval_ok(row):
     a = row.get("mike_approval")
-    return isinstance(a, dict) and a.get("approved_by") == "mike" and bool(a.get("at")) and a.get("row_id") == row.get("id")
+    if isinstance(a, dict) and a.get("approved_by") == "mike" and bool(a.get("at")) and a.get("row_id") == row.get("id"):
+        return True
+    return nate_approval_ok(row)
 
 
 LIVE_FROM = ("queued", "found", "needs-human")   # states the transition matrix lets move to submitted
@@ -133,7 +150,7 @@ def submit_row(row, get_login, free_only=True, record=None, live=False, to="subm
     live=True is build_runner --live after the Directory build succeeded (t_df278575): the same refusals apply, a queued/found/needs-human row may move,
     and the `submitted` transition is recorded by default (no env flag). Refusals raise before anything is recorded. This function itself never contacts a Directory."""
     if not approval_ok(row):
-        raise SubmitRefused("no Mike approval recorded for row %s" % row.get("id"))
+        raise SubmitRefused(("no Nate release recorded for NM row %s" if is_nm_row(row) else "no Mike approval recorded for row %s") % row.get("id"))
     if to not in ("submitted", "created-unlisted"): raise SubmitRefused("a build records submitted or created-unlisted, not %r" % (to,))
     if row.get("state") != "queued" and not (live and row.get("state") in LIVE_FROM):
         raise SubmitRefused("row %s is not queued" % row.get("id"))
@@ -160,5 +177,5 @@ def submit_row(row, get_login, free_only=True, record=None, live=False, to="subm
         if captured_url: extra["listing_url"] = captured_url   # t_3ac43137: the confirmation / owner-view / permalink URL the Directory showed at submit
         if captured_id: extra["listing_id"] = captured_id
         if recheck_due: extra["recheck_due"] = recheck_due
-        res["recorded"] = record("SCC", row["id"], to, row.get("listing_url"), note, **extra)
+        res["recorded"] = record("NM" if is_nm_row(row) else "SCC", row["id"], to, row.get("listing_url"), note, **extra)
     return res

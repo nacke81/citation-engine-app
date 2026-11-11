@@ -52,10 +52,13 @@ def nap_flags(src):
     ev = (src or {}).get("ev") or {}
     street = bool(ev.get("street"))
     phone = bool(ev.get("phones"))
+    # t_00a75d04 (R1): "City, ST" with no street is the intended public address. It scores like a street only for a biz whose identity carries
+    # RX.city_only (NM), only when no street and no OLD street is shown, and still needs the canonical phone.
+    city_only = bool(ev.get("city_only")) and not street and not ev.get("old_street")
     return {
         "name_match": bool(ev.get("name")), "street_match": street, "phone_match": phone,
-        "stale_phone": bool(ev.get("stale_phone")), "old_street": bool(ev.get("old_street")),
-        "match": bool(street and phone),   # Y only when both canonical street and canonical phone appear
+        "stale_phone": bool(ev.get("stale_phone")), "old_street": bool(ev.get("old_street")), "city_only": city_only,
+        "match": bool((street or city_only) and phone),   # Y only when canonical phone appears with the canonical street (or the city-only form above)
     }
 
 
