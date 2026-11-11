@@ -106,6 +106,20 @@ class OwnedChrome:
         return self
     @property
     def cdp_url(self): return f"http://127.0.0.1:{self.port}"
+    def job_active(self):
+        """Processes still alive in the Job Object (JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.ActiveProcesses). None when it cannot be read."""
+        if not self.job: return 0
+        try:
+            buf = ctypes.create_string_buffer(48)
+            if not k32.QueryInformationJobObject(self.job, 1, buf, 48, None): return None
+            return ctypes.c_uint32.from_buffer(buf, 36).value
+        except Exception:
+            return None
+    def alive(self):
+        """True only while OUR Chrome is running: the launched process has not exited and the job still holds a process. Never asks CDP (a foreign Chrome can answer the port)."""
+        if self.proc is None or self.proc.poll() is not None: return False
+        n = self.job_active()
+        return n is None or n > 0
     def close(self):
         if self.job:
             k32.CloseHandle(self.job); self.job = None      # kills every process in the tree

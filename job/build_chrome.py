@@ -113,11 +113,15 @@ def stop(port=PORT, runner=None, out=print, pidfile=None, procs=None, lease_path
     if pids: out("port %d listener after: %s" % (port, ",".join(map(str, left)) or "none"))
     pf = pidfile or pidfile_path()
     rec = pidfile_read(pf)
-    if rec and rec.get("pid") and int(rec["pid"]) != os.getpid() and int(rec["pid"]) not in pids:
-        out("pidfile python pid %s" % rec["pid"]); _tk(int(rec["pid"]), run, out)
+    plist = procs if procs is not None else list_procs(runner)
+    if rec and rec.get("pid"):
+        rp = int(rec["pid"])
+        if rp != os.getpid() and rp not in pids:
+            if pidfile_pid_is_build(rec, plist): out("pidfile python pid %d" % rp); _tk(rp, run, out); plist = [p for p in plist if p["pid"] != rp]
+            else: out("pidfile stale (pid %d is not build_chrome.py)" % rp)
     pidfile_remove(pf)
     if not left:
-        reap(0, runner=runner, out=out, procs=procs, lease_path=lease_path, pidfile=pf, only_chrome_gone=port, quiet_none=True)
+        reap(0, runner=runner, out=out, procs=plist, lease_path=lease_path, pidfile=pf, only_chrome_gone=port, quiet_none=True)
     return 1 if left else (0 if pids else 2)
 
 
@@ -137,6 +141,21 @@ def list_procs(runner=None):
 def _is_build_cmd(cmd):
     c = (cmd or "").replace("\\", "/")
     return "job/build_chrome.py" in c and "--stop" not in c and "--reap" not in c
+
+
+PIDFILE_START_SLACK = 120   # seconds: the pidfile is written right after the process starts
+
+
+def pidfile_pid_is_build(rec, plist):
+    """True only if the pidfile pid is alive NOW as a build_chrome.py process that started close to the pidfile's `started` (PID reuse guard)."""
+    try: pid = int(rec["pid"])
+    except Exception: return False
+    for p in plist:
+        if p["pid"] == pid:
+            if not _is_build_cmd(p["cmd"]): return False
+            st, started = p.get("started") or 0, rec.get("started") or 0
+            return not (st and started) or abs(st - started) <= PIDFILE_START_SLACK
+    return False
 
 
 def reap(older_than_minutes=60, runner=None, out=print, procs=None, now=time.time, lease_path=None, pidfile=None, only_chrome_gone=None, quiet_none=False, alive=None):
@@ -165,7 +184,7 @@ def reap(older_than_minutes=60, runner=None, out=print, procs=None, now=time.tim
     if lease:
         if lease.get("pid"): guard.add(int(lease["pid"]))
         pf = pidfile_read(pidfile)
-        if pf and pf.get("pid"): guard.add(int(pf["pid"]))
+        if pf and pf.get("pid") and pidfile_pid_is_build(pf, plist): guard.add(int(pf["pid"]))
     gone = True
     if only_chrome_gone is not None:
         gone = not (alive() if alive else KA.cdp_alive(only_chrome_gone))
@@ -194,6 +213,11 @@ def main(argv=None):
     n = a.parse_args(argv)
     if n.stop: return stop(n.port)
     if n.reap: return reap(n.older_than_minutes)
+    taken = listener_pids(n.port)
+    if taken or KA.cdp_alive(n.port):
+        # A second chrome on the same profile hands off to the running one and exits; we would own nothing. Refuse (t_15f7ec86).
+        print("chrome_already_running=1 listener=%s (port %d answers; run --stop first)" % (",".join(map(str, taken)) or "?", n.port), flush=True)
+        return 4
     from owned_chrome import window_count
     before = window_count()
     print("windows_before=%d" % before, flush=True)
@@ -213,7 +237,8 @@ def main(argv=None):
             try:
                 # t_d7a907d5: the timer does not fire while a card holds the lease (job/chrome_keepalive.py); it asks again every second.
                 # t_15f7ec86: the loop also ends when its Chrome is gone, and --seconds 0 has a 4 h idle cap.
-                hold(oc.port, end)
+                # alive = OUR Chrome process / job, never "something answers the port" (a foreign Chrome can).
+                hold(oc.port, end, alive=oc.alive)
             except KeyboardInterrupt:
                 pass
     finally:

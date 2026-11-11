@@ -37,6 +37,31 @@ flaps = iter([True, False, True, True, False, True] + [True] * 100000)
 r = B.hold(9333, 1000 + 60, alive=lambda: next(flaps), lease_path=LP, now=c.now, sleep=c.sleep, out=lines.append, check_every=5)
 check("1 a single missed CDP check does not end the loop (needs 2 in a row); a --seconds timer still ends it", r == "timer" and "chrome_gone=1" not in lines, str(lines))
 
+class FakeOwn:
+    """Stands in for OwnedChrome: proc.poll()/job_active() are the liveness signals, never CDP."""
+    def __init__(s, running=True, job=1): s.running, s.job = running, job
+    def alive(s): return s.running and (s.job is None or s.job > 0)
+# a foreign Chrome answers CDP on the port, but OUR process/job is gone -> chrome_gone (the live orphan case)
+cdp_answers = lambda: True
+own = FakeOwn(running=False)
+c, lines = Clock(), []
+r = B.hold(9333, None, alive=own.alive, lease_path=LP, now=c.now, sleep=c.sleep, out=lines.append, max_s=14400, check_every=5)
+check("1 CDP answers (foreign Chrome) but the owned proc is gone -> chrome_gone=1", cdp_answers() and r == "chrome_gone" and "chrome_gone=1" in lines, str(lines))
+own = FakeOwn(running=True, job=0)
+c, lines = Clock(), []
+r = B.hold(9333, None, alive=own.alive, lease_path=LP, now=c.now, sleep=c.sleep, out=lines.append, max_s=14400, check_every=5)
+check("1 owned proc handle still open but the Job Object has no processes -> chrome_gone=1", r == "chrome_gone", str(lines))
+# CDP misses (slow Chrome) but OUR process is alive -> never exits on that signal
+own = FakeOwn(running=True, job=3)
+c, lines = Clock(), []
+r = B.hold(9333, 1000 + 120, alive=own.alive, lease_path=LP, now=c.now, sleep=c.sleep, out=lines.append, check_every=5)
+check("1 CDP not answering but the owned proc/job is alive -> no exit, the timer ends it", r == "timer" and "chrome_gone=1" not in lines, str(lines))
+own = FakeOwn(running=True, job=None)
+check("1 an unreadable job count counts as alive (never kill a live Chrome on a read error)", own.alive())
+_oc_src = open(os.path.join(JOB, "owned_chrome.py"), encoding="utf-8").read()
+_alive_body = _oc_src.split("    def alive(self):")[1].split("    def close(self):")[0]
+check("1 OwnedChrome.alive uses proc.poll() and the job count, not CDP", "poll()" in _alive_body and "job_active()" in _alive_body and "cdp_alive" not in _alive_body)
+
 # ---- 2 --seconds 0 idle cap + lease ------------------------------------------------------------------------------------------------------------------
 c, lines = Clock(), []
 r = B.hold(9333, None, alive=lambda: True, lease_path=LP, now=c.now, sleep=c.sleep, out=lines.append, max_s=600)
@@ -72,16 +97,24 @@ pf = os.path.join(TMP, "pid.json")
 B.pidfile_write(9333, pf, now=lambda: 5.0, pid=7777)
 rec = json.load(open(pf))
 check("3 pidfile holds pid, port and start time", rec == {"pid": 7777, "port": 9333, "started": 5.0}, str(rec))
+BUILD7777 = {"pid": 7777, "ppid": 1, "cmd": "python job/build_chrome.py --seconds 0", "started": 5.0}
 rn, lines = Runner(), []
-rc = B.stop(9333, rn, lines.append, pidfile=pf, lease_path=LP)
+rc = B.stop(9333, rn, lines.append, pidfile=pf, procs=[BUILD7777], lease_path=LP)
 check("3 --stop kills the Chrome listener tree AND the pidfile pid tree, then removes the pidfile", rn.killed() == [22460, 7777] and not os.path.exists(pf) and rc == 0, str(rn.killed()))
 check("3 every kill is `taskkill /PID n /T /F`", all(c[1] == "/PID" and c[3:] == ["/T", "/F"] for c in rn.cmds if c[0] == "taskkill"))
 B.pidfile_write(9333, pf, pid=8888)
 rn, lines = Runner(listening=False), []
-rc = B.stop(9333, rn, lines.append, pidfile=pf, lease_path=LP)
+rc = B.stop(9333, rn, lines.append, pidfile=pf, procs=[dict(BUILD7777, pid=8888)], lease_path=LP)
 check("3 --stop with Chrome already gone still kills the pidfile python (exit 2: nothing was listening)", rn.killed() == [8888] and not os.path.exists(pf) and rc == 2, str(rn.killed()))
 rn = Runner(listening=False)
 check("3 --stop with no listener and no pidfile kills nothing", B.stop(9333, rn, lambda s: None, pidfile=pf, lease_path=LP) == 2 and rn.killed() == [])
+# stale pidfile: the pid now belongs to something else -> no taskkill on it, file removed
+for label, plist in (("another program", [{"pid": 9999, "ppid": 1, "cmd": "python other.py", "started": 5.0}]),
+                     ("nothing (pid not running)", [])):
+    B.pidfile_write(9333, pf, now=lambda: 5.0, pid=9999)
+    rn, lines = Runner(listening=False), []
+    rc = B.stop(9333, rn, lines.append, pidfile=pf, procs=plist, lease_path=LP)
+    check("3 stale pidfile, pid is now " + label + ": no taskkill, file removed, says stale", rn.killed() == [] and not os.path.exists(pf) and any("pidfile stale (pid 9999" in l for l in lines), str(lines))
 B.pidfile_write(9333, pf, pid=1234)
 B.pidfile_remove(pf, only_pid=999); still = os.path.exists(pf)
 B.pidfile_remove(pf, only_pid=1234)
@@ -123,10 +156,15 @@ rn, lines = Runner(procs=PROCS), []
 B.reap(60, runner=rn, out=lines.append, procs=PROCS, now=lambda: NOW, lease_path=LP, pidfile=pf)
 check("4 a STALE lease protects nothing", sorted(rn.killed()) == [10, 60], str(rn.killed()))
 KA.lease_write("t_card", LP, lambda: NOW)
-B.pidfile_write(9333, pf, pid=60)
+B.pidfile_write(9333, pf, now=lambda: PROCS[-1]["started"], pid=60)
 rn, lines = Runner(procs=PROCS), []
 B.reap(60, runner=rn, out=lines.append, procs=PROCS, now=lambda: NOW, lease_path=LP, pidfile=pf)
 check("4 while a lease is fresh, the pidfile python (the live batch's own build_chrome) is protected too", 60 not in rn.killed(), str(rn.killed()))
+B.pidfile_write(9333, pf, now=lambda: NOW - 200 * 60, pid=60)
+other = [dict(p, cmd="python other.py") if p["pid"] == 60 else p for p in PROCS]
+rn, lines = Runner(procs=other), []
+B.reap(60, runner=rn, out=lines.append, procs=other, now=lambda: NOW, lease_path=LP, pidfile=pf)
+check("4 reap never kills a pidfile pid that is not build_chrome.py now", 60 not in rn.killed() and sorted(rn.killed()) == [10], str(rn.killed()))
 KA.lease_release(LP); B.pidfile_remove(pf)
 # own ancestry
 me = os.getpid()
@@ -142,8 +180,21 @@ rn, lines = Runner(procs=PROCS, listening=True), []
 B.reap(0, runner=rn, out=lines.append, procs=PROCS, now=lambda: NOW, lease_path=LP, pidfile=pf, only_chrome_gone=9333, alive=lambda: True, quiet_none=True)
 check("5 ...and leaves them alone while a Chrome still answers", rn.killed() == [], str(rn.killed()))
 
+# ---- 7 occupied port: refuse, no pidfile -------------------------------------------------------------------------------------------------------
+B.pidfile_remove(pf)
+_lp, _ca = B.listener_pids, KA.cdp_alive
+B.listener_pids = lambda port, runner=None: [16072]
+KA.cdp_alive = lambda port, *a, **k: True
+import io, contextlib
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    rc = B.main(["--seconds", "0", "--port", "9333"])
+check("7 port already answers -> chrome_already_running=1 with listener pid, exit 4, no pidfile, nothing launched",
+      rc == 4 and "chrome_already_running=1 listener=16072" in buf.getvalue() and not os.path.exists(os.environ["CE_BUILD_PIDFILE"]) and "windows_before" not in buf.getvalue(), buf.getvalue())
+B.listener_pids, KA.cdp_alive = _lp, _ca
+
 # ---- 6 wiring ----------------------------------------------------------------------------------------------------------------------------------------
-for flag in ('"--reap"', '"--older-than-minutes"', "if n.reap: return reap(n.older_than_minutes)", "pidfile_write(oc.port)", "hold(oc.port, end)", "pidfile_remove(only_pid=os.getpid())"):
+for flag in ('"--reap"', '"--older-than-minutes"', "if n.reap: return reap(n.older_than_minutes)", "pidfile_write(oc.port)", "hold(oc.port, end, alive=oc.alive)", "pidfile_remove(only_pid=os.getpid())"):
     check("6 build_chrome.py main wires " + flag, flag in src)
 check("6 --reap starts no Chrome (returns before window_count)", src.index("if n.reap") < src.index("before = window_count()"))
 check("6 code under test calls taskkill only through the injected runner", "os.system" not in src and "Popen" not in src)

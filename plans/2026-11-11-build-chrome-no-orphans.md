@@ -18,3 +18,10 @@ New `tests/build_chrome_leak_test.py` (in CI, fake clock/runner/process list). U
 
 ## Not done here
 No `--reap` or `taskkill` against the live machine (QA child t_ef792bca). Runtime clone and v1 repo untouched.
+
+## Round 2 (review comment 3770, written BEFORE the edits; cites docs/lessons/2026-11-11-a-child-you-kill-does-not-end-its-parent.md)
+Lesson: a process's life is decided by its own handle, not by a shared port. Same here: "alive" must come from the thing we own.
+1. Liveness = the owned Chrome process. `main()` passes `alive=` built from `oc.proc.poll() is None` AND the Job Object ActiveProcesses > 0 (new `OwnedChrome.job_active()`, QueryInformationJobObject class 1). CDP is no longer the signal in `main()`.
+2. Refuse to start when CDP already answers (a second chrome hands off and exits): print `chrome_already_running=1 listener=<pids>`, write no pidfile, exit 4, before any window_count/launch.
+3. `--stop` and `reap` kill the pidfile pid only if `list_procs` shows it alive with a build_chrome.py command line and a start time within 120 s of the pidfile `started`; else print `pidfile stale (pid N is not build_chrome.py)` and only remove the file. Same check for the reap lease/pidfile guard.
+4. Tests: CDP answers but own proc gone -> chrome_gone; CDP misses but proc alive -> no exit; occupied port -> refuse, no pidfile; stale pidfile pid now `python other.py` -> no taskkill, file removed.
