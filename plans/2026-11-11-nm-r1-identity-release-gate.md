@@ -39,3 +39,15 @@ Reviewer found core.shown_street read any street within 120 chars of any "City, 
 Fix: street must sit in NM's own card (from the name line, ends at Similar / Also at / Nearby / Related / Top collections), directly before the city (separators + optional suite only),
 start the line / follow a separator / follow the business name, contain no prose word; streetAddress only from the JSON-LD entity whose name matches NM and that starts with a house number.
 fixlist: card stop markers extended; a street_in line holding prose tokens ("4 reviews from Dr.") is not a street. Tests N8 (a)-(d) + mutations (widen scope, any-entity streetAddress).
+
+## Round 4 (t_00a75d04): one parser for score and fix list (Nate ruling after 3 BLOCKs)
+Lesson cited: docs/lessons/2026-11-11-two-readers-of-one-page-must-share-one-block.md (latest; written this round).
+Reviewer found core's `_own_block` (10-line window, 40-line cap, its own stop list) and fixlist's `listing_block` read different parts of the same page, so match and the fix list disagreed
+(Yelp wrong street = match=True + diff; old city hidden by a neighbour's city; single-word prose filters hid "Business Park Dr" / "Hall of Fame Dr").
+1. `fixlist.own_block` = `listing_block` (the block diffs_for reads), with a same-stop-marker fallback for one-line cards. `fixlist.scoped_flags` computes other_street, old_city, city_only from that block only.
+   `core.evidence` calls it; `core._own_block`, `shown_street`, the 10/40-line windows, `_PROSE_WORDS` and `_BLOCK_STOP` are deleted. streetAddress still counts only from the JSON-LD entity named NM.
+2. Prose filter = phrases only (`fixlist.PROSE_RE`: "N reviews from", "find their way", "helped N", "N businesses", "from Dr"). No single-word filter, so a real street pattern wins for SCC and NM.
+3. Tests N9: Yelp shape (wrong street 45+ lines down, past "You Might Also Consider") = differing + diff; old city + Gallatin neighbour = differing + "old city" diff (mutation: city flags from the whole page fails it);
+   Business Park / Hall of Fame / Local Way / Our Lane / The Way / Find Rd on NM and SCC = address diff; invariant shapes x 7 forms: match iff no address/phone diff. Mutation: restore single-word prose filters fails 8.
+4. Real-page 7 x 6 table and the dry run re-run (attached to the card).
+Out of scope, noted for follow-up: neighbour blocks that fixlist.STOP_RE does not name (e.g. Yelp "You Might Also Consider") stay inside the block, by design (the real address sits below them).

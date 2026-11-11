@@ -239,17 +239,81 @@ check("N8 wrong street directly above the city in NM's card is still differing",
 c, ev, fl, dif = score(page("123 Main Street, Ste 4", "Testville, TN", PH))
 check("N8 a suite between the street and the city does not hide the wrong street", (not fl["match"]) and ev["other_street"].startswith("123 Main Street"), ev["other_street"])
 # mutation: widen the scope back to the whole page -> the n49 shape (a) must fail
-_ob = core._own_block
-core._own_block = lambda text, b: [l.strip() for l in (text or "").split("\n") if l.strip()]
+_ob = fixlist.own_block
+fixlist.own_block = lambda text, ident, b: [l.strip() for l in (text or "").split(chr(10)) if l.strip()]
 r, d = clean(n8["(a) n49 shape: NM card, then a Similar Businesses list of neighbours with streets"], "a")
-core._own_block = _ob
+fixlist.own_block = _ob
 check("N8 MUTATION widen the scope to the whole page -> case (a) fails (the test bites)", not r)
 # mutation: take streetAddress from any entity -> case (b) fails
-_nm = core.NAME["NM"]
-core.NAME["NM"] = re.compile(r".", re.S)      # the entity-name test always passes (DirCo counts as NM)
+_nm = core.IDENT["RX"]["name"]["NM"]
+core.IDENT["RX"]["name"]["NM"] = "."      # the entity-name test always passes (DirCo counts as NM)
 r, d = clean(n8["(b) the directory's own Organization JSON-LD with its own streetAddress"], "b")
-core.NAME["NM"] = _nm
+core.IDENT["RX"]["name"]["NM"] = _nm
 check("N8 MUTATION any-entity streetAddress (name test off) -> case (b) fails", not r)
+
+# ---- N9 (r4) ONE parser: core's flags and the fix list read the same own-listing block, so match <=> no address/phone diff
+def addr_phone(dif): return [d for d in dif if d["field"] in ("address", "phone")]
+def agree(txt):
+    c, ev, fl, dif = score(txt)
+    return fl["match"] == (not addr_phone(dif)), (fl["match"], dif)
+yelp_head = "Birch Media\nMarketing agency\n"
+yelp_mid = "You Might Also Consider\nAcme Co\nPlumber\n" + "\n".join("Filler line %d" % i for i in range(45))
+# (1) Yelp shape: wrong street far below the name, past a 'You Might Also Consider' section, phone also far below
+yelp_wrong = yelp_head + yelp_mid + "\n123 Main Street\nTestville, TN 39999\n" + PH
+c, ev, fl, dif = score(yelp_wrong)
+check("N9 Yelp shape: wrong street 45+ lines down, past a 'You Might Also Consider' block = differing with the address diff (match and fix list agree)",
+      (not fl["match"]) and [d["live"] for d in dif if d["field"] == "address"] and agree(yelp_wrong)[0], (fl, dif))
+for nm, txt, want in (("R1 street", yelp_head + yelp_mid + "\n200 Sample Ave\nTestville, TN 39999\n" + PH, True),
+                      ("city-only", yelp_head + yelp_mid + "\nTestville, TN 39999\n" + PH, True),
+                      ("old street", yelp_head + yelp_mid + "\n900 Old Rd\nTestville, TN 39999\n" + PH, False),
+                      ("old phone", yelp_head + yelp_mid + "\nTestville, TN 39999\n" + OLDPH, False)):
+    ok_, d_ = agree(txt); c, ev, fl, dif = score(txt)
+    check("N9 Yelp shape %s: match=%s and agrees with the fix list" % (nm, want), ok_ and fl["match"] == want, (fl["match"], dif))
+# (2) old city in NM's own card + a Testville neighbour in a Similar block = differing with an 'old city' diff
+oc = "Birch Media\nMarketing agency\nOldtown, TN\n" + PH + "\nSimilar Businesses\nAcme Co\n500 Main St, Testville, TN\n"
+c, ev, fl, dif = score(oc)
+check("N9 old city in NM's card + a Testville neighbour in a Similar block = differing, 'old city' diff", (not fl["match"]) and fl["old_city"] and not fl["city_only"]
+      and [d.get("label") for d in dif if d["field"] == "address"] == ["old city"] and agree(oc)[0], (fl, dif))
+_sf = fixlist.scoped_flags
+def _whole_page(text, ident, b):
+    r = _sf(text, ident, b); w = _sf("Birch Media\n" + text, ident, b)    # mutation: city flags read from the whole page (the neighbour's city counts)
+    low = (text or "").lower()
+    r["old_city"] = "testville" not in low and "oldtown" in low
+    r["city_only"] = "testville, tn" in low
+    return r
+fixlist.scoped_flags = _whole_page
+c, ev, fl, dif = score(oc)
+fixlist.scoped_flags = _sf
+check("N9 MUTATION city flags read from the whole page again -> the old-city + neighbour test fails (the test bites)", not ((not fl["match"]) and fl["old_city"] and [d for d in dif if d["field"] == "address"]), fl)
+# (3) narrower prose filter: real streets with a word that was once filtered still win, for NM and SCC
+for biz, nm_, cityl, ph_ in (("NM", "Birch Media", "Testville, TN 39999", PH), ("SCC", "Alder Care Consulting & Solutions", "Exampleton, KY 40000", "(502) 555-0101")):
+    for st in ("123 Business Park Dr", "55 Hall of Fame Dr", "9 Local Way", "4 Our Lane", "7 The Way", "8 Find Rd"):
+        txt = "\n".join((nm_, st + ", " + cityl, ph_))
+        c, ev, fl, dif = score(txt, biz)
+        ad = [d for d in dif if d["field"] == "address"]
+        check("N9 %s %r is a real street: address diff, not a match" % (biz, st), ad and not fl["match"], (fl, dif))
+        txt2 = "\n".join((nm_, st, cityl, ph_))
+        c, ev, fl, dif = score(txt2, biz)
+        check("N9 %s %r on its own line above the city: address diff" % (biz, st), [d for d in dif if d["field"] == "address"], dif)
+check("N9 the phrase filter still drops prose: '4 reviews from Dr.' and 'find their way' give no street", fixlist.street_in(["Birch Media", "4 reviews from Dr.", "Testville, TN"]) is None
+      and fixlist.street_in(["Birch Media", "100 local businesses find their way", "Testville, TN"]) is None)
+# (4) invariant over page shapes x forms (NM, placeholder identity): match iff no address/phone diff; match only for city-only and full
+shapes = {
+    "facebook-like": lambda addr: "Birch Media\nMarketing agency\n%s\n%s\nWebsite\nSimilar Businesses\nAcme\n500 Main St, Testville, TN" % (addr, PH),
+    "yelp-like": lambda addr: yelp_head + yelp_mid + "\n" + addr + "\n" + PH,
+    "n49-like": lambda addr: "Birch Media\n%s\n%s\nGet Directions\nSimilar Businesses\nVML\n401 Church Street, Floor 18, Testville, TN (8 Km Away)" % (addr, PH),
+    "oneline-like": lambda addr: "Birch Media %s %s" % (addr.replace("\n", ", "), PH),
+}
+forms = {"city-only": ("Testville, TN 39999", True), "full": ("200 Sample Ave\nTestville, TN 39999", True), "wrong street": ("123 Main Street\nTestville, TN 39999", False),
+         "old street 1": ("900 Old Rd\nTestville, TN 39999", False), "old street 2": ("44 Prior Blvd, Ste 200\nTestville, TN 39999", False), "old city": ("Oldtown, TN", False)}
+bad = []
+for sn, fn in shapes.items():
+    for fnm, (addr, want) in forms.items():
+        txt = fn(addr); c, ev, fl, dif = score(txt)
+        if fl["match"] != want or fl["match"] != (not addr_phone(dif)): bad.append((sn, fnm, fl["match"], dif))
+    c, ev, fl, dif = score(fn("Testville, TN 39999").replace(PH, OLDPH))
+    if fl["match"] or not [d for d in dif if d["field"] == "phone"]: bad.append((sn, "old phone", fl["match"], dif))
+check("N9 INVARIANT: %d shapes x 7 forms, match iff no address/phone diff; match only for city-only and full" % len(shapes), not bad, bad[:3])
 
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

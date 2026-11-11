@@ -2,6 +2,7 @@
 import re, os, json, time, html as H, base64, subprocess, random
 from urllib.parse import urlparse, urljoin, unquote
 from cfg import *
+import fixlist
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FFMPEG = os.path.expandvars(r"%LOCALAPPDATA%/hermes/tools/ffmpeg-9.0.1-win32-x64/bin/ffmpeg.exe")
@@ -27,68 +28,8 @@ def html_to_text(src):
     t = H.unescape(re.sub(r"<[^>]+>", " ", src))
     return "\n".join(re.sub(r"[ \t]+", " ", x).strip() for x in t.split("\n") if x.strip())
 
-# t_00a75d04 r2: a street shown right before "City, ST" (house number + words + street-type word). Only used for a biz with RX.city_only.
-# r3: the street must END right before the city (only separators and an optional suite/unit/floor between), and sit in NM's own card.
-_STREET_TYPES = r"(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|way|pike|parkway|pkwy|court|ct|circle|cir|highway|hwy|trail|trl|place|pl)"
-_STREET_TAIL = re.compile(r"(?i)(\b\d{1,6}\s+(?:[A-Za-z0-9.'#\-]+\s+){0,4}?" + _STREET_TYPES + r"\b\.?)(?:[,\s]*(?:suite|ste|unit|floor|fl|apt|#)\.?\s*[\w-]+)?[,\s]*$")
-_PROSE_WORDS = {"review", "reviews", "from", "local", "businesses", "business", "find", "their", "our", "we", "your", "the", "and", "of", "to", "in", "with", "for",
-                "years", "miles", "away", "more", "see", "all", "ratings", "stars", "helped", "help", "way", "us"}
-# where a listing's own card ends: neighbour / related / ad sections that list other businesses as "street, City, ST"
-_BLOCK_STOP = re.compile(r"(?i)^(similar\b|also at\b|people also|you might also|places near|nearby\b|related\b|top collections|other (businesses|listings)|businesses near|more from|you may also)")
-_JSON_NAME = re.compile(r'(?i)"name"\s*:\s*"([^"]{1,120})"')
-
-
-def _own_block(text, b):
-    """Lines of NM's own card: from its name line (the one with the R1 phone close by, else the first) to the next neighbour/related section. [] if no name line."""
-    lines = [l.strip() for l in (text or "").replace(chr(13), "").split(chr(10)) if l.strip()]
-    names = [i for i, l in enumerate(lines) if NAME[b].search(l)]
-    if not names: return []
-    ph = set(S(b)["phones"])
-    has_phone = lambda seg: any((m.group(1) + m.group(2) + m.group(3)) in ph for m in PHONE_RE.finditer(seg))
-    start = next((i for i in names if has_phone("\n".join(lines[i:i + 10]))), names[0])
-    out = []
-    for l in lines[start:start + 40]:
-        if out and _BLOCK_STOP.match(l): break
-        out.append(l)
-    return out
-
-
-def _street_before_city(prefix, b):
-    """The street that ends right at the end of prefix, if it starts the line, follows a separator, or follows the business name; else ''."""
-    m = _STREET_TAIL.search(prefix)
-    if not m: return ""
-    street = m.group(1)
-    inner = re.findall(r"[A-Za-z']+", street)[:-1]
-    before = prefix[:m.start(1)]
-    okstart = (not before.strip()) or before.rstrip(" \t").endswith(("\n", ",", "|", "\u2022", "\u00b7", "-", "\u2013", "\u2014", ":")) or any(
-        nm.end() == len(before.rstrip()) for nm in NAME[b].finditer(before))
-    if okstart and not any(w.lower() in _PROSE_WORDS for w in inner):
-        return " ".join(street.split())
-    return ""
-
-
-def shown_street(text, b):
-    """The street NM's own listing shows next to its city-only form ('' if none). Scope (r3): NM's own card only (not Similar / Also-at / neighbour blocks), the street
-    sits directly before 'City, ST', and a streetAddress counts only from the JSON-LD entity whose name is NM. R1 and old streets are not 'other' (own flags)."""
-    if b not in CITY_ONLY: return ""
-    t = text or ""
-    known = lambda x: bool(STREET[b].search(x) or (b in OLD_STREET and OLD_STREET[b].search(x)))
-    for m in re.finditer(r'(?i)streetAddress"?\s*[:=]\s*"?([^",<\n]{3,80})', t):
-        val = m.group(1).strip()
-        if not re.match(r"\d{1,6}\s", val) or known(val): continue
-        win0 = max(0, m.start() - 500)
-        near = [(abs(win0 + nm.start() - m.start()), nm.group(1)) for nm in _JSON_NAME.finditer(t[win0:m.end() + 300])]
-        if near and NAME[b].search(min(near)[1]): return val
-    block = _own_block(t, b)
-    if not block: return ""
-    joined = "\n".join(block)
-    for m in CITY_ONLY[b].finditer(joined):
-        s = _street_before_city(joined[max(0, m.start() - 90):m.start()], b)
-        if s and not known(s): return s
-    return ""
-
-
 def evidence(text, b):
+    sf = fixlist.scoped_flags(text, IDENT, b)
     ph = set(m.group(1) + m.group(2) + m.group(3) for m in PHONE_RE.finditer(text))
     mk = set()
     for m in MASK_RE.finditer(text):
@@ -99,9 +40,7 @@ def evidence(text, b):
             "street": bool(STREET[b].search(text)),
             "old_street": bool(b in OLD_STREET and OLD_STREET[b].search(text)),
             "city": any(c.lower() in text.lower() for c in cities(b)),   # the city or an alias (NM: Gallatin, and Nashville for the listings still under the old city)
-            "city_only": bool(b in CITY_ONLY and CITY_ONLY[b].search(text)),
-            "other_street": shown_street(text, b),   # r2: a street that is neither R1 nor an old one next to the city-only form = differing, not a match
-            "old_city": bool(S(b).get("city_aliases")) and S(b)["city"].lower() not in text.lower() and any(c.lower() in text.lower() for c in cities(b)[1:]),
+            "city_only": sf["city_only"], "other_street": sf["other_street"], "old_city": sf["old_city"],   # r4: all three read from the listing's own block (fixlist.scoped_flags), the block diffs_for reads
             "phones": sorted(p for p in ph if p in S(b)["phones"]),
             "phone_partial": partial and not (ph & set(S(b)["phones"])),
             "stale_phone": bool(ph & set(S(b)["stale_phones"]))}

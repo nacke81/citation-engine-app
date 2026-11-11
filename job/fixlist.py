@@ -21,7 +21,8 @@ PHONE_RE = re.compile(r"(?<!\d)\(?(\d{3})\)?[\s.\-]*(\d{3})[\s.\-]*(\d{4})(?!\d)
 STOP_RE = re.compile(r"(?i)^(claim (this|your) (business|listing)|is this your business|manage your free|showing \d|featured\b|"
                      r"places near|similar |you might also like|people also|.{0,40} near me in |"
                      r"ratings and reviews|also at\b|nearby\b|related\b|top collections|other (businesses|listings)|businesses near|more from|you may also)")   # r3: neighbour sections end the card
-PROSE_TOKENS = {"review", "reviews", "from", "local", "businesses", "business", "find", "their", "our", "we", "your", "helped", "years", "miles", "away", "ratings", "stars"}
+# r4: a line is prose only when it reads as a phrase ("4 reviews from", "find their way", "helped 100", "100 local businesses"); never for one word that is also a street word
+PROSE_RE = re.compile(r"(?i)\b\d+\s+(?:reviews?|ratings?|stars?|years?|miles?)\s+(?:from|ago|away|of|in)\b|\bfind\s+their\s+way\b|\bhelped\s+\d+|\b\d+\s+(?:local\s+)?businesses\b|\bfrom\s+Dr\b")
 SEARCHY_URL_RE = re.compile(r"(?i)/search|[?&](q|query|search|search_terms|find_desc|find_text|what)=|/explore|/maps/search")
 STATE_ZIP_RE = re.compile(r"(?i)^[A-Za-z .'\-]+,?\s+[A-Z]{2}\.?,?\s+\d{5}|\b[A-Z]{2}\s+\d{5}\b|^\d{5}\b")
 SITE_LABEL_RE = re.compile(r"(?i)^(historical |business )?(website|web|site|visit website|url|homepage)$")
@@ -181,7 +182,7 @@ def street_in(block):
             continue
         if p["num"].lstrip("0") == "":
             continue
-        if set(p["name"]) & PROSE_TOKENS:        # r3: "4 reviews from Dr." is prose, not a street
+        if PROSE_RE.search(l):        # r4: "4 reviews from Dr." is prose, not a street (phrase test, not single words)
             continue
         nxt = block[i + 1] if i + 1 < len(block) else ""
         nxt2 = block[i + 2] if i + 2 < len(block) else ""
@@ -225,6 +226,91 @@ def old_street_live(text, ident, b):
         return None
     m = re.search("(?i)(" + rx + r")[^\n]{0,40}", text or "")
     return " ".join(m.group(0).split()) if m else None
+
+
+# ---- r4: NM-style flags read from ONE place: the listing's own block (the same block diffs_for reads) -------------------
+_STREET_TYPES = r"(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|way|pike|parkway|pkwy|court|ct|circle|cir|highway|hwy|trail|trl|place|pl)"
+_STREET_TAIL = re.compile(r"(?i)(\b\d{1,6}\s+(?:[A-Za-z0-9.'#\-]+\s+){0,4}?" + _STREET_TYPES + r"\b\.?)(?:[,\s]*(?:suite|ste|unit|floor|fl|apt|#)\.?\s*[\w-]+)?[,\s]*$")
+_JSON_NAME = re.compile(r'(?i)"name"\s*:\s*"([^"]{1,120})"')
+
+
+def own_block(text, ident, b):
+    """The listing's own block: listing_block (name line to the next stop marker); if no line starts with the name (one-line cards), from the first line that holds the name."""
+    blk = listing_block(text, ident, b)
+    if blk:
+        return blk
+    rx = re.compile(ident["RX"]["name"][b], re.I)
+    lines = [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
+    for i, l in enumerate(lines):
+        if rx.search(l):
+            out = [l]
+            for l3 in lines[i + 1:]:
+                if STOP_RE.match(l3) or len(out) > 120:
+                    break
+                out.append(l3)
+            return out
+    return []
+
+
+def _street_before_city(prefix, rx_name):
+    """The street that ends right at the end of prefix, if it starts the line, follows a separator, or follows the business name; else ''."""
+    m = _STREET_TAIL.search(prefix)
+    if not m:
+        return ""
+    street = m.group(1)
+    before = prefix[:m.start(1)]
+    okstart = (not before.strip()) or before.rstrip(" \t").endswith(("\n", ",", "|", "\u2022", "\u00b7", "-", "\u2013", "\u2014", ":")) or any(
+        nm.end() == len(before.rstrip()) for nm in rx_name.finditer(before))
+    if okstart and not PROSE_RE.search(street):
+        return " ".join(street.split())
+    return ""
+
+
+def scoped_flags(text, ident, b):
+    """{other_street, old_city, city_only} for a biz whose identity carries RX.city_only / city_aliases, read from the listing's own block only.
+    other_street: a street that is neither canonical nor an old street (address_diff on the block, a street right before 'City, ST' on a one-line card, or a
+    streetAddress of the JSON-LD entity named like the biz). A neighbour's city or street outside the block never counts."""
+    out = {"other_street": "", "old_city": False, "city_only": False}
+    x = ident["BIZ"][b]
+    rx = ident["RX"]
+    cio = (rx.get("city_only") or {}).get(b)
+    aliases = x.get("city_aliases") or []
+    if not cio and not aliases:
+        return out
+    rx_name = re.compile(rx["name"][b], re.I)
+    rx_street = re.compile(rx["street"][b], re.I)
+    rx_old = re.compile((rx.get("old_street") or {}).get(b) or r"(?!x)x", re.I)
+    known = lambda v: bool(rx_street.search(v) or rx_old.search(v))
+    blk = own_block(text, ident, b)
+    joined = "\n".join(blk)
+    low = joined.lower()
+    if aliases:
+        out["old_city"] = x["city"].lower() not in low and any(a.lower() in low for a in aliases)
+    if not cio:
+        return out
+    if blk:
+        ad = address_diff(blk, ident, b, True)
+        if ad and not known(ad["live"]):
+            out["other_street"] = ad["live"]
+        if not out["other_street"]:
+            for m in re.finditer(cio, joined, re.I):
+                s = _street_before_city(joined[max(0, m.start() - 90):m.start()], rx_name)
+                if s and not known(s):
+                    out["other_street"] = s
+                    break
+    if not out["other_street"]:
+        t = text or ""
+        for m in re.finditer(r'(?i)streetAddress"?\s*[:=]\s*"?([^",<\n]{3,80})', t):
+            val = m.group(1).strip()
+            if not re.match(r"\d{1,6}\s", val) or known(val):
+                continue
+            win0 = max(0, m.start() - 500)
+            near = [(abs(win0 + nm.start() - m.start()), nm.group(1)) for nm in _JSON_NAME.finditer(t[win0:m.end() + 300])]
+            if near and rx_name.search(min(near)[1]):
+                out["other_street"] = val
+                break
+    out["city_only"] = bool(re.search(cio, joined, re.I))
+    return out
 
 
 # ---- site ---------------------------------------------------------------------------------------------------------
