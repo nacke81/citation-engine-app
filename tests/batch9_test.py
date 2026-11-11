@@ -304,7 +304,7 @@ check("X7 a stale lease (crashed card) no longer pins Chrome open", KA.lease_act
 with KA.Lease("t_card2", lp, now) as L: check("X7 Lease holds on enter", KA.lease_active(lp, now)["card"] == "t_card2")
 check("X7 Lease releases on exit", KA.lease_read(lp) is None)
 bc = open(os.path.join(JOB, "build_chrome.py"), encoding="utf-8").read()
-check("X7 build_chrome.py's timer asks should_close() instead of comparing the clock", "KA.should_close(end)" in bc and "time.time() < end" not in bc)
+check("X7 build_chrome.py's timer asks should_close() instead of comparing the clock", "KA.should_close(stop_at" in bc and "time.time() < end" not in bc)
 
 # the runner: restart before a step, reconnect, replay the page-open step, run the step
 class Pg:
