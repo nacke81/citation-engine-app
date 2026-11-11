@@ -322,7 +322,7 @@ def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vaul
 
 
 def relay_path():
-    """t_04751f6a: the file nm_listings_relay.py writes (mail to listings@nackemedia.com, a Gmail alias the seat has no IMAP for)."""
+    """t_04751f6a: the file nm_listings_relay.py writes (mail to the NM listings alias, a Gmail alias the seat has no IMAP for)."""
     base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
     return os.environ.get("NM_RELAY_FILE") or os.path.join(base, "citation-engine", "mail", "nm-listings.jsonl")
 
@@ -345,7 +345,7 @@ def read_relay_messages(path=None, days=30, now=None, **_ignored):
             if date and date < cutoff: continue
             body = "\n".join(["code: %s" % c for c in r.get("codes") or []] + list(r.get("links") or []))
             out.append({"uid": r["id"], "folder": "INBOX", "from": r.get("from") or "", "subject": r.get("subject") or "", "date": date,
-                        "to": ["listings@nackemedia.com"], "body": body})
+                        "to": list(r.get("to") or []), "body": body})
     return out
 
 
@@ -401,7 +401,7 @@ def main(argv=None):
     a.add_argument("--presence", action="store_true", help="print yes/no per Directory (mail count, folders, 'code present'); never a code, link or body")
     a.add_argument("--headers", action="store_true", help="with --presence: one line per matching mail (folder, date, From domain, To address, scrubbed Subject); never a body, code or link. Reads every folder unless --folders inbox")
     a.add_argument("--verify-link", action="store_true", help="print the newest email-verification link / code per --directory (terminal only; never stored)")
-    a.add_argument("--mailbox", choices=("listings", "nm-relay"), default="listings", help="nm-relay = the file nm_listings_relay.py fills from mail to listings@nackemedia.com (no IMAP)")
+    a.add_argument("--mailbox", choices=("listings", "nm-relay"), default="listings", help="nm-relay = the file nm_listings_relay.py fills from mail to the NM listings alias (no IMAP)")
     n = a.parse_args(argv)
     if n.mailbox == "nm-relay":
         global read_messages

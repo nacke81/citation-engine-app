@@ -1,21 +1,22 @@
-# Plan 2026-11-11: NM vault-write profile + listings@nackemedia.com mail relay (t_04751f6a)
+# Plan 2026-11-11: NM vault-write profile + listings mail relay reader (t_04751f6a)
 
-Cites lesson `docs/lessons/2026-11-11-scope-a-read-only-where-the-scope-can-see.md` (latest): a read scope must be enforced where the scope can see it, and tested with the out-of-scope item placed outside. Here the scope is "only mail to listings@nackemedia.com": it is enforced twice (the query is pinned and refused if changed; every fetched message's own To/Delivered-To headers are re-checked, so a message that is not addressed to listings@ is dropped even if Gmail returned it).
+Cites lesson `docs/lessons/2026-11-11-scope-a-read-only-where-the-scope-can-see.md` (latest): a read scope must be enforced where the scope can see it, and tested with the out-of-scope item placed outside. The relay's scope (only mail to the NM listings alias) is enforced twice: the query is pinned and refused if changed, and every fetched message's own recipient headers are re-checked.
 
-## 1. Vault write profile (`mkpayload.js`, citation-submitter skill, not in this repo)
-- `--client scc|nm` (default `scc`) plus overrides `--org`, `--collection`, `--username`. Defaults unchanged (SCC org/collection/username), so every existing SCC call yields the identical payload.
-- NM profile: org `Nacke Media`, collection `Citations`, username `listings@nackemedia.com`. Item name stays the caller's positional arg (`NM - <domain>`); `--client nm` also validates the prefix `NM - ` and scc validates nothing (unchanged).
-- Tests (node:test): SCC payload byte-identical to old behaviour; NM payload; override flags; unknown client refused; CLI dry run writes only the payload file (no vault call). No live write.
+## Repo rule found in CI
+`tests/leak_check.py` forbids the real NM identity words anywhere in this repo (public Pages repo). So the relay script and its test live on the NM seat profile (`scripts/nm_listings_relay.py`, `scripts/tests/`), exactly where the card puts them. This repo carries only the generic reader. `vendor/` is skipped by the leak check, so the vendored vault helper may name the NM org.
 
-## 2. Relay
-- `job/nm_listings_relay.py` (installed copy on the nacke-media profile `scripts/`). Query constant `to:listings@nackemedia.com newer_than:2d`, account `mike@nackemedia.com`. `--query` accepted only if it starts with `to:listings@nackemedia.com` and carries no `OR`, `-`, `{}`, parentheses or `in:`/`from:` broadening; anything else exits 2 without calling gog.
-- Only read verbs of gog (`gmail search`, `gmail thread get`) are ever built; a test asserts no argv contains `send`, `forward`, `drafts`, `modify`, `label`.
-- Per message: skip DRAFT/SENT, require listings@nackemedia.com in To/Delivered-To/X-Original-To/Envelope-To/Cc, extract links and codes with `mail_scan` helpers, append `{id, from, subject, received, links, codes}` to `%LOCALAPPDATA%/citation-engine/mail/nm-listings.jsonl`, deduped by id. `--dry` prints id/from/subject/counts only (never links/codes) and writes nothing.
-- `mail_scan.py --mailbox nm-relay` reads that file through the same message-dict shape as `read_messages`, so `--presence` / `--reset-link` / approval flows work. Missing file = empty list, not an error.
+## 1. Vault write profile (`mkpayload.js`, citation-submitter skill dir; vendored here for CI)
+- `--client scc|nm` (default `scc`) plus `--org`, `--collection`, `--username` overrides, and `--dry-run` (redacted payload, writes nothing). No flags = byte-identical SCC payload.
+- NM: org "NM", collection `Citations`, username = NM listings alias, item name must start `NM - `.
+- Tests: SCC default key-for-key unchanged, NM payload, overrides, prefix refusal, bad flags, CLI dry-run for both profiles writes no file. No live vault write.
 
-## Tests (failing first)
-`tests/nm_relay_test.py`: query guard (6 bad queries refused, gog never called), only-listings filter with a decoy message to another address, read-only argv, dedupe, jsonl shape, dry prints no link/code, reader feeds `find_reset`.
-CI line added to the workflow next to the other Python tests.
+## 2. Reader in the engine (`job/mail_scan.py`)
+- `--mailbox nm-relay`: every mode reads the relay JSONL file (`%LOCALAPPDATA%/citation-engine/mail/nm-listings.jsonl`, or `NM_RELAY_FILE`) instead of IMAP. Missing file = no mail.
+- New `--verify-link --directory D`: newest email-verification mail from D, prints link and code to the terminal only (same posture as `--reset-link`), exit 0 found / 1 none / 2 unreadable.
+- Tests `tests/nm_relay_reader_test.py`; CI step added.
+
+## 3. Relay (profile script, not in this repo)
+Query pinned (`to:` NM listings alias + optional `newer_than:`/`older_than:` only), account mike@, only `gmail search` and `gmail thread get` can be built, recipient re-check, DRAFT/SENT skipped, dedupe by id, `--dry` prints counts only. Test file: 34 checks, fake gog.
 
 ## Not
 No cron created, no live vault write, no send/forward, no queue write, no portal/Directory action.

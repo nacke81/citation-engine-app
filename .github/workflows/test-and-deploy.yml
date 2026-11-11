@@ -155,8 +155,8 @@ jobs:
         run: python tests/batch21_test.py
       - name: Batch 22 (CAPTCHA escaping, safe vault target, mail historical truth, scoped backoff, account stages)
         run: python tests/batch22_test.py
-      - name: NM listings relay (pinned query, To re-check, read-only gog, reader) 
-        run: python tests/nm_relay_test.py
+      - name: NM relay reader (mail_scan --mailbox nm-relay, --verify-link)
+        run: python tests/nm_relay_reader_test.py
       - name: Vault payload profiles (SCC default unchanged, NM, dry-run, no live write)
         run: node --test vendor/vaultwarden-cli-write/tests/mkpayload.test.js
       - name: No live row without Proof (one live writer, fail closed, guard, backfill)
