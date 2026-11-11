@@ -73,6 +73,32 @@ def _is_name_line(l, rx):
     return l2
 
 
+# t_ffa900be: Yelp's "You Might Also Consider" is a neighbour section that sits ABOVE the listing's own address (About the Business / Location & Hours).
+# It is not a stop (the block would lose NM's address); it is skipped up to the resume marker. No resume marker on the page = it is plain text (no skip).
+SKIP_RE = re.compile(r"(?i)^you might also consider\b")
+RESUME_RE = re.compile(r"(?i)^(about the business|location\s*(&|and)\s*hours)\b")
+
+
+def _walk_block(first, rest):
+    """first + the following lines up to the next stop marker (or 120 lines); a SKIP_RE section with a resume marker after it is left out."""
+    out = [first]
+    i = 0
+    while i < len(rest):
+        l3 = rest[i]
+        if SKIP_RE.match(l3):
+            j = next((k for k in range(i + 1, len(rest)) if RESUME_RE.match(rest[k])), None)
+            if j is not None:
+                i = j
+                continue
+        elif STOP_RE.match(l3):
+            break
+        out.append(l3)
+        if len(out) > 120:
+            break
+        i += 1
+    return out
+
+
 def listing_block(text, ident, b):
     """Lines from the first line that starts with the business name to the next stop marker. [] if there is no such line."""
     rx = re.compile(ident["RX"]["name"][b], re.I)
@@ -81,14 +107,7 @@ def listing_block(text, ident, b):
         l2 = _is_name_line(l, rx)
         if not l2:
             continue
-        out = [l2]
-        for l3 in lines[i + 1:]:
-            if STOP_RE.match(l3):
-                break
-            out.append(l3)
-            if len(out) > 120:
-                break
-        return out
+        return _walk_block(l2, lines[i + 1:])
     return []
 
 
@@ -213,7 +232,7 @@ def address_diff(block, ident, b, labels=False):
     zip_bad = bool(zipc and czip and zipc != czip.group(1))
     if street_equal(p, want) and not zip_bad:
         return None
-    out = {"field": "address", "live": shown + (f" {zipc}" if zip_bad else ""), "canonical": c["address"]}
+    out = {"field": "address", "live": shown + (f" {zipc}" if zip_bad and zipc not in shown else ""), "canonical": c["address"]}   # t_ffa900be: the zip is already in the shown line on one-line cards
     rx = (ident["RX"].get("old_street") or {}).get(b)
     if labels and rx and re.search(rx, shown, re.I):
         out["label"] = "old address"
@@ -243,12 +262,7 @@ def own_block(text, ident, b):
     lines = [l.strip() for l in (text or "").replace("\r", "").split("\n") if l.strip()]
     for i, l in enumerate(lines):
         if rx.search(l):
-            out = [l]
-            for l3 in lines[i + 1:]:
-                if STOP_RE.match(l3) or len(out) > 120:
-                    break
-                out.append(l3)
-            return out
+            return _walk_block(l, lines[i + 1:])
     return []
 
 
@@ -270,7 +284,7 @@ def scoped_flags(text, ident, b):
     """{other_street, old_city, city_only} for a biz whose identity carries RX.city_only / city_aliases, read from the listing's own block only.
     other_street: a street that is neither canonical nor an old street (address_diff on the block, a street right before 'City, ST' on a one-line card, or a
     streetAddress of the JSON-LD entity named like the biz). A neighbour's city or street outside the block never counts."""
-    out = {"other_street": "", "old_city": False, "city_only": False}
+    out = {"other_street": "", "old_city": False, "city_only": False, "street": None, "old_street": None}   # street / old_street None = not scoped for this biz (SCC): the caller reads the whole page as before
     x = ident["BIZ"][b]
     rx = ident["RX"]
     cio = (rx.get("city_only") or {}).get(b)
@@ -284,6 +298,10 @@ def scoped_flags(text, ident, b):
     blk = own_block(text, ident, b)
     joined = "\n".join(blk)
     low = joined.lower()
+    shows_addr = bool(blk) and (street_in(blk) is not None or any(c.lower() in low for c in [x["city"]] + list(aliases)) or bool(cio and re.search(cio, joined, re.I)))
+    if shows_addr:      # t_ffa900be: a neighbour's R1 / old street outside the listing's own block is not NM's, but only when the block itself shows an address (a street line or the city line). A block with no address at all (NM's street above the name line or past the walk cap) keeps the page-wide read, same as an empty block.
+        out["street"] = bool(rx_street.search(joined))
+        out["old_street"] = bool((rx.get("old_street") or {}).get(b) and rx_old.search(joined))
     if aliases:
         out["old_city"] = x["city"].lower() not in low and any(a.lower() in low for a in aliases)
     if not cio:
@@ -431,7 +449,7 @@ def diffs_for(text, ev, ident, b, url="", labels=False, links=None):
     ad = address_diff(block, ident, b, labels) if block else None
     if ad:
         out.append(ad)
-    elif not block and ev.get("old_street") and not ev.get("street"):
+    elif ev.get("old_street") and not ev.get("street"):     # t_ffa900be: also with a block (the old street sits in prose, no street line): not-match must carry a diff
         live = old_street_live(text, ident, b) or ident["BIZ"][b].get("old_street", "old street")
         d = {"field": "address", "live": live, "canonical": c["address"]}
         if labels:
@@ -443,6 +461,12 @@ def diffs_for(text, ev, ident, b, url="", labels=False, links=None):
         d = {"field": "address", "live": ident["BIZ"][b]["city_aliases"][0] + ", " + ident["BIZ"][b].get("st", ""), "canonical": c["address"]}
         if labels:
             d["label"] = "old city"
+        out.append(d)
+    elif (ident["RX"].get("city_only") or {}).get(b) and ev.get("name") and ev.get("city") and ev.get("phones") and not ev.get("street") and not ev.get("city_only"):
+        # t_ffa900be r2: NM (city_only rule) shows the canonical phone but neither its street nor the city-only form in the block: needs-check. A not-match always carries a diff (SCC has no city_only rule: unchanged).
+        d = {"field": "address", "live": "not shown in the listing block", "canonical": c["address"]}
+        if labels:
+            d["label"] = "needs-check"
         out.append(d)
     sd = site_diff(block, ident, b, url, website_hosts(links, ident, b, url))
     if sd and sd["live"] == "missing" and _is_list_page(text, block):     # one card among many businesses cannot prove "no site"
