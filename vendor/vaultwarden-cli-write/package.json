@@ -1,0 +1,1 @@
+{ "private": true, "type": "commonjs", "description": "Copy of the citation-submitter skill's mkpayload.js + test (t_04751f6a) so CI runs them. The live copy is profiles/citation-submitter/skills/devops/vaultwarden-cli-write/." }
