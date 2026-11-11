@@ -1,0 +1,53 @@
+# Plan 2026-11-11: NM engine identity to R1 + Nate release gate (t_00a75d04)
+
+Cites lesson `docs/lessons/2026-11-10-queue-ids-share-a-first-label-and-search-echoes-are-not-hits.md`: a label (there a first label, here a city name) is never an identity; before changing it, find every place that compares by it, and run the real code over the live row shapes, not only new fixtures.
+
+## Goal
+Engine scores NM against R1 and NM queue rows can be released by Nate without `mike_approval`. Nate's rulings in the card are final.
+
+## Places that read city / street (checked by grep, not by memory)
+- `core.evidence` / `judge_listing` / MAPDIRS branch: `city` flag is `city in text`. After the move to Gallatin every existing Nashville listing would fail the city test. Fix: city flag also true for `city_aliases` (NM: Nashville).
+- `core.plan_for` + `cfg.search_url` / `pattern_urls`: built from the single city. Fix: search/pattern URLs for the city AND every alias, de-duplicated (`discover.plan_or_known` already de-dupes).
+- `judge.nap_flags`: `match = street and phone`. New: also match when the page shows `Gallatin, TN` (RX.city_only) with NO street and NO old street, plus the R1 phone. Gated on the identity carrying `RX.city_only.<biz>`; SCC and FAKE have none, so they are unchanged.
+- `fixlist.diffs_for`: already "no street shown = no address diff"; old street = diff. Pin by test only.
+- `recheck.compare` is SCC-bound (refuses a non-SCC queue phone); not touched. Stated in the handoff.
+- `buildqueue.approval_ok` / `submit_row`: the only writer gate on `mike_approval`. `workable.py` prints it.
+
+## Changes
+1. identity.json (done first, backed up `.bak-t_00a75d04`, read back): BIZ.NM street/city/zip, `old_street` both, `city_aliases`, RX.street/old_street/city_only NM, CANON.NM.address. Phone not touched.
+2. `tests/test_identity.json`: placeholder equivalents (Birch Media) so CI exercises the same rules without the client's data.
+3. Code: core, cfg, judge as above.
+4. Gate: `buildqueue.approval_ok` accepts `row.approval == {by:"nate", card:"t_...", at:<iso>, row_id:<id>}` only on NM rows (id starts `nm-`); `mike_approval` rule unchanged for everything else. `submit_row` records with the row's own client, so an NM row can never be recorded into the SCC queue (transitions stay SCC-only and refuse NM, fail closed).
+5. `job/release.py --release <ids> --card <id> [--queue path] [--dry-run]`: only the NM queue file, only `nm-` rows that exist, backs up `.bak-<card>`, atomic write, stamps `approval`, never touches `mike_approval` or state.
+6. Tests `tests/nm_r1_test.py` (added to CI): the 8 card cases + alias discovery + release command + mutation checks. Mutation check run by hand: drop the Gallatin-only rule, test fails.
+7. Before/after dry run over saved pages (latest weekly run dir) with the old vs new identity, row by row, no network.
+
+## Not
+No submits, no live sweep, no SCC rows/identity, no CapSolver, no legacy TS repo.
+
+## Round 2 addendum (Nate changes_requested, comment 634)
+
+Lesson cited: docs/lessons/2026-11-11-moving-the-client-city-must-keep-the-old-city-findable.md. A match rule that is looser than the decision hides real errors, so each new accept path needs a wrong-input test.
+
+1. city_only counts only when NO street is shown. core.shown_street reads the 120 chars before a "City, ST" hit and any streetAddress field; a street that is neither R1 nor old sets ev.other_street, judge.nap_flags drops city_only, fixlist emits an address diff.
+2. Alias city only (no street): ev.old_city, fixlist emits an address diff labelled "old city".
+3. job/nm_transitions.py: NM-queue-only state writer (same matrix, history note required, .bak-nm-<day>, atomic). buildqueue.submit_row routes NM rows to it by default when live. transitions.py stays SCC-only.
+4. tests/nm_r1_test.py N6 (wrong street, old city) and N7 (release -> submit live -> state in NM file, SCC md5 unchanged), each mutation-checked.
+
+## Round 3 (t_00a75d04): scope other_street to NM's own card
+Reviewer found core.shown_street read any street within 120 chars of any "City, ST" and any streetAddress on the page (neighbour blocks, directory JSON-LD, prose).
+Fix: street must sit in NM's own card (from the name line, ends at Similar / Also at / Nearby / Related / Top collections), directly before the city (separators + optional suite only),
+start the line / follow a separator / follow the business name, contain no prose word; streetAddress only from the JSON-LD entity whose name matches NM and that starts with a house number.
+fixlist: card stop markers extended; a street_in line holding prose tokens ("4 reviews from Dr.") is not a street. Tests N8 (a)-(d) + mutations (widen scope, any-entity streetAddress).
+
+## Round 4 (t_00a75d04): one parser for score and fix list (Nate ruling after 3 BLOCKs)
+Lesson cited: docs/lessons/2026-11-11-two-readers-of-one-page-must-share-one-block.md (latest; written this round).
+Reviewer found core's `_own_block` (10-line window, 40-line cap, its own stop list) and fixlist's `listing_block` read different parts of the same page, so match and the fix list disagreed
+(Yelp wrong street = match=True + diff; old city hidden by a neighbour's city; single-word prose filters hid "Business Park Dr" / "Hall of Fame Dr").
+1. `fixlist.own_block` = `listing_block` (the block diffs_for reads), with a same-stop-marker fallback for one-line cards. `fixlist.scoped_flags` computes other_street, old_city, city_only from that block only.
+   `core.evidence` calls it; `core._own_block`, `shown_street`, the 10/40-line windows, `_PROSE_WORDS` and `_BLOCK_STOP` are deleted. streetAddress still counts only from the JSON-LD entity named NM.
+2. Prose filter = phrases only (`fixlist.PROSE_RE`: "N reviews from", "find their way", "helped N", "N businesses", "from Dr"). No single-word filter, so a real street pattern wins for SCC and NM.
+3. Tests N9: Yelp shape (wrong street 45+ lines down, past "You Might Also Consider") = differing + diff; old city + Gallatin neighbour = differing + "old city" diff (mutation: city flags from the whole page fails it);
+   Business Park / Hall of Fame / Local Way / Our Lane / The Way / Find Rd on NM and SCC = address diff; invariant shapes x 7 forms: match iff no address/phone diff. Mutation: restore single-word prose filters fails 8.
+4. Real-page 7 x 6 table and the dry run re-run (attached to the card).
+Out of scope, noted for follow-up: neighbour blocks that fixlist.STOP_RE does not name (e.g. Yelp "You Might Also Consider") stay inside the block, by design (the real address sits below them).

@@ -2,6 +2,7 @@
 import re, os, json, time, html as H, base64, subprocess, random
 from urllib.parse import urlparse, urljoin, unquote
 from cfg import *
+import fixlist
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FFMPEG = os.path.expandvars(r"%LOCALAPPDATA%/hermes/tools/ffmpeg-9.0.1-win32-x64/bin/ffmpeg.exe")
@@ -11,6 +12,7 @@ _RX = IDENT["RX"]
 NAME = {k: re.compile(v, re.I) for k, v in _RX["name"].items()}
 STREET = {k: re.compile(v, re.I) for k, v in _RX["street"].items()}
 OLD_STREET = {k: re.compile(v, re.I) for k, v in _RX["old_street"].items()}
+CITY_ONLY = {k: re.compile(v, re.I) for k, v in (_RX.get("city_only") or {}).items()}   # t_00a75d04: "City, ST" with no street is a valid listing for a biz that carries this rule (NM, R1)
 HN = re.compile(_RX["hn"], re.I)
 CHALLENGE = re.compile(r"(?i)just a moment|verify you are (a )?human|attention required|access denied|unusual traffic|press (&|and) hold|"
                        r"captcha|are you a robot|checking your browser|request blocked|error 1020|you have been blocked|security verification|"
@@ -27,6 +29,7 @@ def html_to_text(src):
     return "\n".join(re.sub(r"[ \t]+", " ", x).strip() for x in t.split("\n") if x.strip())
 
 def evidence(text, b):
+    sf = fixlist.scoped_flags(text, IDENT, b)
     ph = set(m.group(1) + m.group(2) + m.group(3) for m in PHONE_RE.finditer(text))
     mk = set()
     for m in MASK_RE.finditer(text):
@@ -36,7 +39,8 @@ def evidence(text, b):
     return {"name": bool(NAME[b].search(text)),
             "street": bool(STREET[b].search(text)),
             "old_street": bool(b in OLD_STREET and OLD_STREET[b].search(text)),
-            "city": S(b)["city"].lower() in text.lower(),
+            "city": any(c.lower() in text.lower() for c in cities(b)),   # the city or an alias (NM: Gallatin, and Nashville for the listings still under the old city)
+            "city_only": sf["city_only"], "other_street": sf["other_street"], "old_city": sf["old_city"],   # r4: all three read from the listing's own block (fixlist.scoped_flags), the block diffs_for reads
             "phones": sorted(p for p in ph if p in S(b)["phones"]),
             "phone_partial": partial and not (ph & set(S(b)["phones"])),
             "stale_phone": bool(ph & set(S(b)["stale_phones"]))}
@@ -195,7 +199,7 @@ def discover(fetcher, d, b, plan, log):
         is_search = kind in ("search", "phone")
         if is_search and d in MAPDIRS:
             ev = evidence(r.text, b)
-            if ev["name"] and (ev["street"] or ev["old_street"]) and ev["city"]:
+            if ev["name"] and (ev["street"] or ev["old_street"] or (ev["city_only"] and ev["phones"])) and ev["city"]:
                 return {"status": "found", "url": url, "ev": ev, "note": "map page text"}
         if not is_search:
             ok, ev, why = judge_listing(r.text, b)
@@ -216,8 +220,8 @@ def discover(fetcher, d, b, plan, log):
 
 def plan_for(method, d, b):
     x = S(b)
-    if method == "search": return [("search", search_url(d, b))]
-    if method == "pattern": return [("pattern", u) for u in pattern_urls(d, b)]
+    if method == "search": return [("search", search_url(d, b, c)) for c in cities(b)]   # the city, then each alias (Gallatin, then Nashville)
+    if method == "pattern": return [("pattern", u) for c in cities(b) for u in pattern_urls(d, b, c)]
     if method == "phone":
         return [("phone", u) for u in (phone_urls(d, b, p) for p in x["phones"]) if u]
     raise ValueError(method)

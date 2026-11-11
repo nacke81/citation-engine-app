@@ -368,9 +368,9 @@ def record_live(row, site, record=None, captured=None):
         res = Q.submit_row(row, lambda item: {"checked": "vault_fill used it in this run"}, record=record, live=True, to=to,
                          captured_url=(captured or {}).get("listing_url"), captured_id=(captured or {}).get("listing_id"))
     except Q.SubmitRefused as e:
-        return "NOT recorded (submit_row refused: %s). Record it with transitions.py." % e
+        return "NOT recorded (submit_row refused: %s). Record it with %s." % (e, "job/nm_transitions.py --row %s --to %s --note ..." % (row["id"], to) if Q.is_nm_row(row) else "transitions.py")
     except Exception as e:
-        return "NOT recorded (recording failed: %s). Record it with transitions.py." % PK.redact(str(e))[:120]
+        return "NOT recorded (recording failed: %s). Record it with %s." % (PK.redact(str(e))[:120], "job/nm_transitions.py --row %s --to %s --note ..." % (row["id"], to) if Q.is_nm_row(row) else "transitions.py")
     return "recorded: %s -> %s (%s)" % (res["id"], to, str(res.get("recorded"))[:120])
 
 
