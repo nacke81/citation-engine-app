@@ -150,5 +150,57 @@ for name, fn in (("wrong file name (SCC queue)", lambda: R.release(mkq("scc-fix-
 check("N5 a refused batch wrote nothing (nm-fix-gone still unstamped)", "approval" not in {r["id"]: r for r in json.load(open(p))["fix_queue"]}["nm-fix-gone"] and md5(p) == h1)
 check("N5 CLI: refusal exits 2, success exits 0", R.main(["--release", "fix-yelp", "--card", "t_76ce8d3c", "--queue", p]) == 2 and R.main(["--release", "nm-fix-gone", "--card", "t_76ce8d3c", "--queue", p, "--dry-run"]) == 0)
 
+# ---- N6 (r2) wrong street / old city
+for txt, nm in ((page(None, "123 Main Street, Testville, TN 39999", PH).replace("\n", " "), "one-line wrong street"),
+                (page("123 Main Street", "Testville, TN", PH), "multi-line wrong street + city-only form"),
+                ("Birch Media 999 Wrong Rd Testville, TN " + PH, "wrong street, no comma before city")):
+    c, ev, fl, dif = score(txt)
+    ad = [d for d in dif if d["field"] == "address"]
+    check("N6 %s + R1 phone = differing with an address diff" % nm, (not fl["match"]) and fl["other_street"] and not fl["city_only"] and ad, (fl, dif))
+c, ev, fl, dif = score(page(None, "Testville, TN", PH + " Call 5551 now"))
+check("N6 city-only with no street anywhere is still a match (digits in other text do not count as a street)", fl["match"] and fl["city_only"] and not fl["other_street"], fl)
+c, ev, fl, dif = score(page(None, "Oldtown, TN", PH))
+ad = [d for d in dif if d["field"] == "address"]
+check("N6 alias city only (no street) + R1 phone = differing, address diff labelled old city", c and not fl["match"] and fl["old_city"] and ad and ad[0].get("label") == "old city" and ad[0]["canonical"], (c, fl, dif))
+c, ev, fl, dif = score(page("200 Sample Ave", "Oldtown, TN", PH))
+check("N6 R1 street under the old city is a match with no old-city diff (street wins)", fl["match"] and not [d for d in dif if d["field"] == "address"], (fl, dif))
+c, ev, fl, dif = score(page(None, "Testville, TN", PH))
+check("N6 primary city page never raises old city", not fl["old_city"] and fl["match"])
+c, ev, fl, dif = score("Alder Care Consulting\n123 Main Street, Exampleton, KY\n(502) 555-0101", "SCC")
+check("N6 SCC: no other_street / old_city flags, no extra diff beyond the street", not ev["other_street"] and not ev["old_city"], ev)
+
+# ---- N7 (r2) NM state writer: release -> submit(live) -> state in the NM file
+import nm_transitions as NT, transitions as T
+p7 = mkq(); scc7 = os.path.join(tmp, "scc-fix-create-queue.json")
+json.dump({"fix_queue": [dict(SCC, id="fix-yelp")], "revision": 1}, open(scc7, "w"), indent=2)
+hs = md5(scc7); R.release(p7, ["nm-fix-yelp"], "t_76ce8d3c")
+rows7 = {r["id"]: r for r in json.load(open(p7))["fix_queue"]}
+NT.DEFAULT_NM_QUEUE = p7
+_t = T.record_transition
+T.record_transition = lambda *a, **k: (_ for _ in ()).throw(AssertionError("SCC writer called for an NM row"))
+res = Q.submit_row(rows7["nm-fix-yelp"], login, live=True)
+T.record_transition = _t
+got = {r["id"]: r for r in json.load(open(p7))["fix_queue"]}["nm-fix-yelp"]
+check("N7 release -> submit_row(live=True) -> NM row state=submitted in the NM file", got["state"] == "submitted" and res["recorded"]["to"] == "submitted", (got, res))
+check("N7 history gained one entry (from queued to submitted, with note), earlier history kept", len(got["history"]) == 2 and got["history"][0]["note"] == "n" and got["history"][-1]["from"] == "queued"
+      and got["history"][-1]["to"] == "submitted" and got["history"][-1]["note"], got["history"])
+check("N7 approval stamp and mike_approval untouched", got["approval"] == rows7["nm-fix-yelp"]["approval"] and got["mike_approval"] is None)
+check("N7 other NM rows untouched", {r["id"]: r for r in json.load(open(p7))["fix_queue"]}["nm-fix-bbb"] == rows7["nm-fix-bbb"])
+check("N7 SCC queue md5 unchanged", md5(scc7) == hs)
+check("N7 backup .bak-nm-<day> written once with the pre-write content", any(f.startswith("nm-fix-queue.json.bak-nm-") for f in os.listdir(tmp)))
+check("N7 NM writer refuses an SCC client / SCC file / SCC row id / no note / a bad move",
+      raises(lambda: NT.record_transition("SCC", "nm-fix-bbb", "submitted", note="x", queue_path=p7), T.TransitionRefused)
+      and raises(lambda: NT.record_transition("NM", "fix-yelp", "submitted", note="x", queue_path=scc7), T.TransitionRefused)
+      and raises(lambda: NT.record_transition("NM", "nm-fix-bbb", "submitted", note="x", queue_path=scc7), T.TransitionRefused)
+      and raises(lambda: NT.record_transition("NM", "fix-yelp", "submitted", note="x", queue_path=p7), T.TransitionRefused)
+      and raises(lambda: NT.record_transition("NM", "nm-fix-bbb", "submitted", note="", queue_path=p7), T.TransitionRefused)
+      and raises(lambda: NT.record_transition("NM", "nm-fix-bbb", "live", evidence_url="https://x.example/p", note="x", queue_path=p7), T.TransitionRefused)   # queued -> live not allowed
+      and md5(scc7) == hs)
+check("N7 a row with no release is refused by submit_row before the writer runs", raises(lambda: Q.submit_row(rows7["nm-fix-bbb"], login, live=True), Q.SubmitRefused)
+      and {r["id"]: r for r in json.load(open(p7))["fix_queue"]}["nm-fix-bbb"]["state"] == "queued")
+check("N7 CLI: refusal exits 2, success exits 0, dry run writes nothing", NT.main(["--row", "nm-fix-bbb", "--to", "live", "--note", "x", "--queue", p7]) == 2
+      and (lambda h: NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7, "--dry-run"]) == 0 and md5(p7) == h)(md5(p7))
+      and NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7]) == 0)
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

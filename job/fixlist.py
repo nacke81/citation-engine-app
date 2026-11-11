@@ -348,6 +348,13 @@ def diffs_for(text, ev, ident, b, url="", labels=False, links=None):
         if labels:
             d["label"] = "old address"
         out.append(d)
+    elif ev.get("other_street") and not ev.get("street"):     # t_00a75d04 r2: a wrong street beside "City, ST" (one-line / phone-bearing lines hide it from the block parser)
+        out.append({"field": "address", "live": ev["other_street"], "canonical": c["address"]})
+    elif ev.get("old_city") and not ev.get("street"):         # r2: only the old city (a discovery alias) shown, no street: differing under R1
+        d = {"field": "address", "live": ident["BIZ"][b]["city_aliases"][0] + ", " + ident["BIZ"][b].get("st", ""), "canonical": c["address"]}
+        if labels:
+            d["label"] = "old city"
+        out.append(d)
     sd = site_diff(block, ident, b, url, website_hosts(links, ident, b, url))
     if sd and sd["live"] == "missing" and _is_list_page(text, block):     # one card among many businesses cannot prove "no site"
         sd = None

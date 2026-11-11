@@ -27,6 +27,24 @@ def html_to_text(src):
     t = H.unescape(re.sub(r"<[^>]+>", " ", src))
     return "\n".join(re.sub(r"[ \t]+", " ", x).strip() for x in t.split("\n") if x.strip())
 
+# t_00a75d04 r2: a street shown right before "City, ST" (house number + words + street-type word). Only used for a biz with RX.city_only.
+OTHER_STREET = re.compile(r"(?i)\b\d{1,6}\s+(?:[A-Za-z0-9.'#\-]+\s+){0,4}?(?:street|st|road|rd|avenue|ave|lane|ln|drive|dr|boulevard|blvd|way|pike|parkway|pkwy|court|ct|circle|cir|highway|hwy|trail|trl|place|pl)\b\.?")
+
+
+def shown_street(text, b):
+    """The street a listing shows next to its city-only form ('' if none): a streetAddress field, or a street in the 120 chars before a 'City, ST' hit.
+    R1 and old streets are not 'other' (they have their own flags)."""
+    if b not in CITY_ONLY: return ""
+    t = text or ""
+    known = lambda x: bool(STREET[b].search(x) or (b in OLD_STREET and OLD_STREET[b].search(x)))
+    for m in re.finditer(r'(?i)streetAddress"?\s*[:=]\s*"?([^",<\n]{3,80})', t):
+        if not known(m.group(1)): return m.group(1).strip()
+    for m in CITY_ONLY[b].finditer(t):
+        for sm in OTHER_STREET.finditer(t[max(0, m.start() - 120):m.start()]):
+            if not known(sm.group(0)): return " ".join(sm.group(0).split())
+    return ""
+
+
 def evidence(text, b):
     ph = set(m.group(1) + m.group(2) + m.group(3) for m in PHONE_RE.finditer(text))
     mk = set()
@@ -39,6 +57,8 @@ def evidence(text, b):
             "old_street": bool(b in OLD_STREET and OLD_STREET[b].search(text)),
             "city": any(c.lower() in text.lower() for c in cities(b)),   # the city or an alias (NM: Gallatin, and Nashville for the listings still under the old city)
             "city_only": bool(b in CITY_ONLY and CITY_ONLY[b].search(text)),
+            "other_street": shown_street(text, b),   # r2: a street that is neither R1 nor an old one next to the city-only form = differing, not a match
+            "old_city": bool(S(b).get("city_aliases")) and S(b)["city"].lower() not in text.lower() and any(c.lower() in text.lower() for c in cities(b)[1:]),
             "phones": sorted(p for p in ph if p in S(b)["phones"]),
             "phone_partial": partial and not (ph & set(S(b)["phones"])),
             "stale_phone": bool(ph & set(S(b)["stale_phones"]))}

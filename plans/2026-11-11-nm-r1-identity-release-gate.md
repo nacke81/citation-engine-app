@@ -24,3 +24,12 @@ Engine scores NM against R1 and NM queue rows can be released by Nate without `m
 
 ## Not
 No submits, no live sweep, no SCC rows/identity, no CapSolver, no legacy TS repo.
+
+## Round 2 addendum (Nate changes_requested, comment 634)
+
+Lesson cited: docs/lessons/2026-11-11-moving-the-client-city-must-keep-the-old-city-findable.md. A match rule that is looser than the decision hides real errors, so each new accept path needs a wrong-input test.
+
+1. city_only counts only when NO street is shown. core.shown_street reads the 120 chars before a "City, ST" hit and any streetAddress field; a street that is neither R1 nor old sets ev.other_street, judge.nap_flags drops city_only, fixlist emits an address diff.
+2. Alias city only (no street): ev.old_city, fixlist emits an address diff labelled "old city".
+3. job/nm_transitions.py: NM-queue-only state writer (same matrix, history note required, .bak-nm-<day>, atomic). buildqueue.submit_row routes NM rows to it by default when live. transitions.py stays SCC-only.
+4. tests/nm_r1_test.py N6 (wrong street, old city) and N7 (release -> submit live -> state in NM file, SCC md5 unchanged), each mutation-checked.

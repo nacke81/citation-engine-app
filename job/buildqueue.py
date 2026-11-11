@@ -169,8 +169,12 @@ def submit_row(row, get_login, free_only=True, record=None, live=False, to="subm
     # Success path: record the submitted state (queue + Local SEO + gated Activities). submit_row is still a dry run (no Directory adapter
     # exists), so recording is opt-in via CE_RECORD_TRANSITIONS=1 or an injected record(); once a live adapter lands, flip the default.
     if record is None and (live or os.environ.get("CE_RECORD_TRANSITIONS") == "1"):
-        import transitions
-        record = transitions.record_transition
+        if is_nm_row(row):   # t_00a75d04 r2: NM rows are recorded in nm-fix-queue.json by their own writer; transitions.py is SCC-only
+            import nm_transitions
+            record = nm_transitions.record_transition
+        else:
+            import transitions
+            record = transitions.record_transition
     if record:
         note = "submitted via build queue" if to == "submitted" else "created via build queue; not public yet or NAP incomplete"
         extra = {}
