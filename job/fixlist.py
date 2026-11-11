@@ -298,7 +298,8 @@ def scoped_flags(text, ident, b):
     blk = own_block(text, ident, b)
     joined = "\n".join(blk)
     low = joined.lower()
-    if blk:      # t_ffa900be: a neighbour's R1 / old street outside the listing's own block is not NM's (empty block = no name line: the caller keeps the page-wide read)
+    shows_addr = bool(blk) and (street_in(blk) is not None or any(c.lower() in low for c in [x["city"]] + list(aliases)) or bool(cio and re.search(cio, joined, re.I)))
+    if shows_addr:      # t_ffa900be: a neighbour's R1 / old street outside the listing's own block is not NM's, but only when the block itself shows an address (a street line or the city line). A block with no address at all (NM's street above the name line or past the walk cap) keeps the page-wide read, same as an empty block.
         out["street"] = bool(rx_street.search(joined))
         out["old_street"] = bool((rx.get("old_street") or {}).get(b) and rx_old.search(joined))
     if aliases:
@@ -460,6 +461,12 @@ def diffs_for(text, ev, ident, b, url="", labels=False, links=None):
         d = {"field": "address", "live": ident["BIZ"][b]["city_aliases"][0] + ", " + ident["BIZ"][b].get("st", ""), "canonical": c["address"]}
         if labels:
             d["label"] = "old city"
+        out.append(d)
+    elif (ident["RX"].get("city_only") or {}).get(b) and ev.get("name") and ev.get("city") and ev.get("phones") and not ev.get("street") and not ev.get("city_only"):
+        # t_ffa900be r2: NM (city_only rule) shows the canonical phone but neither its street nor the city-only form in the block: needs-check. A not-match always carries a diff (SCC has no city_only rule: unchanged).
+        d = {"field": "address", "live": "not shown in the listing block", "canonical": c["address"]}
+        if labels:
+            d["label"] = "needs-check"
         out.append(d)
     sd = site_diff(block, ident, b, url, website_hosts(links, ident, b, url))
     if sd and sd["live"] == "missing" and _is_list_page(text, block):     # one card among many businesses cannot prove "no site"

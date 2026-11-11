@@ -20,3 +20,10 @@ Cites lesson `docs/lessons/2026-11-11-two-readers-of-one-page-must-share-one-blo
 
 ## Not
 No identity.json change, no queue writes, no submits, no live reads, no SCC behaviour change.
+
+## Round 2 (review round 1, Nate): own street outside the block
+Review found: with street/old_street block-only, NM's own canonical street above the name line or past the 120-line walk cap gave match=False with no diff (main: match). Nate's ruling: no new windows or caps; if the block cannot find NM's own street the result is needs-check, never not-match with no diff.
+- `scoped_flags`: street / old_street from the block are authoritative only when the block shows an address (a street line, the city or an alias, or the city-only form). Otherwise they stay None and `core.evidence` keeps the page-wide read (same as an empty block).
+- `diffs_for`: for a biz with a city_only rule (NM), name + city + canonical phone shown but neither street nor city-only form in the block and no other address diff => an address diff labelled "needs-check" ("not shown in the listing block"). SCC has no city_only rule: unchanged.
+- Tests (N10 4 + N9 shapes street-above-name, street-past-cap x 6 forms): written first, 15 failing on 757c569. Mutations: block always authoritative (2 fail); needs-check diff off (6 fail).
+- Table: 7 pages x 7 forms plus a 10-row synthetic section for the two shapes; SCC saved pages byte-identical to main.

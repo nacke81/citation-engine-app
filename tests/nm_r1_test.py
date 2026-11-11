@@ -350,5 +350,21 @@ check("N10 3 address diff with a wrong zip prints the zip once", zl and zl[0].co
 z = score(page("123 Main Street", "Testville, TN", PH).replace("123 Main Street\nTestville, TN", "123 Main Street\nTestville, TN 39000"))[3]
 zl = [d["live"] for d in ap(z)]
 check("N10 3 wrong street + wrong zip on the next line still prints the zip once", zl and zl[0].count("39000") == 1, zl)
+# 4 (round 1) NM's own R1 street outside the block (above the name line, or past the 120-line cap): the block shows no address, so the page-wide read stands (main behaviour): match, no diff
+above = "200 Sample Ave Ste 1\nTestville, TN 39999\nBirch Media\nMarketing agency\n" + PH
+far = "Birch Media\n" + "\n".join("Filler line %d" % i for i in range(130)) + "\n200 Sample Ave Ste 1\nTestville, TN 39999\n" + PH
+for nm_, t_ in (("above the name line", above), ("past the block cap", far)):
+    c, ev, fl, dif = score(t_)
+    check("N10 4 own R1 street %s: match, no address/phone diff (iff holds)" % nm_, fl["match"] and not addr_phone(dif) and agree(t_)[0], (fl, dif))
+oldabove = above.replace("200 Sample Ave Ste 1", "900 Old Rd")
+c, ev, fl, dif = score(oldabove)
+check("N10 4 own OLD street above the name line: not a match, with a diff", (not fl["match"]) and addr_phone(dif) and agree(oldabove)[0], (fl, dif))
+check("N10 4 a block that shows its own address stays authoritative (1b still no-match)", not score(nb)[2]["match"] and ap(score(nb)[3]))
+# N9 shapes: the two outside-the-block shapes join the invariant (match iff no address/phone diff, every form)
+for sn, fn in (("street-above-name", lambda a: a + "\nBirch Media\nMarketing agency\n" + PH),
+               ("street-past-cap", lambda a: "Birch Media\n" + "\n".join("Filler line %d" % i for i in range(130)) + "\n" + a + "\n" + PH)):
+    for fnm, (addr, want) in forms.items():
+        txt = fn(addr); c, ev, fl, dif = score(txt)
+        check("N9 %s x %s: match iff no address/phone diff" % (sn, fnm), fl["match"] == (not addr_phone(dif)), (fl["match"], dif))
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)
