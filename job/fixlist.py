@@ -20,7 +20,8 @@ PHONE_RE = re.compile(r"(?<!\d)\(?(\d{3})\)?[\s.\-]*(\d{3})[\s.\-]*(\d{4})(?!\d)
 
 STOP_RE = re.compile(r"(?i)^(claim (this|your) (business|listing)|is this your business|manage your free|showing \d|featured\b|"
                      r"places near|similar |you might also like|people also|.{0,40} near me in |"
-                     r"ratings and reviews)")
+                     r"ratings and reviews|also at\b|nearby\b|related\b|top collections|other (businesses|listings)|businesses near|more from|you may also)")   # r3: neighbour sections end the card
+PROSE_TOKENS = {"review", "reviews", "from", "local", "businesses", "business", "find", "their", "our", "we", "your", "helped", "years", "miles", "away", "ratings", "stars"}
 SEARCHY_URL_RE = re.compile(r"(?i)/search|[?&](q|query|search|search_terms|find_desc|find_text|what)=|/explore|/maps/search")
 STATE_ZIP_RE = re.compile(r"(?i)^[A-Za-z .'\-]+,?\s+[A-Z]{2}\.?,?\s+\d{5}|\b[A-Z]{2}\s+\d{5}\b|^\d{5}\b")
 SITE_LABEL_RE = re.compile(r"(?i)^(historical |business )?(website|web|site|visit website|url|homepage)$")
@@ -179,6 +180,8 @@ def street_in(block):
         if not p:
             continue
         if p["num"].lstrip("0") == "":
+            continue
+        if set(p["name"]) & PROSE_TOKENS:        # r3: "4 reviews from Dr." is prose, not a street
             continue
         nxt = block[i + 1] if i + 1 < len(block) else ""
         nxt2 = block[i + 2] if i + 2 < len(block) else ""

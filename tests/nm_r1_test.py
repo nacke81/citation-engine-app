@@ -11,7 +11,7 @@ old streets 900 Old + 44 Prior, old phone 615-555-0112. It mirrors the real R1 s
   N5 release command: stamps only the named NM rows, backs up, leaves state/history/mike_approval alone; refuses wrong file, SCC id, unknown id, bad card,
      another card's release; same card again is a no-op; --dry-run writes nothing; the stamped row passes submit_row
 """
-import copy, hashlib, json, os, sys, tempfile, urllib.request
+import copy, hashlib, json, os, re, sys, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "nm_r1_identity.json")
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
@@ -201,6 +201,55 @@ check("N7 a row with no release is refused by submit_row before the writer runs"
 check("N7 CLI: refusal exits 2, success exits 0, dry run writes nothing", NT.main(["--row", "nm-fix-bbb", "--to", "live", "--note", "x", "--queue", p7]) == 2
       and (lambda h: NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7, "--dry-run"]) == 0 and md5(p7) == h)(md5(p7))
       and NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7]) == 0)
+
+# ---- N8 (r3) other_street is scoped to NM's own card, directly before the city, and to the JSON-LD entity named NM
+def clean(txt, nm):
+    c, ev, fl, dif = score(txt)
+    ad = [d for d in dif if d["field"] == "address"]
+    return c and fl["match"] and not fl["other_street"] and not ad, (fl, dif)
+card = page(None, "Testville, TN", PH)
+n8 = {
+    "(a) n49 shape: NM card, then a Similar Businesses list of neighbours with streets":
+        card + "\nGet Directions\nSimilar Businesses\nSee All\nVML\n401 Church Street, Floor 18, Testville, TN (8 Km Away)\n5.0\nP.O.G. LLC\n4004 Hillsboro Pike, Suite 202-A, Testville, TN (1 Km Away)",
+    "(a2) mapquest shape: Also at this address list of neighbours":
+        card + "\nAlso at this address\nPop Mt\n12 Oak Street, Testville, TN\nMcNally Law",
+    "(a3) a neighbour listing ABOVE NM's card":
+        "Search results\nPop Mt\n500 Main St, Testville, TN\n(615) 555-0199\n" + card,
+    "(b) the directory's own Organization JSON-LD with its own streetAddress":
+        '{"@type":"Organization","name":"DirCo","address":{"@type":"PostalAddress","streetAddress":"100 Corporate Dr","addressLocality":"Austin"}}\n' + card,
+    "(b2) NM-named entity with only a place phrase in streetAddress":
+        '{"@type":"LocalBusiness","name":"Birch Media","address":{"streetAddress":"Serving Testville area"}}\n' + card,
+    "(c) prose 'find their way' before the city":
+        "Birch Media\nWe have helped 100 local businesses find their way online. Testville, TN\n" + PH,
+    "(d) 'N reviews from Dr.' next to the city (same line)":
+        "Birch Media\n4 reviews from Dr. Smith, Testville, TN\n" + PH,
+    "(d2) 'N reviews from Dr.' on the line above the city":
+        "Birch Media\n4 reviews from Dr.\nTestville, TN\n" + PH,
+}
+for nm, txt in n8.items():
+    r, d = clean(txt, nm); check("N8 %s = match, no address diff" % nm, r, d)
+bad = '{"@type":"LocalBusiness","name":"Birch Media","address":{"streetAddress":"123 Main Street"}}\n' + card
+c, ev, fl, dif = score(bad)
+check("N8 an NM-named entity with a wrong streetAddress = differing + address diff", (not fl["match"]) and fl["other_street"] and [d for d in dif if d["field"] == "address"], (fl, dif))
+c, ev, fl, dif = score("Birch Media 123 Main Street, Testville, TN 39999 " + PH + "\nSimilar Businesses\n9 Elm St, Testville, TN")
+check("N8 one-line wrong street (name first) is still differing with the address diff naming it, not the neighbour",
+      (not fl["match"]) and ev["other_street"] == "123 Main Street" and [d["live"] for d in dif if d["field"] == "address"] == ["123 Main Street"], (ev["other_street"], dif))
+c, ev, fl, dif = score(page("123 Main Street", "Testville, TN", PH) + "\nSimilar Businesses\n9 Elm St, Testville, TN")
+check("N8 wrong street directly above the city in NM's card is still differing", (not fl["match"]) and ev["other_street"] == "123 Main Street", ev["other_street"])
+c, ev, fl, dif = score(page("123 Main Street, Ste 4", "Testville, TN", PH))
+check("N8 a suite between the street and the city does not hide the wrong street", (not fl["match"]) and ev["other_street"].startswith("123 Main Street"), ev["other_street"])
+# mutation: widen the scope back to the whole page -> the n49 shape (a) must fail
+_ob = core._own_block
+core._own_block = lambda text, b: [l.strip() for l in (text or "").split("\n") if l.strip()]
+r, d = clean(n8["(a) n49 shape: NM card, then a Similar Businesses list of neighbours with streets"], "a")
+core._own_block = _ob
+check("N8 MUTATION widen the scope to the whole page -> case (a) fails (the test bites)", not r)
+# mutation: take streetAddress from any entity -> case (b) fails
+_nm = core.NAME["NM"]
+core.NAME["NM"] = re.compile(r".", re.S)      # the entity-name test always passes (DirCo counts as NM)
+r, d = clean(n8["(b) the directory's own Organization JSON-LD with its own streetAddress"], "b")
+core.NAME["NM"] = _nm
+check("N8 MUTATION any-entity streetAddress (name test off) -> case (b) fails", not r)
 
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

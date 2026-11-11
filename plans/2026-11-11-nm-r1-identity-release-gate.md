@@ -33,3 +33,9 @@ Lesson cited: docs/lessons/2026-11-11-moving-the-client-city-must-keep-the-old-c
 2. Alias city only (no street): ev.old_city, fixlist emits an address diff labelled "old city".
 3. job/nm_transitions.py: NM-queue-only state writer (same matrix, history note required, .bak-nm-<day>, atomic). buildqueue.submit_row routes NM rows to it by default when live. transitions.py stays SCC-only.
 4. tests/nm_r1_test.py N6 (wrong street, old city) and N7 (release -> submit live -> state in NM file, SCC md5 unchanged), each mutation-checked.
+
+## Round 3 (t_00a75d04): scope other_street to NM's own card
+Reviewer found core.shown_street read any street within 120 chars of any "City, ST" and any streetAddress on the page (neighbour blocks, directory JSON-LD, prose).
+Fix: street must sit in NM's own card (from the name line, ends at Similar / Also at / Nearby / Related / Top collections), directly before the city (separators + optional suite only),
+start the line / follow a separator / follow the business name, contain no prose word; streetAddress only from the JSON-LD entity whose name matches NM and that starts with a house number.
+fixlist: card stop markers extended; a street_in line holding prose tokens ("4 reviews from Dr.") is not a street. Tests N8 (a)-(d) + mutations (widen scope, any-entity streetAddress).
