@@ -101,6 +101,8 @@ jobs:
         run: python tests/buildrows_test.py
       - name: Build Chrome (persistent profile, fixed port, proof classifier, no form code)
         run: python tests/build_chrome_test.py
+      - name: Build Chrome leaks (idle cap, chrome-gone exit, pidfile --stop, --reap)
+        run: python tests/build_chrome_leak_test.py
       - name: Signup URLs (only two fields, backup first, no clobber)
         run: python tests/signup_urls_test.py
       - name: Snapshot overlay keeps every row; same-state notes
