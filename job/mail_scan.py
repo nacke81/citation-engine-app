@@ -200,6 +200,49 @@ def reset_main(directories, days, messages=None, out=print, folders="inbox"):
     return 0 if found else 1
 
 
+# ---- t_04751f6a: email-verification mails (account sign-up). Link / code printed to the terminal ONLY, like the reset flow.
+VERIFY_SUBJECT_RE = re.compile(r"(?i)verif|confirm|activate|welcome|one[- ]time|security code|your code|sign[- ]?up")
+VERIFY_PATH_RE = re.compile(r"(?i)(verif|confirm|activate|validate|token|key|hash|code)")
+
+
+def verify_urls(text, domain):
+    out = []
+    for m in URL_RE.finditer(html.unescape(text or "")):
+        u = m.group(0).rstrip(".,;:!?)")
+        p = urlparse(u)
+        if u in out or not host_ok(u, domain): continue
+        if re.search(r"(?i)unsubscribe|optout|/privacy|/terms", u): continue
+        if VERIFY_PATH_RE.search(p.path + ("?" + p.query if p.query else "")): out.append(u)
+    return out
+
+
+def find_verify(directory, messages):
+    """-> {"uid","date","subject","url","code"} for the NEWEST email-verification mail from `directory` (a verify link on its own domain, and/or a numeric code), else None. Pure."""
+    domain = SCAN_DIRECTORIES.get(directory) or directory
+    for m in sorted([x for x in messages if mail_is_from(x, domain)], key=lambda x: (x.get("date") or "", str(x.get("uid") or "")), reverse=True):
+        subj, body = m.get("subject") or "", m.get("body") or ""
+        if not (VERIFY_SUBJECT_RE.search(subj) or re.search(r"(?i)verify your|confirm your|verification code", body)): continue
+        urls = verify_urls(body, domain)
+        cm = RESET_CODE_RE.search(re.sub(r"https?://\S+", " ", html.unescape(body)))
+        code = (cm.group(1) or cm.group(2)) if cm else None
+        if urls or code: return {"uid": m.get("uid"), "date": m.get("date"), "subject": subj[:120], "url": urls[0] if urls else None, "code": code}
+    return None
+
+
+def verify_main(directories, days, messages=None, out=print, folders="inbox"):
+    """`--verify-link`: print the newest verification link / code per Directory to stdout. Read-only. Exit 0 found, 1 none, 2 mailbox unreadable."""
+    try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
+    except Exception as e:
+        print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
+    found = 0
+    for d in directories:
+        hit = find_verify(d, msgs)
+        if not hit: out("%s | no verification mail" % d); continue
+        found += 1
+        out("%s | %s %s | link: %s | code: %s" % (d, hit["date"], hit["subject"], hit["url"] or "-", hit["code"] or "-"))
+    return 0 if found else 1
+
+
 def _text_of(msg):
     out = []
     for part in msg.walk():
@@ -278,6 +321,34 @@ def read_messages(env=None, imap_cls=imaplib.IMAP4_SSL, days=30, limit=300, vaul
     return out
 
 
+def relay_path():
+    """t_04751f6a: the file nm_listings_relay.py writes (mail to listings@nackemedia.com, a Gmail alias the seat has no IMAP for)."""
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    return os.environ.get("NM_RELAY_FILE") or os.path.join(base, "citation-engine", "mail", "nm-listings.jsonl")
+
+
+def read_relay_messages(path=None, days=30, now=None, **_ignored):
+    """The same message dicts read_messages returns, built from the relay file (JSON lines: id, from, subject, received, links, codes). Missing file = no mail.
+    The body is rebuilt as 'code: N' lines plus the links, so find_reset / presence / reset_main read it unchanged. Read-only."""
+    import json
+    path = path or relay_path()
+    if not os.path.exists(path): return []
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    cutoff = (now - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M")
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for i, line in enumerate(f, 1):
+            try: r = json.loads(line)
+            except ValueError: continue
+            if not isinstance(r, dict) or not r.get("id"): continue
+            date = (r.get("received") or "")[:16]
+            if date and date < cutoff: continue
+            body = "\n".join(["code: %s" % c for c in r.get("codes") or []] + list(r.get("links") or []))
+            out.append({"uid": r["id"], "folder": "INBOX", "from": r.get("from") or "", "subject": r.get("subject") or "", "date": date,
+                        "to": ["listings@nackemedia.com"], "body": body})
+    return out
+
+
 class MailScanner:
     """recheck's mail source: reads the mailbox ONCE (lazily), then answers find(directory) from memory. A mailbox that cannot be read is reported once and
     answers None, so a recheck run never fails on mail. messages= injects fixtures."""
@@ -329,10 +400,18 @@ def main(argv=None):
     a.add_argument("--folders", choices=("inbox", "all"), default=None, help="all = INBOX + the server's Junk/Spam/Bulk folders (read-only; never moves or deletes)")
     a.add_argument("--presence", action="store_true", help="print yes/no per Directory (mail count, folders, 'code present'); never a code, link or body")
     a.add_argument("--headers", action="store_true", help="with --presence: one line per matching mail (folder, date, From domain, To address, scrubbed Subject); never a body, code or link. Reads every folder unless --folders inbox")
+    a.add_argument("--verify-link", action="store_true", help="print the newest email-verification link / code per --directory (terminal only; never stored)")
+    a.add_argument("--mailbox", choices=("listings", "nm-relay"), default="listings", help="nm-relay = the file nm_listings_relay.py fills from mail to listings@nackemedia.com (no IMAP)")
     n = a.parse_args(argv)
+    if n.mailbox == "nm-relay":
+        global read_messages
+        read_messages = read_relay_messages   # every mode below reads the relay file instead of IMAP
     if n.headers and not n.presence: a.error("--headers goes with --presence")
     if n.historical and (not n.directory or n.reset_link or n.presence or n.folders == "inbox"):
         a.error("--historical requires --directory and cannot combine with reset/presence/inbox")
+    if n.verify_link:
+        if not n.directory: a.error("--verify-link needs --directory")
+        return verify_main(n.directory, n.days, folders=n.folders or "inbox")
     if n.headers: return headers_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders or "all")
     n.folders = n.folders or ("all" if n.historical else "inbox")   # historical reads INBOX + Junk; automatic mode retains INBOX default
     if n.presence: return presence_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
@@ -344,7 +423,7 @@ def main(argv=None):
     selected, skipped = select_rows(Q.load_all_rows(n.queue), wanted, today, historical=n.historical)
     rows = [(r["id"], r["directory"]) for r in selected]
     from cfg import IDENT
-    sc = MailScanner(reader=lambda: read_messages(days=n.days, folders=n.folders), name=IDENT["BIZ"]["SCC"]["name"])
+    sc = MailScanner(reader=lambda: read_messages(days=n.days, folders=n.folders), name=IDENT["BIZ"]["NM" if n.mailbox == "nm-relay" else "SCC"]["name"])
     print(report(rows, sc))
     print("scan: selected=%d skipped=%d unread=%d; mode=%s" % (len(rows), skipped, len(rows) if sc.error else 0, "historical read-only" if n.historical else "automatic due-only"))
     if sc.error and rows: print("MAILBOX NOT READ: %s" % sc.error, file=sys.stderr)   # t_d2f75685: never read as "no approval mail"
