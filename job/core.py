@@ -37,8 +37,8 @@ def evidence(text, b):
     last4 = {p[-4:] for p in S(b)["phones"]}
     partial = any(x.split("*")[-1] in last4 for x in mk)
     return {"name": bool(NAME[b].search(text)),
-            "street": bool(STREET[b].search(text)),
-            "old_street": bool(b in OLD_STREET and OLD_STREET[b].search(text)),
+            "street": sf["street"] if sf["street"] is not None else bool(STREET[b].search(text)),   # t_ffa900be: NM reads both from the listing's own block; SCC (None) keeps the page-wide read
+            "old_street": sf["old_street"] if sf["old_street"] is not None else bool(b in OLD_STREET and OLD_STREET[b].search(text)),
             "city": any(c.lower() in text.lower() for c in cities(b)),   # the city or an alias (NM: Gallatin, and Nashville for the listings still under the old city)
             "city_only": sf["city_only"], "other_street": sf["other_street"], "old_city": sf["old_city"],   # r4: all three read from the listing's own block (fixlist.scoped_flags), the block diffs_for reads
             "phones": sorted(p for p in ph if p in S(b)["phones"]),

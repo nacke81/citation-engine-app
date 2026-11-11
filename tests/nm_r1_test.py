@@ -315,5 +315,40 @@ for sn, fn in shapes.items():
     if fl["match"] or not [d for d in dif if d["field"] == "phone"]: bad.append((sn, "old phone", fl["match"], dif))
 check("N9 INVARIANT: %d shapes x 7 forms, match iff no address/phone diff; match only for city-only and full" % len(shapes), not bad, bad[:3])
 
+# ---- N10 (t_ffa900be) street / old_street read from the own block; Yelp neighbour section; zip printed once
+def ap(dif): return [d for d in dif if d["field"] == "address"]
+# 1a stale prose names the old street, form is city-only + R1 phone: not a match AND an 'old address' diff (iff invariant)
+prose = "Birch Media\nMarketing agency\nTestville, TN\n" + PH + "\nAbout\nBirch Media is located at 900 Old Rd., Testville, TN."
+c, ev, fl, dif = score(prose)
+check("N10 1a stale prose with the old street + city-only form: not a match, 'old address' diff", (not fl["match"]) and [d.get("label") for d in ap(dif)] == ["old address"] and agree(prose)[0], (fl, dif))
+# 1b a neighbour block shows the R1 street, NM's own card shows a wrong street: no false street=Y
+nb = "Birch Media\nMarketing agency\n123 Main Street\nTestville, TN 39999\n" + PH + "\nSimilar Businesses\nAcme Co\n200 Sample Ave\nTestville, TN 39999"
+c, ev, fl, dif = score(nb)
+check("N10 1b R1 street only in a neighbour block: street flag is N, wrong own street = differing with a diff", (not fl["match"]) and not fl["street_match"] and ap(dif) and agree(nb)[0], (fl, dif))
+# 1c a neighbour block shows an old street, NM's own card is city-only + R1 phone: still a match
+nb2 = "Birch Media\nMarketing agency\nTestville, TN\n" + PH + "\nSimilar Businesses\nAcme Co\n900 Old Rd\nTestville, TN 39999"
+c, ev, fl, dif = score(nb2)
+check("N10 1c old street only in a neighbour block: old_street flag is N, city-only + phone = match, no diff", fl["match"] and not fl["old_street"] and not addr_phone(dif) and agree(nb2)[0], (fl, dif))
+# 2 Yelp: 'You Might Also Consider' section above NM's real address, ended by 'About the Business' / 'Location & Hours'
+yelp_pre = "Birch Media\nClaimed\nAdvertising\nServices Offered\nWeb design\nYou Might Also Consider\nSponsored\nAcme Co\n500 Main Street\nTestville, TN 39999\nin Web Design\nAbout the Business\nBirch Media is a team of web designers based in Testville.\nLocation & Hours\nSuggest an edit\n"
+y_ok = yelp_pre + "200 Sample Ave\nSte 1\nTestville, TN 39999\nGet directions\nMon\n9:00 AM - 5:00 PM\n" + PH
+y_co = yelp_pre + "Testville, TN 39999\nGet directions\n" + PH
+y_bad = yelp_pre + "123 Main Street\nTestville, TN 39999\nGet directions\n" + PH
+c, ev, fl, dif = score(y_ok)
+check("N10 2 Yelp: neighbour street above NM's real street is skipped, NM's R1 street read = match, no diff", fl["match"] and not addr_phone(dif) and agree(y_ok)[0], (fl, dif))
+c, ev, fl, dif = score(y_co)
+check("N10 2 Yelp: city-only below the section = match, no diff", fl["match"] and not addr_phone(dif), (fl, dif))
+c, ev, fl, dif = score(y_bad)
+check("N10 2 Yelp: NM's own wrong street is the diff, not the neighbour's 500 Main Street", (not fl["match"]) and [d["live"] for d in ap(dif)] and all("500 Main" not in d["live"] for d in ap(dif)) and agree(y_bad)[0], (fl, dif))
+y_nr = yelp_pre.replace("About the Business", "About us").replace("Location & Hours", "Where").replace("Suggest an edit\n", "") + "200 Sample Ave\nTestville, TN 39999\n" + PH
+c, ev, fl, dif = score(y_nr)
+check("N10 2 Yelp: no resume marker on the page = marker is not a stop, NM's address below is not lost (old behaviour)", fl["street_match"] and fl["match"], (fl, dif))
+# 3 the zip is printed once
+z = score("Birch Media\n123 Main Street, Testville, TN, 39000\n" + PH)[3]
+zl = [d["live"] for d in ap(z)]
+check("N10 3 address diff with a wrong zip prints the zip once", zl and zl[0].count("39000") == 1, zl)
+z = score(page("123 Main Street", "Testville, TN", PH).replace("123 Main Street\nTestville, TN", "123 Main Street\nTestville, TN 39000"))[3]
+zl = [d["live"] for d in ap(z)]
+check("N10 3 wrong street + wrong zip on the next line still prints the zip once", zl and zl[0].count("39000") == 1, zl)
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)
