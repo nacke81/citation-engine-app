@@ -201,5 +201,31 @@ check("6 code under test calls taskkill only through the injected runner", "os.s
 ci = open(os.path.join(HERE, "..", ".github", "workflows", os.listdir(os.path.join(HERE, "..", ".github", "workflows"))[0]), encoding="utf-8").read()
 check("CI runs this file", "tests/build_chrome_leak_test.py" in ci)
 
+# ---- 7 job accounting layout + real Job Object (t_15f7ec86 round 3) ----------------------------------------------------------------------------------
+import ctypes
+from job_accounting import JOBOBJECT_BASIC_ACCOUNTING_INFORMATION as JI
+check("7 JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.ActiveProcesses offset == 40", JI.ActiveProcesses.offset == 40, JI.ActiveProcesses.offset)
+check("7 TotalProcesses offset == 36 (the field the old code misread)", JI.TotalProcesses.offset == 36)
+check("7 sizeof == 48", ctypes.sizeof(JI) == 48, ctypes.sizeof(JI))
+_oc_src = open(os.path.join(JOB, "owned_chrome.py"), encoding="utf-8").read()
+check("7 job_active reads .ActiveProcesses via the Structure, not a raw offset", "info.ActiveProcesses" in _oc_src and "from_buffer(buf, 36)" not in _oc_src)
+if sys.platform == "win32":
+    import time
+    import owned_chrome as O
+    _sleeper = os.path.join(TMP, "sleeper.py")
+    open(_sleeper, "w").write("import sys, time\ntime.sleep(float(sys.argv[1]))\n")
+    oc = O.OwnedChrome(); oc.job = O._make_kill_job()
+    oc.proc = subprocess.Popen([sys.executable, _sleeper, "2"])
+    _h = O.k32.OpenProcess(0x1F0FFF, False, oc.proc.pid); O.k32.AssignProcessToJobObject(oc.job, _h); O.k32.CloseHandle(_h)
+    _run = oc.job_active(); _alive = oc.alive()
+    oc.proc.wait(); time.sleep(0.5)
+    _after = oc.job_active()
+    check("7 real Job Object: job_active() >= 1 and alive() while the child runs", _run is not None and _run >= 1 and _alive is True, "active=%s alive=%s" % (_run, _alive))
+    check("7 real Job Object: job_active() == 0 after the child exits", _after == 0, "active=%s" % _after)
+    check("7 real Job Object: alive() False after exit", oc.alive() is False)
+    O.k32.CloseHandle(oc.job); oc.job = None
+else:
+    print("SKIP 7 real Job Object test (not Windows)")
+
 print("\n%d passed, %d failed" % (sum(ok), len(ok) - sum(ok)))
 sys.exit(0 if all(ok) else 1)

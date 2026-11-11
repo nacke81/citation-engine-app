@@ -63,7 +63,7 @@ def pidfile_remove(path=None, only_pid=None):
 
 
 def hold(port, end, alive=None, lease_path=None, now=time.time, sleep=time.sleep, out=lambda s: print(s, flush=True), max_s=None, check_every=CHECK_EVERY):
-    """The hold loop. Returns "timer" (--seconds ran out, no lease), "cap" (--seconds 0 hit the idle cap, no lease) or "chrome_gone" (the owned Chrome stopped answering).
+    """The hold loop. Returns "timer" (--seconds ran out, no lease), "cap" (--seconds 0 hit the idle cap, no lease) or "chrome_gone" (the owned Chrome process/job is gone).
     --seconds 0 (end None) closes after CE_BUILD_MAX_SECONDS unless a card lease is fresh (KA.should_close asks again every second)."""
     alive = alive or (lambda: KA.cdp_alive(port))
     cap = end is None
