@@ -22,10 +22,13 @@ Rules this module holds:
     request whose client_id does not match the verification row is refused before the send run starts or any Directory is touched.
   * A code is never read here. Logs and cards carry request ids and allowlisted reason codes only, never exception text.
   * Only the two allow-listed portal clients (portal.check_client). Slice 1 handles channel 'sms' and the Cylex playbook only.
+  * One send run per tenant at a time: a per-tenant OS file lock (the OS drops it when the run dies, however it dies) is taken by the
+    send run before the browser opens. The bridge leaves a busy tenant's newly claimed request in 'starting' and retries it on the
+    next pass (a started-marker file tells a deferred row from one whose run is already going). It stays inside the 10 min sweep.
   * Sweeper: requested/starting older than 10 minutes -> finish_code_request('could_not_start','timeout') and ONE Kanban card
     (idempotency key verify-now:<request_id>). Nothing stays in 'starting' forever.
 """
-import datetime, os, re, subprocess, sys
+import contextlib, datetime, os, re, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -102,6 +105,76 @@ class VerifyRpc:
 
 
 # ---- reads (PostgREST GET on the existing service-role client; no code table is ever read) --------------------------------------------
+def lock_dir():
+    import sitegate
+    d = os.environ.get("CE_VERIFY_LOCKS") or os.path.join(sitegate.logs_dir(), "verify-locks")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+@contextlib.contextmanager
+def tenant_lock(client_id):
+    """One send run per tenant. Non-blocking. Yields True when this caller holds the lock, False when another run does. The OS drops
+    the lock when the holder exits or crashes, so there is no stale lock file to clean up."""
+    cid = str(client_id or "")
+    if not UUID_RE.match(cid): raise BridgeError("tenant lock: bad client id")
+    fh = open(os.path.join(lock_dir(), "tenant-%s.lock" % cid), "a+b")
+    got = False
+    try:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                fh.seek(0); msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            got = True
+        except OSError:
+            got = False
+        yield got
+    finally:
+        if got:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    fh.seek(0); msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        fh.close()
+
+
+def tenant_busy(client_id):
+    with tenant_lock(client_id) as got:
+        return not got
+
+
+def _marker(rid): return os.path.join(lock_dir(), "started-%s" % rid)
+
+
+def mark_started(rid):
+    with open(_marker(rid), "wb"): pass
+
+
+def was_started(rid): return os.path.exists(_marker(rid))
+
+
+def clear_started(rid):
+    try: os.remove(_marker(rid))
+    except OSError: pass
+
+
+def prune_markers(max_age_s=86400):
+    d = lock_dir()
+    for n in os.listdir(d):
+        if n.startswith("started-"):
+            try:
+                if time.time() - os.path.getmtime(os.path.join(d, n)) > max_age_s: os.remove(os.path.join(d, n))
+            except OSError: pass
+
+
 def verification_row(portal, vid):
     if not isinstance(vid, str) or not UUID_RE.match(vid): return None
     rows = portal.call("GET", "%s?select=id,client_id,directory,state&id=eq.%s&limit=1" % (VERIFICATION_TABLE, vid))
@@ -114,6 +187,12 @@ def request_row(portal, rid, status=None):
     if status: q += "&status=eq.%s" % status
     rows = portal.call("GET", q)
     return rows[0] if isinstance(rows, list) and rows else None
+
+
+def starting_requests(portal):
+    q = "%s?select=id,citation_verification_id,client_id,channel,status,requested_at,claimed_at,code_sent_at&status=eq.starting&order=claimed_at.asc&limit=20" % REQUEST_TABLE
+    rows = portal.call("GET", q) or []
+    return [r for r in rows if isinstance(r, dict) and r.get("status") == "starting"]
 
 
 # ---- the one decision ---------------------------------------------------------------------------------------------------------------
@@ -235,33 +314,57 @@ def start_send(request_id, spawner=None):
         out.close()
 
 
+def dispatch(req, portal, rpc, res, busy, spawner=None):
+    """Fence one claimed request, then start its send run unless its tenant is busy. A busy tenant's request stays in 'starting'
+    (no finish, no card) and is retried by the next pass; the sweeper still ends it at 10 minutes."""
+    verdict, _row = fence(req, portal)
+    rid = req.get("id")
+    if verdict != "ok":
+        log("refused %s: %s" % (rid, verdict))
+        res["refused"].append((rid, verdict))
+        try: rpc.finish(rid, "failed", FENCE_FAIL[verdict])
+        except BridgeError as e: log(str(e))
+        return
+    cid = req["client_id"]
+    if cid in busy or tenant_busy(cid):
+        log("tenant busy; %s stays starting, retry next pass" % rid)
+        if rid not in res["deferred"]: res["deferred"].append(rid)
+        return
+    try:
+        mark_started(rid)
+        start_send(rid, spawner)
+        busy.add(cid)
+        res["started"].append(rid)
+        log("started send run for %s" % rid)
+    except Exception as e:
+        clear_started(rid)
+        log("could not start %s: %s" % (rid, type(e).__name__))
+        try: rpc.finish(rid, "could_not_start", "other")
+        except BridgeError as e2: log(str(e2))
+
+
 def run_pass(portal=None, rpc=None, now=None, spawner=None, card_runner=None):
-    """-> {"swept": [ids], "started": [ids], "refused": [(id, verdict)]}. Sweeps first so a stuck row is never starved by new claims."""
+    """-> {"swept": [ids], "started": [ids], "refused": [(id, verdict)], "deferred": [ids]}. Sweeps first so a stuck row is never
+    starved by new claims. Then retries deferred rows (starting, no run started yet), then claims new ones."""
     portal = portal or P.Portal(*P.load_portal_env())
     rpc = rpc or VerifyRpc(portal)
-    res = {"swept": sweep(portal, rpc, now, card_runner), "started": [], "refused": []}
+    res = {"swept": sweep(portal, rpc, now, card_runner), "started": [], "refused": [], "deferred": []}
+    busy = set()   # tenants this pass already started a run for (the new run may not hold its lock yet)
+    try: prune_markers()
+    except Exception as e: log("marker prune failed: %s" % type(e).__name__)
+    try:
+        waiting = [r for r in starting_requests(portal) if r.get("id") and UUID_RE.match(str(r["id"])) and not was_started(r["id"])]
+    except Exception as e:
+        log("deferred list failed: %s" % type(e).__name__); waiting = []
+    for req in waiting:
+        dispatch(req, portal, rpc, res, busy, spawner)
     for _ in range(MAX_CLAIMS_PER_PASS):
         try:
             req = rpc.claim()
         except BridgeError as e:
             log(str(e)); break
         if not req: break
-        verdict, _row = fence(req, portal)
-        rid = req.get("id")
-        if verdict != "ok":
-            log("refused %s: %s" % (rid, verdict))
-            res["refused"].append((rid, verdict))
-            try: rpc.finish(rid, "failed", FENCE_FAIL[verdict])
-            except BridgeError as e: log(str(e))
-            continue
-        try:
-            start_send(rid, spawner)
-            res["started"].append(rid)
-            log("started send run for %s" % rid)
-        except Exception as e:
-            log("could not start %s: %s" % (rid, type(e).__name__))
-            try: rpc.finish(rid, "could_not_start", "other")
-            except BridgeError as e2: log(str(e2))
+        dispatch(req, portal, rpc, res, busy, spawner)
     return res
 
 
@@ -271,7 +374,7 @@ def main(argv=None):
     except Exception as e:
         print("VERIFY BRIDGE FAILED: " + type(e).__name__, file=sys.stderr, flush=True)
         return 1
-    print("VERIFY BRIDGE OK swept=%d started=%d refused=%d" % (len(r["swept"]), len(r["started"]), len(r["refused"])), flush=True)
+    print("VERIFY BRIDGE OK swept=%d started=%d refused=%d deferred=%d" % (len(r["swept"]), len(r["started"]), len(r["refused"]), len(r["deferred"])), flush=True)
     return 0
 
 

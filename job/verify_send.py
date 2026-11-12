@@ -9,7 +9,11 @@ One run handles ONE claimed request and makes at most one Directory session (sit
   3. Per-tenant owned Chrome (headful, off-screen unless CE_CHROME_VISIBLE=1, own profile per tenant), sign in. If the Directory mails an
      access code before the phone step, read it from the mailbox path for that tenant (NM relay file, SCC IMAP, spam included).
   4. Open the phone verify modal, read the number there, build the masked number, tick the consent box, click send. Then mark_code_sent.
-  5. Poll consume_verify_code every 10 s for up to 30 min. No code -> failed/code_expired.
+  5. Poll consume_verify_code every 10 s for up to 30 min. No code -> failed/code_expired. Each pass first re-reads the request: when
+     it is no longer code_sent/checking (the client asked for a new code and the portal closed it as failed/resend) the browser is
+     closed and the run exits WITHOUT finish_code_request (log: superseded).
+  0. (before 2) One send run per tenant: a per-tenant lock is taken before the browser opens and held to the end of the run. A busy
+     tenant: exit without finish; the request stays 'starting' and the bridge retries it on its next pass.
   6. Enter the code, read the result. Accepted -> set the citation_verification row live (transitions.set_verification_live, the verification-queue PATCH that
      transitions.record_transition performs on a move to live), then finish_code_request('verified'). Rejected -> failed/code_rejected.
 
@@ -33,6 +37,7 @@ TENANTS = {   # client_id -> (business code, vault organization, vault item name
 }
 COLLECTION = "Citations"
 FILL_JS = os.environ.get("CE_FILL_JS") or os.path.expandvars("%LOCALAPPDATA%/hermes/profiles/citation-submitter/skills/devops/vaultwarden-cli-write/scripts/vaultwarden-cli-fill.js")
+LIVE_STATUSES = ("code_sent", "checking")   # request states in which this run still owns the poll
 POLL_EVERY_S = 10
 POLL_MAX_S = 1800
 EMAIL_WAIT_S = 300
@@ -243,6 +248,15 @@ def run(request_id, portal, rpc, rt, now_dt=None):
     if verdict != "ok":
         log("fence refused %s: %s" % (request_id, verdict)); return end("failed", B.FENCE_FAIL[verdict])
     tenant = TENANTS[req["client_id"]]
+    with B.tenant_lock(req["client_id"]) as got:   # one send run per tenant; held until this run ends, however it ends
+        if not got:
+            log("tenant busy; %s stays starting, the bridge retries it" % request_id)
+            B.clear_started(request_id)
+            return "deferred"
+        return _send(request_id, portal, rpc, rt, req, row, tenant, now_dt, end)
+
+
+def _send(request_id, portal, rpc, rt, req, row, tenant, now_dt, end):
     if not rt.vault_lookup(tenant):
         log("vault item for %s missing or unreadable" % tenant[0]); return end("failed", "signin_failed")
     email = rt.login_email(tenant)
@@ -271,10 +285,17 @@ def run(request_id, portal, rpc, rt, now_dt=None):
             deadline = rt.now() + POLL_MAX_S
             misses = 0
             while True:
-                try:
+                try:   # one cheap portal read per pass: a request the portal closed (client asked for a new code) ends this run
+                    cur = B.request_row(portal, request_id)
+                    if cur is None or cur.get("status") not in LIVE_STATUSES:
+                        log("superseded: %s is no longer waiting for a code; closing the browser, no finish" % request_id)
+                        return "superseded"
                     code = rpc.consume(request_id); misses = 0
                 except B.BridgeError as e:
                     misses += 1; log(str(e))
+                    if misses >= 3: raise DriverError("other") from None
+                except Exception as e:
+                    misses += 1; log("status read failed: %s" % type(e).__name__)
                     if misses >= 3: raise DriverError("other") from None
                 if code: break
                 if rt.now() >= deadline: raise DriverError("code_expired")
@@ -300,7 +321,7 @@ def main(argv=None):
     if not B.UUID_RE.match(n.request_id): log("bad request id"); return 2
     portal = P.Portal(*P.load_portal_env())
     out = run(n.request_id, portal, B.VerifyRpc(portal), Runtime())
-    return 0 if out in ("verified", "not_claimed", "claim_lost") or out.startswith(("failed", "could_not_start")) else 1
+    return 0 if out in ("verified", "not_claimed", "claim_lost", "deferred", "superseded") or out.startswith(("failed", "could_not_start")) else 1
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ class StrictPortal:
         self.code_after_polls = 0             # consume returns null this many times first
         self.finish_fails = finish_fails      # finish_code_request raises (row stays stuck)
         self.calls = []
+        self.finish_log = []
         self.sent_at = None                   # mark_code_sent stamps this (defaults to NOW)
         self.fail_mark = False; self.fail_patch = False; self.consume_calls = 0
 
@@ -44,6 +45,7 @@ class StrictPortal:
                 assert method == "POST" and set(body) == {"p_request_id", "p_sent_to_masked"}, "mark_code_sent arg names"
                 assert B.MASK_RE.match(body["p_sent_to_masked"]), "mask shape"
                 if self.fail_mark: raise RuntimeError("boom " + str(self.queued_code))
+                if self.requests[body["p_request_id"]]["status"] != "starting": raise RuntimeError("mark_code_sent: not starting")   # portal PR #113: raises unless starting
                 self.requests[body["p_request_id"]]["status"] = "code_sent"; self.requests[body["p_request_id"]]["code_sent_at"] = iso(self.sent_at or NOW); return None
             if name == "consume_verify_code":
                 assert method == "POST" and set(body) == {"p_request_id"}, "consume_verify_code arg names"
@@ -56,6 +58,8 @@ class StrictPortal:
                 assert (body["p_fail_code"] is None) if body["p_status"] == "verified" else body["p_fail_code"] in B.FAIL_CODES
                 if self.finish_fails: raise RuntimeError("finish down")
                 r = self.requests[body["p_request_id"]]
+                self.finish_log.append((body["p_request_id"], body["p_status"], body["p_fail_code"]))
+                if r["status"] in ("verified", "could_not_start", "failed"): return None   # portal PR #113: a no-op on a closed request, never raises
                 if body["p_status"] == "verified":
                     v = self.verifications[r["citation_verification_id"]]
                     if v["state"] != "live": raise RuntimeError("verified refused: row not live")
@@ -68,6 +72,8 @@ class StrictPortal:
                 want = params["status"][4:-1].split(",")
                 key = "code_sent_at" if "code_sent_at" in params else "requested_at"
                 return [dict(r) for r in self.requests.values() if r["status"] in want and r.get(key) and r[key] < params[key][3:]]
+            if "id" not in params and params.get("status") == "eq.starting":   # the bridge's deferred-row list
+                return [dict(r) for r in sorted(self.requests.values(), key=lambda r: r.get("claimed_at") or "") if r["status"] == "starting"]
             r = self.requests.get(params.get("id", "")[3:])
             if not r or ("status" in params and r["status"] != params["status"][3:]): return []
             return [dict(r)]
@@ -151,7 +157,8 @@ class Clock:
 
 
 class FakeRuntime:
-    def __init__(self, page, clock=None, vault_ok=True, email="tester@example.invalid", access=None, guard_ok=True):
+    def __init__(self, page, clock=None, vault_ok=True, email="tester@example.invalid", access=None, guard_ok=True, crash=False):
+        self.crash, self.open_browsers = crash, 0
         self.page, self.clock, self.vault_ok, self.email, self.access, self.guard_ok = page, clock or Clock(), vault_ok, email, access, guard_ok
         self.now, self.sleep = self.clock.now, self.clock.sleep
         self.browsers = 0; self.reserves = []; self.vault_fills = 0; self.access_asked = 0
@@ -167,5 +174,9 @@ class FakeRuntime:
         return G()
     @contextlib.contextmanager
     def browser(self, tenant):
-        self.browsers += 1
-        yield self.page, "http://127.0.0.1:1"
+        self.browsers += 1; self.open_browsers += 1
+        try:
+            if self.crash: raise RuntimeError("chrome died")
+            yield self.page, "http://127.0.0.1:1"
+        finally:
+            self.open_browsers -= 1

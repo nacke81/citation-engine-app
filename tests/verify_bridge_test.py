@@ -216,6 +216,85 @@ check("leak: every path returned an outcome (no escaped exception)", all(isinsta
 allfiles = "".join(open(os.path.join(dp, f), errors="ignore").read() for dp, _, fs in os.walk(TMP) for f in fs)
 check("leak: no file under the logs/guard dir holds the code", CODE not in allfiles and "771155" not in allfiles)
 
+# 7b resend: the old run sees its request closed (failed/resend) and exits with NO finish call
+B.clear_started(F.RID)
+p = portal(requests=[F.request(status="starting")]); page = F.FakePage(); rt = F.FakeRuntime(page)
+state = {"n": 0, "busy_during": None}
+_orig2 = p.call
+def _spy2(method, path, *a, **kw):
+    if method == "GET" and path.startswith("citation_code_request?") and "id=eq." in path and p.requests[F.RID]["status"] == "code_sent":
+        state["n"] += 1
+        if state["n"] == 1: state["busy_during"] = B.tenant_busy(F.NM)
+        if state["n"] == 2:   # the client clicked "No code? Send a new one."; the portal closes the old request
+            p.requests[F.RID]["status"] = "failed"; p.requests[F.RID]["fail_code"] = "resend"
+    return _orig2(method, path, *a, **kw)
+p.call = _spy2
+r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+check("resend: old run exits 'superseded' on its next poll", r == "superseded", r)
+check("resend: NO finish_code_request call from the old run", p.count("rpc/finish_code_request") == 0 and p.finish_log == [])
+check("resend: the closed row is left exactly as the portal set it", p.requests[F.RID]["status"] == "failed" and p.requests[F.RID]["fail_code"] == "resend")
+check("resend: browser closed and no further consume after the status read", rt.open_browsers == 0 and rt.browsers == 1 and p.consume_calls == 1, (rt.open_browsers, p.consume_calls))
+check("resend: logged 'superseded'; the lock was held while polling and is free after", "superseded" in text and state["busy_during"] is True and not B.tenant_busy(F.NM))
+for st in ("verified", "could_not_start"):   # any closed status ends the poll the same way
+    p = portal(requests=[F.request(status="code_sent")]); page = F.FakePage(); rt = F.FakeRuntime(page)
+    p.requests[F.RID]["status"] = "code_sent"
+    # drive only the poll step: closed before the first poll pass
+    p.requests[F.RID]["status"] = st
+    r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+    check("run on a request already closed as %s does nothing (not claimed)" % st, r == "not_claimed" and rt.browsers == 0 and p.finish_log == [])
+
+# 7c one send run per tenant: the bridge defers a busy tenant's request, retries it next pass, never fails it
+B.clear_started(F.RID); spawned.clear()
+p = portal(requests=[F.request()]); cards = F.FakeCards()
+with B.tenant_lock(F.NM) as held:
+    res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
+    check("busy tenant: request is claimed, deferred, no send run started", held and res["deferred"] == [F.RID] and res["started"] == [] and spawned == [] and p.requests[F.RID]["status"] == "starting", res)
+    check("busy tenant: no finish and no card (it is not failed)", p.finish_log == [] and cards.argvs == [])
+    res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
+    check("busy tenant: next pass retries it from 'starting' and defers again while the lock is held", res["deferred"] == [F.RID] and spawned == [] and p.finish_log == [] and p.requests[F.RID]["status"] == "starting")
+res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
+check("busy tenant: once the lock frees the request starts", res["started"] == [F.RID] and len(spawned) == 1 and res["deferred"] == [])
+res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
+check("busy tenant: a request whose run already started is not started twice", res["started"] == [] and len(spawned) == 1)
+B.clear_started(F.RID); spawned.clear()
+p = portal(requests=[F.request(client=F.SCC)], verifications=[F.verification(client=F.SCC)])
+with B.tenant_lock(F.NM):
+    res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, F.FakeCards())
+check("a busy tenant does not block the other tenant", res["started"] == [F.RID] and len(spawned) == 1)
+B.clear_started(F.RID); B.clear_started("aaaaaaaa-0000-4000-8000-000000000002"); spawned.clear()
+p = portal(requests=[F.request(age_s=30), F.request(rid="aaaaaaaa-0000-4000-8000-000000000002", age_s=20)])
+res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, F.FakeCards())
+check("two requests, one tenant, one pass: one run starts, the other waits in starting", res["started"] == [F.RID] and res["deferred"] == ["aaaaaaaa-0000-4000-8000-000000000002"] and p.requests["aaaaaaaa-0000-4000-8000-000000000002"]["status"] == "starting", res)
+B.clear_started(F.RID); B.clear_started("aaaaaaaa-0000-4000-8000-000000000002")
+# the send run itself refuses to open a browser when another run holds the tenant
+p = portal(requests=[F.request(status="starting")], queued_code=CODE); page = F.FakePage(accepted=CODE); rt = F.FakeRuntime(page)
+B.mark_started(F.RID)
+with B.tenant_lock(F.NM):
+    r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+check("send run on a busy tenant: deferred, no browser, no reserve, no vault, no finish, still starting", r == "deferred" and rt.browsers == 0 and rt.reserves == [] and rt.vault_fills == 0 and p.finish_log == [] and p.requests[F.RID]["status"] == "starting")
+check("send run on a busy tenant clears its started-marker so the bridge retries it", not B.was_started(F.RID))
+r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+check("same request runs to verified once the lock is free", r == "verified" and p.requests[F.RID]["status"] == "verified", r)
+# the lock is released on every way a run can end
+ends = []
+for name, mk, want in (("verified", lambda: (portal(requests=[F.request(status="starting")], queued_code=CODE), F.FakePage(accepted=CODE), {}), "verified"),
+                       ("rejected", lambda: (portal(requests=[F.request(status="starting")], queued_code=CODE), F.FakePage(accepted="000000"), {}), "failed:code_rejected"),
+                       ("code_expired", lambda: (portal(requests=[F.request(status="starting")]), F.FakePage(), {"clock": F.Clock()}), "failed:code_expired"),
+                       ("crash (browser raises)", lambda: (portal(requests=[F.request(status="starting")]), F.FakePage(), {"crash": True}), "failed:other")):
+    p, page, kw = mk(); rt = F.FakeRuntime(page, **kw)
+    r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+    ends.append((name, r, B.tenant_busy(F.NM)))
+for name, r, still in ends:
+    check("lock released after %s (run returned %s)" % (name, r), not still)
+check("lock released on each of the four endings with the expected outcome", [e[1] for e in ends] == ["verified", "failed:code_rejected", "failed:code_expired", "failed:other"], [e[1] for e in ends])
+# a send run killed outright (no cleanup code runs) frees the lock: the OS drops it with the process
+import subprocess, time
+hp = subprocess.Popen([sys.executable, os.path.join(HERE, "verify_lock_holder.py"), F.NM], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+first = hp.stdout.readline().strip()
+busy_now = B.tenant_busy(F.NM)
+hp.kill(); hp.wait(timeout=30); time.sleep(0.3)
+check("killed holder: lock is held while it lives and free after it is killed", first == "HELD" and busy_now and not B.tenant_busy(F.NM), (first, busy_now))
+
 # 8 contract strictness + rules
 rpc = B.VerifyRpc(portal())
 for label, fn in (("bad status", lambda: rpc.finish(F.RID, "done", None)), ("bad fail code", lambda: rpc.finish(F.RID, "failed", "bogus")), ("bad mask", lambda: rpc.mark_sent(F.RID, "5025550101"))):
