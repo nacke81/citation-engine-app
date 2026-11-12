@@ -190,6 +190,17 @@ def relay_window_open(dt_utc):
     return RELAY_OPEN_MIN <= c.hour * 60 + c.minute <= RELAY_CLOSE_MIN
 
 
+REPO_ROOT = os.path.dirname(HERE)
+STEP_PY = os.path.join(HERE, "verify_step.py")
+
+
+def helper_command():
+    """The helper as the agent must run it: this interpreter and the absolute helper path, both quoted (the run dir has spaces), forward slashes
+    (the agent's terminal is bash on Windows). Never a relative path: the oneshot's cwd is not guaranteed."""
+    q = lambda p: '"%s"' % os.path.abspath(p).replace("\\", "/")
+    return "%s %s" % (q(sys.executable), q(STEP_PY))
+
+
 def build_prompt(request_id, req, row, entry, tenant, masked, username):
     """The agent's instructions. Request id, tenant, directory, channel, the row's steps and URL, the masked phone, the hard rules. Holds NO code
     and no secret (the username is the login email, not a credential)."""
@@ -198,7 +209,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username):
     steps_txt = "\n".join("  - %s" % s for s in steps) if isinstance(steps, list) and steps else "  (none on the row)"
     ch = req.get("channel")
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
-    helper = "python job/verify_step.py"
+    helper = helper_command()
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
@@ -209,8 +220,9 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username):
         "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code.\n"
         "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
         "   (use the masked number you saw on the page when it differs in format). If it exits nonzero, stop.\n"
-        "5. Run: %(helper)s code --request-id %(rid)s\n"
-        "   It waits up to 30 minutes and prints the code on its stdout. Exit 3 means superseded and exit 4 means expired: stop at once.\n"
+        "5. Run: %(helper)s code --request-id %(rid)s   (run it with the terminal tool's timeout set to 600, in the foreground)\n"
+        "   Each call waits up to 9 minutes. Exit 0 means the code is on its stdout. Exit 6 means no code yet: run the same command again, as many times as needed (the 30 minute limit does not restart).\n"
+        "   Exit 3 means superseded and exit 4 means expired: stop at once. Any other nonzero exit: stop.\n"
         "6. Type the code into the Directory field and nowhere else. Read the page for accepted or rejected.\n"
         "7. Run: %(helper)s result --request-id %(rid)s --outcome accepted   (or rejected). Then end the session.\n\n"
         "Hard rules:\n"
@@ -278,7 +290,8 @@ class Runtime:
         import postcard_step as PS
         argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
         env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        env["TERMINAL_CWD"] = REPO_ROOT   # the agent's terminal starts in the app clone, whatever cwd the bridge had
+        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)
         return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
 
     def messages(self, tenant):

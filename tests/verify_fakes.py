@@ -154,6 +154,7 @@ class Clock:
     def __init__(self): self.t = 1000.0; self.sleeps = []
     def now(self): return self.t
     def sleep(self, s): self.sleeps.append(s); self.t += s
+    def wall(self): return NOW + datetime.timedelta(seconds=self.t - 1000.0)   # wall time on the same virtual clock (code_sent_at = NOW at t=1000)
 
 
 class FakeRuntime:
@@ -161,7 +162,7 @@ class FakeRuntime:
         self.crash, self.open_browsers = crash, 0
         self.username, self.prompts, self.launched, self.agent, self.agent_factory = username, [], [], None, agent_factory
         self.page, self.clock, self.vault_ok, self.access, self.guard_ok = page, clock or Clock(), vault_ok, access, guard_ok
-        self.now, self.sleep = self.clock.now, self.clock.sleep
+        self.now, self.sleep, self.wall = self.clock.now, self.clock.sleep, self.clock.wall
         self.browsers = 0; self.reserves = []; self.vault_fills = 0; self.access_asked = 0
     def vault_lookup(self, tenant): return self.vault_ok
     def vault_fill(self, tenant, url, cdp): self.vault_fills += 1; return True

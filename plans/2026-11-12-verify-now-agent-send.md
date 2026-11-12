@@ -13,3 +13,9 @@ Scope:
 8. Tests with a fake oneshot runner; leak test over helper + prompt file; stale "Open contract item" line removed from the prior plan.
 Step 8 of the card (scheduled task) runs after merge, outside this branch.
 No live send, no CapSolver, no portal write beyond tests.
+
+## Rework round 1 (review changes_requested, same lesson cited)
+The first build's fake oneshot cannot show the seam between the helper and the real Hermes terminal tool. Two fixes:
+1. `verify_step.py code` gets `--wait-s` (default and max 540; the agent's terminal timeout is 600, foreground max). No code yet = exit 6 ("run it again"), no finish. The 30 min limit is measured from the request's `code_sent_at`, so repeated calls cannot stretch it; an expired request is finished failed/code_expired exactly once (later calls see a closed row and refuse). Expiry is checked before consume so a late code is never taken. Prompt: terminal timeout 600, repeat on exit 6.
+2. The prompt names `sys.executable` and the absolute `verify_step.py` path (quoted, forward slashes); `launch_agent` runs the oneshot with cwd = repo root and TERMINAL_CWD = repo root.
+Tests: three chunked calls deliver the code on the third; a call after code_sent_at + 30 min finishes failed/code_expired once; prompt helper path absolute and exists; launch cwd. Mutation: anchor deadline to call start -> a test must fail.

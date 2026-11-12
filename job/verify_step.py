@@ -2,11 +2,12 @@
 process reads it from the portal env pointer, the agent only sees stdout and the exit code).
 
   python job/verify_step.py sent   --request-id X --masked "(629) ***-2578"   the code was just sent to that number
-  python job/verify_step.py code   --request-id X                              waits up to 30 min, prints the code ONLY on stdout
+  python job/verify_step.py code   --request-id X [--wait-s 540]               waits up to --wait-s (max 540) per call, prints the code ONLY on stdout
   python job/verify_step.py result --request-id X --outcome accepted|rejected  the Directory accepted or rejected the typed code
 
 Exit codes: 0 done | 2 bad arguments | 3 superseded (the client asked for a new code or the portal closed the request: stop, do not finish) |
-            4 no code within 30 min (the request is finished failed/code_expired) | 5 refused or failed (nothing was sent or recorded).
+            4 no code within 30 min of code_sent_at (the request is finished failed/code_expired, once) | 5 refused or failed (nothing was sent or recorded) |
+            6 no code yet in this call: run `code` again (nothing finished; the 30 min limit does not restart).
 
 The helper owns mark_code_sent, consume_verify_code, the superseded check, set_verification_live and finish_code_request. Every call first
 re-reads the request and runs the same bridge.fence() the bridge and the send run use. A code is held in a local variable and written to
@@ -22,7 +23,9 @@ import verify_bridge as B
 LIVE_STATUSES = ("code_sent", "checking")
 POLL_EVERY_S = 10
 POLL_MAX_S = B.POLL_MAX_S
-OK, BAD_ARGS, SUPERSEDED, EXPIRED, REFUSED = 0, 2, 3, 4, 5
+OK, BAD_ARGS, SUPERSEDED, EXPIRED, REFUSED, NO_CODE_YET = 0, 2, 3, 4, 5, 6
+WAIT_MAX_S = 540        # per call; the agent's Hermes terminal allows 600 s in the foreground and kills anything longer
+WAIT_DEFAULT_S = 540
 
 
 def log(msg):
@@ -56,10 +59,19 @@ def step_sent(request_id, masked, portal, rpc, now_dt=None):
     return OK
 
 
-def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time):
+def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time, wait_s=WAIT_DEFAULT_S, wall=None):
+    """One bounded call (wait_s <= 540, under the agent terminal's 600 s foreground cap). The 30 min limit is anchored to the request's
+    code_sent_at, so repeated NO_CODE_YET calls cannot stretch it. Expiry is checked before consume, so a late code is never taken."""
     out = out or sys.stdout
-    if not _claimed(portal, request_id, LIVE_STATUSES)[0]: return REFUSED
-    deadline = now() + POLL_MAX_S
+    wait_s = max(1, min(int(wait_s), WAIT_MAX_S))
+    wall = wall or (lambda: datetime.datetime.now(datetime.timezone.utc))
+    req, _row = _claimed(portal, request_id, LIVE_STATUSES)
+    if not req: return REFUSED
+    anchor = B._parse(req.get("code_sent_at"))
+    if anchor is None:
+        anchor = wall(); log("no code_sent_at on %s; anchoring the 30 min limit to this call" % request_id)
+    expired = lambda: (wall() - anchor).total_seconds() >= POLL_MAX_S
+    call_deadline = now() + wait_s
     misses = 0
     code = None
     while True:
@@ -69,7 +81,9 @@ def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time
                 log("superseded: %s is no longer waiting for a code; no finish" % request_id); return SUPERSEDED
             if cur is None:   # an empty read is a miss, not a verdict (Nate stop 5)
                 raise B.BridgeError("empty read")
-            code = rpc.consume(request_id); misses = 0
+            if not expired():
+                code = rpc.consume(request_id)
+            misses = 0
         except B.BridgeError as e:
             misses += 1; log("poll miss %d: %s" % (misses, e))
             if misses >= 3: return _finish(rpc, request_id, "failed", "other", REFUSED)
@@ -82,8 +96,10 @@ def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time
             finally:
                 code = None
             return OK
-        if now() >= deadline:
+        if expired():
             return _finish(rpc, request_id, "failed", "code_expired", EXPIRED)
+        if now() >= call_deadline:
+            log("no code yet for %s; call again" % request_id); return NO_CODE_YET
         sleep(POLL_EVERY_S)
 
 
@@ -126,6 +142,7 @@ def main(argv=None, portal=None, rpc=None, out=None):
     for name in ("sent", "code", "result"):
         s = sub.add_parser(name); s.add_argument("--request-id", required=True)
         if name == "sent": s.add_argument("--masked", required=True)
+        if name == "code": s.add_argument("--wait-s", type=int, default=WAIT_DEFAULT_S)
         if name == "result": s.add_argument("--outcome", required=True, choices=("accepted", "rejected"))
     try:
         n = a.parse_args(argv)
@@ -138,7 +155,7 @@ def main(argv=None, portal=None, rpc=None, out=None):
         log("portal env unavailable: %s" % type(e).__name__); return REFUSED
     rpc = rpc or B.VerifyRpc(portal)
     if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc)
-    if n.cmd == "code": return step_code(n.request_id, portal, rpc, out)
+    if n.cmd == "code": return step_code(n.request_id, portal, rpc, out, wait_s=n.wait_s)
     return step_result(n.request_id, n.outcome, portal, rpc)
 
 

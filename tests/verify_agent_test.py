@@ -71,7 +71,7 @@ check("--check without a portal env fails with a type name, not a traceback or a
 def happy_steps(p, rpc, rt, out, holder=None):
     ag = F.FakeAgent([
         lambda: holder.__setitem__("sent", ST.step_sent(F.RID, MASK, p, rpc, F.NOW)),
-        lambda: holder.__setitem__("code", ST.step_code(F.RID, p, rpc, out, rt.sleep, rt.now)),
+        lambda: holder.__setitem__("code", ST.step_code(F.RID, p, rpc, out, rt.sleep, rt.now, wall=rt.wall)),
         lambda: holder.__setitem__("result", ST.step_result(F.RID, "accepted", p, rpc, F.NOW))])
     return ag
 for ch in ("sms", "phone-call"):
@@ -90,7 +90,7 @@ for ch in ("sms", "phone-call"):
     check("agent %s: tenant lock released" % ch, not B.tenant_busy(F.NM))
     pr = rt.prompts[0]
     check("agent %s: prompt names request id, tenant, Directory, channel, masked phone, the helper commands and the hard rules" % ch,
-          all(s in pr for s in (F.RID, "Tenant: NM", "Directory: " + AGENT_DIR, "Channel: " + ch, MASK, "verify_step.py sent", "verify_step.py code", "verify_step.py result",
+          all(s in pr for s in (F.RID, "Tenant: NM", "Directory: " + AGENT_DIR, "Channel: " + ch, MASK, "verify_step.py\" sent", "verify_step.py\" code", "verify_step.py\" result",
                                 "paid upsell", "marketing consent", "Never type the code anywhere except the Directory", "Never print", "One Directory session", "sitegate", "service key")), pr[:200])
     check("agent %s: prompt holds no code, no service key, no 6-digit run" % ch, CODE not in pr and "SERVICE_ROLE" not in pr and not re.search(r"(?<!\d)\d{6}(?!\d)", pr))
 check("prompt carries the row's steps and directory_url", True)
@@ -133,7 +133,7 @@ def superseded_steps(rt):
     def sent(): got["sent"] = ST.step_sent(F.RID, MASK, p, rpc, F.NOW)
     def close_then_code():   # the client asked for a new code: the portal closes the old request failed/resend
         p.requests[F.RID]["status"] = "failed"; p.requests[F.RID]["fail_code"] = "resend"
-        got["code"], got["text"] = quiet(ST.step_code, F.RID, p, rpc, out, rt.sleep, rt.now)
+        got["code"], got["text"] = quiet(ST.step_code, F.RID, p, rpc, out, rt.sleep, rt.now, wall=rt.wall)
     def result():
         got["result"], got["rtext"] = quiet(ST.step_result, F.RID, "accepted", p, rpc, F.NOW)
     return F.FakeAgent([sent, close_then_code, result])
@@ -151,7 +151,7 @@ def closing(method, path, body=None, prefer=None):
         p.requests[F.RID]["status"] = "failed"; p.requests[F.RID]["fail_code"] = "resend"
     return orig(method, path, body, prefer)
 p.call = closing
-rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now)
+rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
 check("superseded while waiting: exit 3, no finish_code_request, request left as the portal closed it, nothing on stdout",
       rc == ST.SUPERSEDED and p.finish_log == [] and p.count("rpc/finish_code_request") == 0 and p.requests[F.RID]["fail_code"] == "resend" and out.getvalue() == "" and "superseded" in text, rc)
 rc, text = quiet(ST.step_result, F.RID, "accepted", p, rpc, F.NOW)
@@ -169,8 +169,52 @@ check("run: a request the portal closed ends 'closed' with NO finish call from t
 # ---- 7 no code in 30 min: the helper finishes failed/code_expired and exits 4 ------------------------------------------------------------
 p = agent_portal(code=None); rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock()
 ST.step_sent(F.RID, MASK, p, rpc, F.NOW)
-rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now)
-check("no code in 30 min: exit 4, finish failed/code_expired, stdout empty", rc == ST.EXPIRED and p.finish_log == [(F.RID, "failed", "code_expired")] and out.getvalue() == "" and 1790 <= clk.t - 1000 <= 1810, (rc, p.finish_log))
+rcs = []
+for i in range(5):   # the agent's terminal caps one call at 600 s, so `code` is called repeatedly; the 30 min clock is code_sent_at's, not each call's
+    t_before = clk.t
+    rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
+    rcs.append((rc, round(clk.t - t_before)))
+    if i < 3: check("chunk %d: one call returns within 540-560 s (under the 600 s terminal cap) with exit 6 and no finish" % (i + 1), rc == ST.NO_CODE_YET and 540 <= clk.t - t_before <= 560 and p.finish_log == [], rcs[-1])
+check("no code in 30 min of code_sent_at: the 4th call exits 4 at ~1800 s total (not 540 s later), finishes failed/code_expired ONCE, stdout empty",
+      rcs[3][0] == ST.EXPIRED and p.finish_log == [(F.RID, "failed", "code_expired")] and out.getvalue() == "" and 1790 <= clk.t - 1000 <= 1830, (rcs, p.finish_log, clk.t - 1000))
+check("a 5th call sees the closed row: refused, still exactly one finish", rcs[4][0] == ST.REFUSED and len(p.finish_log) == 1 and p.count("rpc/finish_code_request") == 1, rcs)
+# chunked delivery: the code arrives during the third call
+p = agent_portal(); p.code_after_polls = 115; rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock()
+ST.step_sent(F.RID, MASK, p, rpc, F.NOW)
+rcs = [quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)[0] for _ in range(3)]
+check("three chunked calls: 6, 6, then 0 with the code on stdout once; nothing finished", rcs == [ST.NO_CODE_YET, ST.NO_CODE_YET, ST.OK] and out.getvalue() == CODE + "\n" and p.finish_log == [], rcs)
+# a call killed by the terminal timeout BEFORE consume loses nothing: the code is still queued and the next call returns it
+p = agent_portal(); p.code_after_polls = 2; rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock()
+ST.step_sent(F.RID, MASK, p, rpc, F.NOW)
+class Killed(BaseException): pass
+def killing_sleep(s):
+    clk.sleep(s)
+    if len(clk.sleeps) == 2: raise Killed()   # the terminal tool kills the command here, before the code was consumed
+try: quiet(ST.step_code, F.RID, p, rpc, out, killing_sleep, clk.now, wall=clk.wall); killed = False
+except Killed: killed = True
+check("a call killed before consume: nothing consumed, nothing printed, nothing finished", killed and p.consume_calls == 2 and out.getvalue() == "" and p.finish_log == [] and p.requests[F.RID]["status"] == "code_sent", p.consume_calls)
+rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
+check("the next call returns the code (exit 0, stdout once) and the call ends well inside 600 s", rc == ST.OK and out.getvalue() == CODE + "\n" and p.finish_log == [], rc)
+# a late code is never consumed (expiry is checked before consume)
+p = agent_portal(); rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock()
+ST.step_sent(F.RID, MASK, p, rpc, F.NOW); clk.t += 1900
+rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
+check("a call after code_sent_at + 30 min with a code waiting: exit 4, the code is NOT consumed or printed, finished once", rc == ST.EXPIRED and p.consume_calls == 0 and out.getvalue() == "" and p.finish_log == [(F.RID, "failed", "code_expired")], (rc, p.consume_calls))
+# --wait-s is clamped to 540
+p = agent_portal(code=None); rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock()
+ST.step_sent(F.RID, MASK, p, rpc, F.NOW)
+rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wait_s=9999, wall=clk.wall)
+check("--wait-s 9999 is clamped to 540: exit 6 after at most ~550 s", rc == ST.NO_CODE_YET and clk.t - 1000 <= 550, clk.t - 1000)
+check("--wait-s is accepted by the CLI parser and a non-number is a usage error", quiet(ST.main, ["code", "--request-id", F.RID, "--wait-s", "x"])[0] == ST.BAD_ARGS)
+
+# ---- 7b the prompt's helper command: absolute interpreter + absolute helper path, terminal timeout 600, repeat on exit 6 ---------------------
+hc = S.helper_command()
+m = re.match(r'^"([^"]+)" "([^"]+)"$', hc)
+check("helper_command is the interpreter and the helper, both quoted absolute paths that exist", bool(m) and os.path.isabs(m.group(1)) and os.path.isabs(m.group(2)) and os.path.exists(m.group(1)) and os.path.exists(m.group(2)) and os.path.basename(m.group(2)) == "verify_step.py", hc)
+check("helper_command is the running interpreter (sys.executable) and has no backslashes", m and os.path.normcase(os.path.abspath(m.group(1))) == os.path.normcase(os.path.abspath(sys.executable)) and "\\" not in hc)
+pr = S.build_prompt(F.RID, F.request(), F.verification(), B.directory_entry("cylex.us", "sms"), ("NM", "o", "i", "u"), MASK, "x")
+check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 3, pr.count(hc))
+check("prompt: code step says terminal timeout 600, exit 6 means run again, 3 and 4 mean stop", "timeout set to 600" in pr and "Exit 6" in pr and "run the same command again" in pr and "Exit 3" in pr and "exit 4" in pr)
 
 # ---- 8 an empty status read is a miss, not 'superseded' (Nate stop 5) -----------------------------------------------------------------
 p = agent_portal(); rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock()
@@ -182,7 +226,7 @@ def flaky(method, path, body=None, prefer=None):
         if state["n"] in (2, 3): return []   # two empty reads in a row
     return orig(method, path, body, prefer)
 p.call = flaky
-rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now)
+rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
 check("two empty reads then the code: the helper keeps waiting and delivers the code", rc == 0 and out.getvalue() == CODE + "\n" and p.finish_log == [] and "superseded" not in text, (rc, text))
 p = agent_portal(); rpc = B.VerifyRpc(p); out = io.StringIO(); clk = F.Clock(); p.code_after_polls = 99
 ST.step_sent(F.RID, MASK, p, rpc, F.NOW)
@@ -193,7 +237,7 @@ def empty_forever(method, path, body=None, prefer=None):
         if state["n"] >= 2: return []
     return orig(method, path, body, prefer)
 p.call = empty_forever
-rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now)
+rc, text = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
 check("three empty reads in a row: failed/other (a miss limit), never 'superseded'", rc == ST.REFUSED and p.finish_log == [(F.RID, "failed", "other")] and "superseded" not in text, (rc, p.finish_log))
 # the scripted path too
 p = F.StrictPortal(requests=[F.request(status="starting")], verifications=[F.verification(directory="cylex.us")], queued_code=None)
@@ -291,6 +335,7 @@ h = rtr.launch_agent("C:/x/prompt.txt")
 exe = seen["argv"][0]
 check("oneshot argv is `hermes -p citation-submitter chat --query-file <file> --oneshot`", os.path.basename(exe).lower().startswith("hermes") and seen["argv"][1:] == ["-p", "citation-submitter", "chat", "--query-file", "C:/x/prompt.txt", "--oneshot"], seen["argv"])
 check("the oneshot's env has no service-role variable and its output is not kept", all("SERVICE_ROLE" not in k.upper() for k in seen["kw"]["env"]) and seen["kw"]["stdout"] == subprocess.DEVNULL and seen["kw"]["stderr"] == subprocess.DEVNULL)
+check("the oneshot is launched with cwd = the repo root (the app clone) and TERMINAL_CWD set to it", os.path.normcase(seen["kw"]["cwd"]) == os.path.normcase(S.REPO_ROOT) and os.path.exists(os.path.join(seen["kw"]["cwd"], "job", "verify_step.py")) and seen["kw"]["env"].get("TERMINAL_CWD") == S.REPO_ROOT, seen["kw"].get("cwd"))
 h.kill(); h.kill()
 check("kill ends the whole tree (taskkill /T on Windows, kill elsewhere) and is idempotent", (seen.get("kill", [None])[:3] == ["taskkill", "/F", "/T"]) if os.name == "nt" else (h.proc.killed >= 1 and h.poll() == -9))
 del os.environ["SUPABASE_SERVICE_ROLE_KEY"]
