@@ -78,6 +78,10 @@ class StrictPortal:
             if not r or ("status" in params and r["status"] != params["status"][3:]): return []
             return [dict(r)]
         if table == B.VERIFICATION_TABLE and method == "GET":
+            if "id" not in params:   # the first-use list: waiting sms/phone-call rows (logged apart from per-row reads)
+                self.calls[-1] = (method, "citation_verification:list", body)
+                return [dict(v, verification_type=v.get("verification_type", "sms")) for v in self.verifications.values()
+                        if v["state"] == "requires_verification" and v.get("verification_type", "sms") in ("sms", "phone-call")]
             v = self.verifications.get(params["id"][3:]); return [dict(v)] if v else []
         if table == B.VERIFICATION_TABLE and method == "PATCH":
             assert prefer == "return=representation" and body["state"] == "live"
