@@ -882,6 +882,16 @@ def _limited(page, guard, rid, res, why=None):
     return True
 
 
+def _backoff_decision(row, day, no_url):
+    """t_baa09af1: the single rule for _backoff. Returns already-parked | not-due | park | backoff (checked in that order)."""
+    import transitions as T
+    if row.get("state") == "needs-human": return "already-parked"
+    cur = row.get("recheck_due")
+    if no_url and cur and str(cur) > day: return "not-due"
+    if no_url and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS: return "park"
+    return "backoff"
+
+
 def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
     """t_962161f4: a `not-public` / `unreadable-public` verdict sets recheck_due = today + BACKOFF_DAYS on the row, so a batch does not burn time on it each turn.
     Same-state note refresh on a waiting row only (transitions refuses it elsewhere); a row already live is never touched. Dry run reports the date, writes nothing."""
@@ -891,18 +901,23 @@ def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
     res["recheck_due"] = due
     if row.get("state") not in T.NOTE_ONLY_STATES: return
     cur = row.get("recheck_due")
-    if not write:   # t_bee96b30: a dry run predicts what --backoff-only / --write would do, including the 3/3 park; it writes nothing
-        if no_url and cur and str(cur) > day: res["recheck_due"] = cur; res["not_due"] = True
-        elif no_url and row.get("state") != "needs-human" and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS: res["after"] = "needs-human"; res["would_park"] = "no-public-permalink"; res["recheck_due"] = None
+    act = _backoff_decision(row, day, no_url)   # t_baa09af1: ONE decision for the dry run and the write; they differ only in whether record() runs
+    if act == "already-parked":   # a needs-human row is a no-op: no record call, no backoff, no second park entry
+        res["recheck_due"] = cur; res["already_parked"] = True; res["after"] = row["state"]
+        if write: res["written"] = True
         return
-    if no_url and cur and str(cur) > day:   # t_8d1865a3 review: a named row read before it is due adds no counted backoff (at most one per due period); the date stays
-        res["recheck_due"] = cur; res["not_due"] = True; res["written"] = True
+    if act == "not-due":   # t_8d1865a3 review: a named row read before it is due adds no counted backoff (at most one per due period); the date stays
+        res["recheck_due"] = cur; res["not_due"] = True
+        if write: res["written"] = True
         return
-    if no_url and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS:   # t_8d1865a3: 3 backoffs and still no listing URL: park it, never a silent forever-submitted row
+    if act == "park":   # t_8d1865a3: 3 backoffs and still no listing URL: park it, never a silent forever-submitted row
+        res["after"] = "needs-human"; res["recheck_due"] = None
+        if not write: res["would_park"] = "no-public-permalink"; return
         n = "no public permalink after %d backoffs (public search, mail scan); parked for a human: find the listing by hand or reject" % T.MAX_NO_URL_BACKOFFS
         record("SCC", row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink", reason_code="no_search")
-        res["after"] = "needs-human"; res["parked"] = "no-public-permalink"; res["recheck_due"] = None
+        res["parked"] = "no-public-permalink"
         return
+    if not write: return   # t_bee96b30: a plain backoff writes nothing on a dry run
     n = ((note or res.get("note") or "public read: not public")[:160]) + " (recheck due %s)" % due
     kw = {"backoff": "no-permalink"} if no_url else {}
     record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due, **kw)
@@ -1081,6 +1096,7 @@ def format_report(results):
             tag = {True: " (written)", False: " (NOT WRITTEN)", None: " (dry run: not stored)"}[r["written"]] if "written" in r else " (dry run: not stored)"
             if r.get("parked"): lines.append("    parked: %s -> needs-human, reason %s (3 no-URL backoffs used)" % (r["before"], r["parked"]))
             elif r.get("would_park"): lines.extend(["    -> needs-human (would park: %s)" % r["would_park"], "    recheck_due %s -> none (dry run: not stored)" % (r.get("recheck_due_old") or "none")])
+            elif r.get("already_parked"): lines.append("    already parked (needs-human): no backoff, nothing written")
             elif r.get("not_due"): lines.append("    recheck_due %s (unchanged, not due; no backoff counted)" % r["recheck_due"])
             else: lines.append("    recheck_due %s -> %s%s" % (r.get("recheck_due_old") or "none", r["recheck_due"], tag))
     return "\n".join(lines)
