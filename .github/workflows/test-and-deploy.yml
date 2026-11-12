@@ -181,6 +181,10 @@ jobs:
         run: python tests/batch9_test.py
       - name: Weekly finder covers every Directory (ce_directories list, seed fallback, no-method is never absent, payload shape)
         run: python tests/weekly_all_test.py
+      - name: Verify Now bridge + send run (strict RPC fake, sweeper, fence, code leak on every failure path; no network)
+        run: python tests/verify_bridge_test.py
+      - name: Verify Now Cylex send step dry run (fake page)
+        run: python tests/verify_send_dry_run.py
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
