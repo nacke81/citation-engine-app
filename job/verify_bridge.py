@@ -73,11 +73,10 @@ def norm_domain(directory):
     return d[4:] if d.startswith("www.") else d
 
 
-def load_directories(path=None):
-    """-> list of entries {domain, aliases, channels, send, signin_url, vault_items}. A missing or broken file is an empty list (fail closed)."""
+def _load_file(path, source, agent_only=False):
     import json
     try:
-        with open(path or os.environ.get("CE_VERIFY_DIRECTORIES") or DIRECTORIES_PATH, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             rows = json.load(f).get("directories")
     except Exception:
         return []
@@ -85,10 +84,31 @@ def load_directories(path=None):
     for r in rows if isinstance(rows, list) else []:
         if not isinstance(r, dict) or not norm_domain(r.get("domain")): continue
         if r.get("send") not in ("script", "agent"): continue
+        if agent_only and r.get("send") != "agent": continue   # a runtime-file entry can never name a script send (that needs a PR)
         out.append({"domain": norm_domain(r["domain"]), "aliases": [norm_domain(a) for a in r.get("aliases") or []],
                     "channels": [c for c in r.get("channels") or [] if c in CHANNELS], "send": r["send"],
                     "signin_url": r.get("signin_url") or "https://%s/" % norm_domain(r["domain"]),
-                    "vault_items": dict(r.get("vault_items") or {})})
+                    "vault_items": dict(r.get("vault_items") or {}), "source": source})
+    return out
+
+
+def local_directories_path():
+    import verify_allowlist as A
+    return A.local_path()
+
+
+def load_directories(path=None):
+    """-> list of entries {domain, aliases, channels, send, signin_url, vault_items, source}. A missing or broken file is an empty list (fail closed).
+    No path: the repo file MERGED with the runtime file outside the repo (t_f31e2490); the repo file wins on any domain/alias overlap.
+    An explicit path reads that file only."""
+    if path: return _load_file(path, "repo")
+    out = _load_file(os.environ.get("CE_VERIFY_DIRECTORIES") or DIRECTORIES_PATH, "repo")
+    taken = set(x for e in out for x in [e["domain"]] + e["aliases"])
+    lp = local_directories_path()
+    for e in _load_file(lp, "local", agent_only=True) if lp else []:
+        names = [e["domain"]] + e["aliases"]
+        if taken.intersection(names): continue
+        taken.update(names); out.append(e)
     return out
 
 
@@ -409,9 +429,12 @@ def run_check(portal=None, out=print):
     portal = portal or P.Portal(*P.load_portal_env())
     rows, missing = check_missing(portal)
     names = {v: k for k, v in P.ALLOWED.items()}
-    out("VERIFY DIRECTORIES CHECK: %d sms/phone-call rows waiting, %d missing from config/verify_directories.json" % (len(rows), len(missing)))
+    out("VERIFY DIRECTORIES CHECK: %d sms/phone-call rows waiting, %d missing from the repo + local allowlist" % (len(rows), len(missing)))
     for r in missing:
         out("  missing: %s | %s | %s" % (names.get(r.get("client_id")), r.get("directory"), r.get("verification_type")))
+    lp = local_directories_path()
+    for src, p in (("repo", os.environ.get("CE_VERIFY_DIRECTORIES") or DIRECTORIES_PATH), ("local", lp)):
+        out("  source %s: %s (%d entries)" % (src, os.path.abspath(p) if p else "none", len([e for e in load_directories() if e["source"] == src])))
     return 0
 
 

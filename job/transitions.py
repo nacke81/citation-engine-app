@@ -28,6 +28,12 @@ import portal as P
 import directories as D
 import walls as W
 import your_turn_gate as YT
+import verify_allowlist as AL
+
+
+def _default_vault_item(client, directory):
+    """Convention '<TENANT> - <directory>' (the Citations collection naming), used only when the build run did not pass --vault-item."""
+    return "%s - %s" % (client, directory)
 
 STATES = ("queued", "found", "claimed-unverified", "created-unlisted") + Q.PORTAL_STATES  # queued, found, claimed-unverified, created-unlisted, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
@@ -402,13 +408,14 @@ def set_verification_live(portal, verification_id, client_id, now=None):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
     verify_type: phone-call|sms|postcard with new_state needs-human; upserts a citation_verification row via `verification` (default: the Portal).
     directories: object with .owner and call(method, path, body, prefer) for the Directory database (default: DirDB from the weekly job env;
     CE_DIRECTORIES_WRITE=0 turns the sink off)."""
+    real_sink = portal is None and verification is None   # t_f31e2490: only a run on the real Portal writes the machine-wide allowlist file; an injected fake (tests) needs allowlist_path
     if client != "SCC":
         raise TransitionRefused("queue transitions are SCC only, got %r" % (client,))
     client_id = P.client_for(client)
@@ -482,6 +489,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     ver_rec = build_verification_record(client_id, row["directory"], verify_type, day, verify_deadline_days, steps=steps, directory_url=directory_url) if verify_type else None
     out["verification_record"] = ver_rec
     out["verification_written"] = False
+    out["allowlist"] = None
     ver_patch_path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, row["directory"])
 
     if dry_run:
@@ -498,6 +506,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             {"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]} if ver_rec else
             {"method": "PATCH", "path": ver_patch_path, "body": {"state": "live", "verified_at": "<now>"}} if new_state == "live"
             else "skipped: no verification step")
+        out["allowlist_request"] = ({"directory": row["directory"], "channel": verify_type, "tenant": client, "vault_item": vault_item or _default_vault_item(client, row["directory"])}
+                                    if verify_type in AL.AUTO_TYPES else "skipped: not a phone/SMS park")
         return out
 
     # 1 queue file (source of truth). Replace the row in place, preserving the rest of the file.
@@ -542,6 +552,14 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             out["verification_written"] = True
         except Exception as e:
             out["errors"].append("verification: %s" % e)
+        # 3b2 t_f31e2490: in the same transition, a phone/SMS park puts the Directory on the Verify Now allowlist (runtime file outside the repo). Never blocks.
+        if ver_rec and out["verification_written"] and verify_type in AL.AUTO_TYPES and (real_sink or allowlist_path):
+            try:
+                item = vault_item or _default_vault_item(client, row["directory"])
+                out["allowlist"] = AL.auto_add(row["directory"], verify_type, client, item, row_id, day, path=allowlist_path)
+                out["allowlist"]["vault_item_defaulted"] = not vault_item
+            except Exception as e:
+                out["errors"].append("allowlist: %s" % type(e).__name__)
         # 3c t_79c39f75: client-facing id-check parks get a one-time sign-in Send. Flag-gated (CE_SIGNIN_SEND_WRITE=1), fails closed, never blocks the writes above.
         if ver_rec and out["verification_written"] and os.environ.get("CE_SIGNIN_SEND_WRITE") == "1":
             try:
@@ -578,6 +596,7 @@ def main(argv=None):
     a.add_argument("--observed-at", default=None, help="Your turn gate: YYYY-MM-DD the step was opened (this cycle: 7 days)")
     a.add_argument("--observed-url", default=None, help="Your turn gate: https URL of the verify step")
     a.add_argument("--final-url", default=None, help="Your turn gate: URL after redirects (a different domain = dead/redirect)")
+    a.add_argument("--vault-item", default=None, help="sms/phone-call park: the Citations vault item name the build run signed in with (Verify Now allowlist entry); default '<CLIENT> - <directory>'")
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)
@@ -599,7 +618,7 @@ def main(argv=None):
     if n.write: a.error("--write only applies to --mirror-proof")
     if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code,
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code, vault_item=n.vault_item,
                                 observation=({"observed_type": n.observed_type, "screenshot": n.screenshot, "price_seen": n.price_seen, "observed_at": n.observed_at, "url": n.observed_url, "final_url": n.final_url} if n.verify_type else None))
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
