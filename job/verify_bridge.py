@@ -31,11 +31,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import portal as P
 
-REQUEST_TABLE = "verify_code_request"   # OPEN CONTRACT ITEM: table name is not in the shared contract; confirm against the portal migration (sweeper list read only)
+REQUEST_TABLE = "citation_code_request"   # contract table (portal card t_c55c728e); pinned by tests/verify_bridge_test.py
 VERIFICATION_TABLE = "citation_verification"
 STATUSES = ("verified", "could_not_start", "failed")
 FAIL_CODES = ("timeout", "no_playbook", "signin_failed", "send_failed", "code_rejected", "code_expired", "resend", "other")
 SWEEP_AFTER_S = 600
+POLL_MAX_S = 1800
+POST_SEND_SWEEP_S = POLL_MAX_S + 600   # 40 min: a send run that died after mark_code_sent
+POST_SEND_FAIL = {"code_sent": "code_expired", "checking": "other"}
 MAX_CLAIMS_PER_PASS = 3
 CARD_TIMEOUT_S = 60
 SMS_DIRECTORIES = ("cylex.us", "cylex.us.com")   # the only proven SMS Directory
@@ -148,9 +151,15 @@ def _parse(ts):
 
 def card_argv(request_id, status, age_s):
     import postcard_step as PS   # REVIEWER literal is assembled there (the repo leak check denylists it)
-    title = "VERIFY NOW: request %s could not start (%s, %dm)" % (request_id, status, int(age_s // 60))
-    body = ("Request %s sat in %s for %d minutes with no code sent. The bridge marked it could_not_start/timeout. "
-            "Next step: check the agent box (bridge pass, vault, Chrome) and tell the client. This card never carries a code." % (request_id, status, int(age_s // 60)))
+    if status in POST_SEND_FAIL:
+        title = "VERIFY NOW: request %s stuck after the code was sent (%s, %dm)" % (request_id, status, int(age_s // 60))
+        body = ("Request %s sat in %s for %d minutes after the text went out and the send run is gone. The bridge marked it failed/%s. "
+                "Next step: check the agent box (send run log, Chrome, sleep or reboot) and tell the client. This card never carries a code."
+                % (request_id, status, int(age_s // 60), POST_SEND_FAIL[status]))
+    else:
+        title = "VERIFY NOW: request %s could not start (%s, %dm)" % (request_id, status, int(age_s // 60))
+        body = ("Request %s sat in %s for %d minutes with no code sent. The bridge marked it could_not_start/timeout. "
+                "Next step: check the agent box (bridge pass, vault, Chrome) and tell the client. This card never carries a code." % (request_id, status, int(age_s // 60)))
     return [PS._hermes_exe(), "-p", PS.REVIEWER, "kanban", "--board", PS.REVIEWER, "create", title, "--assignee", PS.REVIEWER,
             "--workspace", "scratch", "--idempotency-key", "verify-now:%s" % request_id, "--body", body]
 
@@ -176,20 +185,37 @@ def stale_requests(portal, now, after_s=SWEEP_AFTER_S):
     return out
 
 
+def stale_post_send(portal, now, after_s=POST_SEND_SWEEP_S):
+    """code_sent / checking rows whose send run is gone (crash, sleep, reboot). Same local re-check as stale_requests."""
+    cutoff = (now - datetime.timedelta(seconds=after_s)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = portal.call("GET", "%s?select=id,status,code_sent_at&status=in.(code_sent,checking)&code_sent_at=lt.%s&order=code_sent_at.asc" % (REQUEST_TABLE, cutoff)) or []
+    out = []
+    for r in rows:
+        t = _parse(r.get("code_sent_at"))
+        if r.get("status") in POST_SEND_FAIL and t and (now - t).total_seconds() >= after_s and r.get("id"):
+            out.append((r["id"], r["status"], (now - t).total_seconds()))
+    return out
+
+
 def sweep(portal, rpc, now=None, card_runner=None):
     now = now or datetime.datetime.now(datetime.timezone.utc)
     done = []
     try:
-        rows = stale_requests(portal, now)
+        rows = [(rid, st, age, "could_not_start", "timeout", True) for rid, st, age in stale_requests(portal, now)]
     except Exception as e:
-        log("sweep list failed: %s" % type(e).__name__); return done
-    for rid, status, age in rows:
+        log("sweep list failed: %s" % type(e).__name__); rows = []
+    try:
+        for rid, st, age in stale_post_send(portal, now):
+            rows.append((rid, st, age, "failed", POST_SEND_FAIL[st], st == "checking"))
+    except Exception as e:
+        log("sweep post-send list failed: %s" % type(e).__name__)
+    for rid, status, age, fstatus, fcode, card in rows:
         try:
-            rpc.finish(rid, "could_not_start", "timeout")
+            rpc.finish(rid, fstatus, fcode)
         except BridgeError as e:
             log("sweep finish failed for %s: %s" % (rid, e))   # the card still goes out below: a stuck row must reach a person
-        file_card(rid, status, age, runner=card_runner)
-        log("swept %s from %s after %dm: could_not_start/timeout" % (rid, status, int(age // 60)))
+        if card: file_card(rid, status, age, runner=card_runner)
+        log("swept %s from %s after %dm: %s/%s" % (rid, status, int(age // 60), fstatus, fcode))
         done.append(rid)
     return done
 

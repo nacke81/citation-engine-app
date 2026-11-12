@@ -24,6 +24,7 @@ class StrictPortal:
         self.code_after_polls = 0             # consume returns null this many times first
         self.finish_fails = finish_fails      # finish_code_request raises (row stays stuck)
         self.calls = []
+        self.sent_at = None                   # mark_code_sent stamps this (defaults to NOW)
         self.fail_mark = False; self.fail_patch = False; self.consume_calls = 0
 
     def _claimable(self):
@@ -43,7 +44,7 @@ class StrictPortal:
                 assert method == "POST" and set(body) == {"p_request_id", "p_sent_to_masked"}, "mark_code_sent arg names"
                 assert B.MASK_RE.match(body["p_sent_to_masked"]), "mask shape"
                 if self.fail_mark: raise RuntimeError("boom " + str(self.queued_code))
-                self.requests[body["p_request_id"]]["status"] = "code_sent"; return None
+                self.requests[body["p_request_id"]]["status"] = "code_sent"; self.requests[body["p_request_id"]]["code_sent_at"] = iso(self.sent_at or NOW); return None
             if name == "consume_verify_code":
                 assert method == "POST" and set(body) == {"p_request_id"}, "consume_verify_code arg names"
                 self.consume_calls += 1
@@ -65,7 +66,8 @@ class StrictPortal:
         if table == B.REQUEST_TABLE and method == "GET":
             if "status" in params and params["status"].startswith("in."):
                 want = params["status"][4:-1].split(",")
-                return [dict(r) for r in self.requests.values() if r["status"] in want and r["requested_at"] < params["requested_at"][3:]]
+                key = "code_sent_at" if "code_sent_at" in params else "requested_at"
+                return [dict(r) for r in self.requests.values() if r["status"] in want and r.get(key) and r[key] < params[key][3:]]
             r = self.requests.get(params.get("id", "")[3:])
             if not r or ("status" in params and r["status"] != params["status"][3:]): return []
             return [dict(r)]
@@ -156,7 +158,8 @@ class FakeRuntime:
     def vault_lookup(self, tenant): return self.vault_ok
     def vault_fill(self, tenant, url, cdp): self.vault_fills += 1; return True
     def login_email(self, tenant): return self.email
-    def access_code(self, tenant, since): self.access_asked += 1; return self.access
+    def mail_baseline(self, tenant): return set()
+    def access_code(self, tenant, baseline): self.access_asked += 1; return self.access
     def guard(self):
         rt = self
         class G:

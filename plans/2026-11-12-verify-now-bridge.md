@@ -12,3 +12,9 @@ Scope (new files only, plus one CI line):
 Decision: "set live" PATCHes `citation_verification` (state live, verified_at), the same verification-queue step `transitions.record_transition` performs on a move to live. The queue row's own move to live still needs public-page Proof and is NOT bypassed here.
 Open contract item: the request table name for the sweeper's list read is not in the contract; `REQUEST_TABLE` is a constant, to confirm against the portal migration.
 No real send, no CapSolver, no prod write.
+
+## Rework round 1 (t_0d601426, run 976)
+- REQUEST_TABLE is citation_code_request (contract), pinned by a test that also checks every sweeper read.
+- Sweeper also closes code_sent (failed/code_expired) and checking (failed/other + one card) when code_sent_at is 40 min or older; 39 min is left alone.
+- Mailed access code: new-uid-since-baseline instead of a date floor (read_messages drops the sender offset); mail_scan.RESET_CODE_RE; baseline unreadable fails closed.
+- WhatsApp sentence and its test whitelist removed.

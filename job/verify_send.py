@@ -17,7 +17,6 @@ Rules: a code (SMS or mailed) lives in a local variable only: never logged, prin
 failure path ends in finish_code_request with an allowlisted fail code and logs the reason code only, never exception text.
 The live phone-step selectors come from spike 1 (#registerCompanyPhoneModalVerify JS click, consent, 'Send verification code'); the
 Edit-profile navigation and the code-entry field are fail-closed (send_failed) when not found and must be confirmed in the live-run card.
-No WhatsApp or voice path exists here.
 """
 import argparse, contextlib, datetime, os, re, subprocess, sys, time
 
@@ -37,7 +36,6 @@ FILL_JS = os.environ.get("CE_FILL_JS") or os.path.expandvars("%LOCALAPPDATA%/her
 POLL_EVERY_S = 10
 POLL_MAX_S = 1800
 EMAIL_WAIT_S = 300
-CODE_RE = re.compile(r"(?:code|verification code)[^0-9A-Za-z]{0,20}([0-9]{4,8})", re.I)
 PHONE_RE = re.compile(r"\(?(\d{3})\)?[\s.\-]*(\d{3})[\s.\-]*(\d{4})")
 # selectors
 EMAIL_IN, TERMS_BOX, PASSWORD_IN = "#email", "#register-terms-checkbox", "input[type=password]"
@@ -78,6 +76,7 @@ class CylexDriver:
 
     def sign_in(self, email, since):
         p = self.page
+        baseline = self.rt.mail_baseline(self.tenant)   # mail already in the box BEFORE the Sign in click; None = unreadable
         self._try("signin_failed", p.goto, SIGNIN_URL)
         self._try("signin_failed", p.fill, EMAIL_IN, email)
         self._try("signin_failed", p.click, TERMS_BOX)
@@ -87,7 +86,7 @@ class CylexDriver:
         self._try("signin_failed", p.click, SIGNIN_BTN)
         self._try("signin_failed", p.wait_for_timeout, 4000)
         if self._has(ACCESS_CODE_IN):   # the Directory mails an access code BEFORE the phone step on a new account
-            code = self.rt.access_code(self.tenant, since)
+            code = self.rt.access_code(self.tenant, baseline)
             if not code:
                 log("access code not found in the mailbox before the wait ended: other")
                 raise DriverError("other")
@@ -169,19 +168,31 @@ class Runtime:
         import mail_scan as M
         return M.read_relay_messages(days=1) if tenant[0] == "NM" else M.read_messages(days=1, folders="all")
 
-    def access_code(self, tenant, since):
-        """Newest Directory mail at or after `since` (UTC datetime) with a code in it, or None after email_wait_s. The code is returned, never logged."""
-        import mail_scan as M
-        floor = (since - datetime.timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M")
+    @staticmethod
+    def _key(m): return (m.get("folder") or "INBOX", str(m.get("uid")))
+
+    def mail_baseline(self, tenant):
+        """Keys of every message in the box now. A mailed access code is only accepted from a message NOT in this set, so no clock or
+        Date-header offset can drop it and no stale mail can be read as new. None when the box cannot be read (access_code then fails closed)."""
+        try:
+            return {self._key(m) for m in self.messages(tenant)}
+        except Exception as e:
+            log("mailbox baseline failed: %s" % type(e).__name__); return None
+
+    def access_code(self, tenant, baseline):
+        """Code from a Directory mail that arrived after the baseline, or None after email_wait_s. The code is returned, never logged."""
+        import html, mail_scan as M
+        if baseline is None:
+            log("access code skipped: mailbox baseline unreadable"); return None
         end = self.now() + self.email_wait_s
         while True:
             try:
-                msgs = [m for m in self.messages(tenant) if M.mail_is_from(m, DOMAIN) and (m.get("date") or "") >= floor]
+                msgs = [m for m in self.messages(tenant) if self._key(m) not in baseline and M.mail_is_from(m, DOMAIN)]
             except Exception as e:
                 log("mailbox read failed: %s" % type(e).__name__); msgs = []
-            for m in sorted(msgs, key=lambda x: x.get("date") or "", reverse=True):
-                hit = CODE_RE.search(m.get("body") or "")
-                if hit: return hit.group(1)
+            for m in sorted(msgs, key=lambda x: str(x.get("uid")), reverse=True):
+                hit = M.RESET_CODE_RE.search(re.sub(r"https?://\S+", " ", html.unescape(m.get("body") or "")))
+                if hit: return hit.group(1) or hit.group(2)
             if self.now() >= end: return None
             self.sleep(10)
 

@@ -81,6 +81,69 @@ p = portal(requests=[F.request(age_s=599, status="starting")]); cards = F.FakeCa
 done, _ = quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, cards)
 check("599 s is not swept (boundary)", done == [] and cards.argvs == [])
 
+# 3b table name pinned + sweeper closes a send run that died after mark_code_sent
+check("sweeper reads the contract table citation_code_request", B.REQUEST_TABLE == "citation_code_request")
+p = portal(requests=[F.request(status="starting")]); seen = []
+_orig = p.call
+def _spy(method, path, *a, **kw): seen.append(path); return _orig(method, path, *a, **kw)
+p.call = _spy
+quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, F.FakeCards())
+gets = [s for s in seen if not s.startswith("rpc/")]
+check("every sweeper read hits citation_code_request", gets and all(s.startswith("citation_code_request?") for s in gets), gets)
+check("post-send window is POLL_MAX_S + 10 min and matches the send run", B.POST_SEND_SWEEP_S == 40 * 60 and B.POLL_MAX_S == S.POLL_MAX_S)
+for st, want_code, want_cards in (("code_sent", "code_expired", 0), ("checking", "other", 1)):
+    for mins, closed in ((39, False), (41, True)):
+        p = portal(requests=[F.request(status="starting", age_s=0)]); cards = F.FakeCards()
+        p.sent_at = F.NOW - datetime.timedelta(minutes=mins)
+        p.call("POST", "rpc/mark_code_sent", {"p_request_id": F.RID, "p_sent_to_masked": "(502) ***-0101"})   # the send run marks, then dies
+        p.requests[F.RID]["status"] = st
+        quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, cards)
+        row = p.requests[F.RID]
+        if closed:
+            check("%s dead send run at %d min -> failed/%s" % (st, mins, want_code), row["status"] == "failed" and row["fail_code"] == want_code and len(cards.cards) == want_cards, (row["status"], row.get("fail_code"), cards.cards))
+            quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, cards); quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, cards)
+            check("%s: more passes add no card and no second finish" % st, len(cards.cards) == want_cards and p.count("rpc/finish_code_request") == 1, (cards.cards, p.count("rpc/finish_code_request")))
+        else:
+            check("%s at %d min is left alone (no finish, no card)" % (st, mins), row["status"] == st and p.count("rpc/finish_code_request") == 0 and cards.argvs == [])
+p = portal(requests=[F.request(status="starting", age_s=0)], finish_fails=True); cards = F.FakeCards(); p.sent_at = F.NOW - datetime.timedelta(minutes=41)
+p.call("POST", "rpc/mark_code_sent", {"p_request_id": F.RID, "p_sent_to_masked": "(502) ***-0101"}); p.requests[F.RID]["status"] = "checking"
+for _ in range(2): quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, cards)
+check("checking card is idempotent even when finish keeps failing", len(cards.cards) == 1 and cards.cards == ["verify-now:" + F.RID] and CODE not in " ".join(cards.argvs[0]))
+p = portal(requests=[F.request(status="starting", age_s=0)]); cards = F.FakeCards(); p.sent_at = F.NOW - datetime.timedelta(minutes=41)
+p.call("POST", "rpc/mark_code_sent", {"p_request_id": F.RID, "p_sent_to_masked": "(502) ***-0101"})
+done, _ = quiet(B.sweep, p, B.VerifyRpc(p), F.NOW, cards)
+check("code_sent at 41 min is swept once with no card", done == [F.RID] and cards.argvs == [])
+
+# 3c mailed access code reader: real Runtime.access_code with a fake messages()
+class MailRt(S.Runtime):
+    def __init__(self, seq):
+        t = [0.0]
+        S.Runtime.__init__(self, sleep=lambda s: t.__setitem__(0, t[0] + s), now=lambda: t[0])
+        self.seq, self.n = seq, 0
+    def messages(self, tenant):
+        r = self.seq[min(self.n, len(self.seq) - 1)]; self.n += 1
+        if isinstance(r, Exception): raise r
+        return [dict(m) for m in r]
+def mail(uid, body, date="2026-11-12T12:31", frm="Cylex <noreply@cylex.us>", folder="INBOX"):
+    return {"uid": uid, "folder": folder, "from": frm, "subject": "Your access code", "date": date, "to": [], "body": body}
+NT = ("NM", "org", "item")
+old = mail(5, "Your access code is 111222")
+newm = mail(9, "Your access code is %s" % CODE)
+rt = MailRt([[old], [old, newm]]); base = rt.mail_baseline(NT)
+check("mail reader: 'Your access code is NNNNNN' is found", rt.access_code(NT, base) == CODE)
+tz = mail(10, "Your access code is %s" % CODE, date="2026-11-12T12:31")   # sent 18:31 UTC with a -0600 Date header, sign-in at 18:30 UTC
+rt = MailRt([[old], [old, tz]]); base = rt.mail_baseline(NT)
+check("mail reader: a -0600 Date header does not drop a mail that arrived after sign-in", rt.access_code(NT, base) == CODE)
+rt = MailRt([[old]]); base = rt.mail_baseline(NT)
+check("mail reader: a code mail already there before sign-in is not read; times out with None", rt.access_code(NT, base) is None and rt.n > 1)
+rt = MailRt([[old], [old, mail(11, "Your access code is %s" % CODE, frm="x <a@other-site.invalid>")]]); base = rt.mail_baseline(NT)
+check("mail reader: a new mail from another sender is ignored", rt.access_code(NT, base) is None)
+rt = MailRt([RuntimeError("imap down boom " + CODE)]); base = rt.mail_baseline(NT)
+out = quiet(rt.access_code, NT, base)
+check("mail reader: unreadable box -> baseline None -> no code, no read after, no leak", base is None and out[0] is None and CODE not in out[1])
+rt = MailRt([[old], [old, mail(12, "Code: https://cylex.us/x?c=999888 then 654321")]]); base = rt.mail_baseline(NT)
+check("mail reader: digits inside a URL are ignored", rt.access_code(NT, base) == "654321")
+
 # 4 no-playbook directory: 0 site loads
 p = portal(verifications=[F.verification(directory="yellowpages.com")]); spawned.clear()
 res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, F.FakeCards())
@@ -155,14 +218,14 @@ check("leak: no file under the logs/guard dir holds the code", CODE not in allfi
 
 # 8 contract strictness + rules
 rpc = B.VerifyRpc(portal())
-for label, fn in (("bad status", lambda: rpc.finish(F.RID, "done", None)), ("bad fail code", lambda: rpc.finish(F.RID, "failed", "whatsapp")), ("bad mask", lambda: rpc.mark_sent(F.RID, "5025550101"))):
+for label, fn in (("bad status", lambda: rpc.finish(F.RID, "done", None)), ("bad fail code", lambda: rpc.finish(F.RID, "failed", "bogus")), ("bad mask", lambda: rpc.mark_sent(F.RID, "5025550101"))):
     try: fn(); check("rpc refuses " + label, False)
     except B.BridgeError: check("rpc refuses " + label, True)
 check("mask_phone", B.mask_phone("+1 (502) 555-0101") == "(502) ***-0101" and B.mask_phone("12345") is None)
 src = {n: open(os.path.join(HERE, "..", "job", n), encoding="utf-8").read() for n in ("verify_bridge.py", "verify_send.py")}
 src["verify_fakes.py"] = open(os.path.join(HERE, "verify_fakes.py"), encoding="utf-8").read()
 src["this test"] = open(__file__, encoding="utf-8").read()
-check("no WhatsApp wording (job files + fakes)", not [n for n, t in src.items() if n != "this test" and re.search("whats" + "app", t.replace("No WhatsApp or voice path exists here.", ""), re.I)])
+check("no WhatsApp wording (job files + fakes)", not [n for n, t in src.items() if n != "this test" and re.search("whats" + "app", t, re.I)])
 check("no em dashes in the new files", not [n for n, t in src.items() if "\u2014" in t])
 check("no scheduler created by the bridge", not re.search(r"schtasks|crontab|cronjob|Register-ScheduledTask", src["verify_bridge.py"] + src["verify_send.py"]))
 sys.exit(0 if all(ok) else 1)
