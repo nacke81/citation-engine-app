@@ -3,6 +3,7 @@ Run: python tests/verify_send_dry_run.py"""
 import io, os, sys, tempfile, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 TMP = tempfile.mkdtemp()
+os.environ["CE_VERIFY_DIRECTORIES"] = os.path.join(HERE, "verify_directories_fixture.json")
 os.environ["CE_LOGS"] = os.path.join(TMP, "logs"); os.environ["CE_SITE_GUARD"] = os.path.join(TMP, "guard.json")
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json"); os.environ["CE_RUNS"] = tempfile.mkdtemp()
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))

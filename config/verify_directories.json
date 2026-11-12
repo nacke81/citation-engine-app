@@ -1,0 +1,13 @@
+{
+  "_comment": "Directories the Verify Now agent may send a code for. send=agent: the submitter agent runs the send (default). send=script: a deterministic script in verify_send.py (only after an agent run confirmed it and the PR cites that run). channels: sms, phone-call. A Directory or channel not listed here fails no_playbook with 0 site loads. vault_items: tenant -> Citations collection item name.",
+  "directories": [
+    {
+      "domain": "cylex.us",
+      "aliases": ["cylex.us.com"],
+      "channels": ["sms"],
+      "send": "agent",
+      "signin_url": "https://www.cylex.us.com/signin/",
+      "vault_items": {"NM": "NM - cylex.us", "SCC": "SCC - cylex.us.com"}
+    }
+  ]
+}

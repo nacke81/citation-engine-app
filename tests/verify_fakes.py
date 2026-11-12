@@ -154,17 +154,26 @@ class Clock:
     def __init__(self): self.t = 1000.0; self.sleeps = []
     def now(self): return self.t
     def sleep(self, s): self.sleeps.append(s); self.t += s
+    def wall(self): return NOW + datetime.timedelta(seconds=self.t - 1000.0)   # wall time on the same virtual clock (code_sent_at = NOW at t=1000)
 
 
 class FakeRuntime:
-    def __init__(self, page, clock=None, vault_ok=True, email="tester@example.invalid", access=None, guard_ok=True, crash=False):
+    def __init__(self, page, clock=None, vault_ok=True, username=None, access=None, guard_ok=True, crash=False, agent_factory=None):
         self.crash, self.open_browsers = crash, 0
-        self.page, self.clock, self.vault_ok, self.email, self.access, self.guard_ok = page, clock or Clock(), vault_ok, email, access, guard_ok
-        self.now, self.sleep = self.clock.now, self.clock.sleep
+        self.username, self.prompts, self.launched, self.agent, self.agent_factory = username, [], [], None, agent_factory
+        self.page, self.clock, self.vault_ok, self.access, self.guard_ok = page, clock or Clock(), vault_ok, access, guard_ok
+        self.now, self.sleep, self.wall = self.clock.now, self.clock.sleep, self.clock.wall
         self.browsers = 0; self.reserves = []; self.vault_fills = 0; self.access_asked = 0
     def vault_lookup(self, tenant): return self.vault_ok
     def vault_fill(self, tenant, url, cdp): self.vault_fills += 1; return True
-    def login_email(self, tenant): return self.email
+    def login_username(self, tenant):
+        import verify_send as S
+        return self.username if self.username is not None else S.EXPECTED_LOGIN[tenant[0]]
+    def business_phone_masked(self, tenant): return "(502) ***-0101"
+    def write_prompt(self, request_id, text):
+        self.prompts.append(text); return "prompt-%s.txt" % request_id
+    def launch_agent(self, path):
+        self.launched.append(path); self.agent = self.agent_factory(self); return self.agent
     def mail_baseline(self, tenant): return set()
     def access_code(self, tenant, baseline): self.access_asked += 1; return self.access
     def guard(self):
@@ -180,3 +189,16 @@ class FakeRuntime:
             yield self.page, "http://127.0.0.1:1"
         finally:
             self.open_browsers -= 1
+
+
+class FakeAgent:
+    """Stands in for the hermes oneshot. `steps` are callables, one run per poll(); after the last one the process has exited (rc 0).
+    hang=True never exits on its own. kill() records the kill and makes poll() report a dead process. No process is ever started."""
+    def __init__(self, steps=(), hang=False):
+        self.steps, self.hang, self.kills, self.polls = list(steps), hang, 0, 0
+    def poll(self):
+        self.polls += 1
+        if self.kills: return -9
+        if self.steps: self.steps.pop(0)()
+        return None if (self.steps or self.hang) else 0
+    def kill(self): self.kills += 1

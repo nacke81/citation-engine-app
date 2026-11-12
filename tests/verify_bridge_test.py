@@ -4,6 +4,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TMP = tempfile.mkdtemp()
 os.environ["CE_LOGS"] = os.path.join(TMP, "logs")
 os.environ["CE_SITE_GUARD"] = os.path.join(TMP, "guard.json")
+os.environ["CE_VERIFY_DIRECTORIES"] = os.path.join(HERE, "verify_directories_fixture.json")   # cylex = script, agentdir.example = agent
 os.environ["CE_NO_CARDS"] = "1"   # tripwire: the real hermes CLI is never reached, cards go to FakeCards only
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json"); os.environ["CE_RUNS"] = tempfile.mkdtemp()   # transitions imports run.py
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))
