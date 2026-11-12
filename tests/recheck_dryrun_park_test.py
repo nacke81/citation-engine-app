@@ -72,6 +72,36 @@ for n in (2, 3):
 d_live, _, _ = run(row(3, state="needs-human", recheck_due="2026-11-12"), any_state=True)
 check("4 a needs-human row is not predicted to park again", all("would_park" not in r for r in d_live))
 
+# t_baa09af1: dry run and write take ONE decision. Same after / recheck_due / parked for each shape; an already-parked row is never re-parked.
+CALLS = []
+def spy(*a, **k): CALLS.append(a); return real_record(*a, **k)
+def run_direct(r, day):
+    json.dump({"canonical": CANON, "fix_queue": [], "create_rows": [r]}, open(QP, "w"))
+    res = {"row": r["id"], "before": r["state"], "after": r["state"], "fields": [], "note": None, "error": None, "verdict": "not-public"}
+    R._backoff(res, copy.deepcopy(r), True, spy, QP, day, no_url=True)
+    return [res], json.load(open(QP))["create_rows"][0], None
+def agree(label, r, day, **kw):
+    dry, dcur, dsame = run(r, today=day, **kw)
+    wr, wcur, _ = run_direct(r, day) if kw.get("any_state") else run(r, today=day, backoff_only=True, **kw)   # candidates() never hands a needs-human row to a write run; call _backoff itself, as Nate's repro did
+    d, w = dry[0], wr[0]
+    check("6 %s: dry run and write agree on after / recheck_due / parked-or-would_park" % label,
+          d["after"] == w["after"] and d["recheck_due"] == w["recheck_due"] and (d.get("would_park") or d.get("parked")) == (w.get("parked") or w.get("would_park")), "dry=%s write=%s" % ({k: d.get(k) for k in ("after", "recheck_due", "would_park", "already_parked")}, {k: w.get(k) for k in ("after", "recheck_due", "parked", "already_parked")}))
+    check("6 %s: the dry run wrote nothing" % label, dsame)
+    return d, w, dcur, wcur
+
+d, w, _, wcur = agree("fresh row at 3 backoffs", row(3, recheck_due="2026-11-14"), "2026-11-14")
+check("6 fresh row at 3 backoffs: both park", d["after"] == w["after"] == "needs-human" and w.get("parked") == "no-public-permalink" and d["recheck_due"] is None and wcur["state"] == "needs-human" and len(wcur["history"]) == 4)
+
+parked_row = row(3, state="needs-human", recheck_due="2026-11-14", history=backoffs(3) + [{"at": "2026-11-10", "from": "submitted", "to": "needs-human", "park_reason": "no-public-permalink", "note": "parked"}])
+d, w, dcur, wcur = agree("needs-human row at 3 backoffs (Nate repro, create-usbizs, 2026-11-14)", parked_row, "2026-11-14", any_state=True)
+check("6 needs-human row: both report already parked, after needs-human, no park, no new date", d["after"] == w["after"] == "needs-human" and d.get("already_parked") and w.get("already_parked") and "parked" not in w and "would_park" not in d, str((d, w)))
+check("6 needs-human row: the write adds 0 history entries and changes nothing", len(wcur["history"]) == len(parked_row["history"]) and wcur["state"] == "needs-human" and wcur.get("recheck_due") == "2026-11-14")
+check("6 needs-human row: the report says already parked", "already parked" in R.format_report(run(parked_row, today="2026-11-14", any_state=True)[0]))
+check("6 needs-human row: record() is never called by the write", CALLS == [])
+
+d, w, _, wcur = agree("not-due row at 3 backoffs", row(3, recheck_due="2026-11-16"), "2026-11-14")
+check("6 not-due row: both keep the date, no park, no backoff", d["after"] == w["after"] == "submitted" and d["recheck_due"] == w["recheck_due"] == "2026-11-16" and d.get("not_due") and w.get("not_due") and T.no_url_backoffs(wcur) == 3)
+
 # docs: the --backoff-only help and the bw comment no longer say "no transition"
 out = subprocess.run([sys.executable, os.path.join(JOB, "recheck.py"), "--help"], capture_output=True, text=True).stdout
 flat = " ".join(out.split())
