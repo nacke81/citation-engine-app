@@ -6,6 +6,8 @@ os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ["CE_RUNS"] = tempfile.mkdtemp(prefix="ce-runs-")
 os.environ["CE_ACTIVITIES_WRITE"] = "0"
 os.environ["CE_DIRECTORIES_WRITE"] = "0"
+os.environ["CE_BUILD_PIDFILE"] = os.path.join(tempfile.mkdtemp(prefix="ce-pid-"), "build-chrome.pid")   # t_15f7ec86: --stop reads a pidfile; never the real one
+os.environ["CE_BUILD_LEASE"] = os.path.join(tempfile.mkdtemp(prefix="ce-lease-"), "build-chrome.lease")
 JOB = os.path.join(HERE, "..", "job")
 sys.path.insert(0, JOB); sys.path.insert(0, os.path.join(JOB, "playbooks"))
 def _no_net(*a, **k): raise AssertionError("network call attempted")
@@ -205,6 +207,7 @@ class Runner:
     def __call__(s, cmd, **k):
         s.cmds.append(cmd)
         if cmd[0] == "netstat": return types.SimpleNamespace(stdout=NETSTAT if s.listening else "", returncode=0)
+        if cmd[0] == "powershell": return types.SimpleNamespace(stdout="[]", returncode=0)   # t_15f7ec86: --stop also lists processes (none here)
         if cmd[0] == "taskkill": s.listening = False; return types.SimpleNamespace(stdout="SUCCESS", returncode=0)
         raise AssertionError("unexpected command %r" % (cmd,))
 check("6 listener_pids finds only the LISTENING owner of the exact port (not ESTABLISHED, not 19333, not 93330)", BC.listener_pids(9333, Runner()) == [22460])

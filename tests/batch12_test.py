@@ -245,9 +245,9 @@ check("C1 a WARNING line appears inside the last 5 minutes and says it WILL clos
 check("C1 the warning is said once", KA.close_warning(1000 + 299, True, now, lp) is None)
 KA.lease_write("t_card", lp, now)
 check("C1 with a fresh lease the warning says it waits", "will wait" in KA.close_warning(1000 + 100, False, now, lp))
-check("C1 --seconds 0 (no end) never warns and never closes", KA.close_warning(None, False, now, lp) is None and KA.should_close(None, lp, now) is False)
+check("C1 --seconds 0 (no end) never warns; should_close(None) stays False (the 4 h idle cap lives in build_chrome.hold, t_15f7ec86)", KA.close_warning(None, False, now, lp) is None and KA.should_close(None, lp, now) is False)
 bsrc = open(os.path.join(JOB, "build_chrome.py"), encoding="utf-8").read()
-check("C1 build_chrome.py prints the warning and the lease mode, and --seconds 0 means until stopped", "close_warning" in bsrc and "until stopped" in bsrc and 'default=0' in bsrc)
+check("C1 build_chrome.py prints the warning and the lease mode, and --seconds 0 means until stopped or the 4 h idle cap", "close_warning" in bsrc and "until stopped or" in bsrc and "idle cap" in bsrc and "CE_BUILD_MAX_SECONDS" in bsrc and 'default=0' in bsrc)
 check("C1 both launchers pass the crash-restore flags", all(f in KA.chrome_args() for f in KA.CLEAN_FLAGS[:2]) and "--hide-crash-restore-bubble" in open(os.path.join(JOB, "owned_chrome.py"), encoding="utf-8").read())
 
 class Resp:

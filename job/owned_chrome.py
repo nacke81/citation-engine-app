@@ -2,6 +2,7 @@
 Never attaches to an existing Chrome. Covers crash: if python dies, the OS closes the job handle and kills the tree."""
 import os, socket, subprocess, tempfile, time, shutil, urllib.request, ctypes
 from ctypes import wintypes
+from job_accounting import JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation
 from chrome_keepalive import window_pos   # t_0c4ebee8: off-screen by default (CE_CHROME_VISIBLE=1 to watch)
 CHROME = r"C:/Program Files/Google/Chrome/Application/chrome.exe"
 k32 = ctypes.WinDLL("kernel32", use_last_error=True); u32 = ctypes.WinDLL("user32")
@@ -11,6 +12,7 @@ k32.OpenProcess.restype = wintypes.HANDLE
 k32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
 k32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
 k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+k32.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
 k32.CloseHandle.argtypes = [wintypes.HANDLE]
 k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
 u32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
@@ -106,6 +108,20 @@ class OwnedChrome:
         return self
     @property
     def cdp_url(self): return f"http://127.0.0.1:{self.port}"
+    def job_active(self):
+        """Processes still alive in the Job Object (JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.ActiveProcesses). None when it cannot be read."""
+        if not self.job: return 0
+        try:
+            info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION()
+            if not k32.QueryInformationJobObject(self.job, JobObjectBasicAccountingInformation, ctypes.byref(info), ctypes.sizeof(info), None): return None
+            return int(info.ActiveProcesses)
+        except Exception:
+            return None
+    def alive(self):
+        """True only while OUR Chrome is running: the launched process has not exited and the job still holds a process. Never asks CDP (a foreign Chrome can answer the port)."""
+        if self.proc is None or self.proc.poll() is not None: return False
+        n = self.job_active()
+        return n is None or n > 0
     def close(self):
         if self.job:
             k32.CloseHandle(self.job); self.job = None      # kills every process in the tree
