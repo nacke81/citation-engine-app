@@ -388,6 +388,18 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
             "channel_label": ACTIVITY_CHANNEL_LABEL}
 
 
+def set_verification_live(portal, verification_id, client_id, now=None):
+    """t_0d601426 (Verify Now): the ONE writer of citation_verification state=live for a client-typed phone code that the Directory accepted.
+    Same PATCH as the verification-queue step of record_transition (state, verified_at, updated_at), but guarded: only the row with this id AND
+    this client_id AND state requires_verification. -> True when exactly one row changed. The QUEUE row's own move to live still needs public-page
+    Proof and goes through record_transition; this does not touch the queue file."""
+    P.check_client(client_id)
+    t = (now or datetime.datetime.now(datetime.timezone.utc)).isoformat()
+    path = "citation_verification?id=eq.%s&client_id=eq.%s&state=eq.requires_verification" % (verification_id, client_id)
+    rows = portal.call("PATCH", path, {"state": "live", "verified_at": t, "updated_at": t}, prefer="return=representation")
+    return isinstance(rows, list) and len(rows) == 1
+
+
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
                       verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None):
