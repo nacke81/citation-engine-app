@@ -1,4 +1,8 @@
-"""Verify Now send run (slice 1, SMS, Cylex only). Started by job/verify_bridge.py as a direct subprocess:
+"""Verify Now send run (SMS and phone call). Which send runs is data: config/verify_directories.json says send=script (the Cylex driver below)
+or send=agent (the default: the submitter agent oneshot, driven through job/verify_step.py; see _agent_send and build_prompt). A Directory or
+channel not in the file fails no_playbook with 0 site loads. The vault item's username is the login email and must equal the expected
+listings@ address (fail closed signin_failed); an NM send outside the mail relay window (08:00-19:58 CT) fails timeout before any site load.
+Started by job/verify_bridge.py as a direct subprocess:
 
   python job/verify_send.py --request-id <uuid>
 
@@ -31,10 +35,18 @@ import verify_bridge as B
 
 DOMAIN = "cylex.us"
 SIGNIN_URL = "https://www.cylex.us.com/signin/"
-TENANTS = {   # client_id -> (business code, vault organization, vault item name)
-    P.ALLOWED["SCC"]: ("SCC", "Senior Care Consulting", "SCC - cylex.us.com"),
-    P.ALLOWED["NM"]: ("NM", "Na" + "cke Media", "NM - cylex.us"),
+TENANTS = {   # client_id -> (business code, vault organization). The vault item name comes from config/verify_directories.json (vault_items).
+    P.ALLOWED["SCC"]: ("SCC", "Senior Care Consulting"),
+    P.ALLOWED["NM"]: ("NM", "Na" + "cke Media"),
 }
+EXPECTED_LOGIN = {"NM": "listings@na" + "ckemedia.com", "SCC": "listings@seniorcaresolutions.co"}   # the vault item's username must equal this, else signin_failed (Nate stop 2)
+RELAY_OPEN_MIN, RELAY_CLOSE_MIN = 8 * 60, 19 * 60 + 58   # nm-listings-relay cron "*/2 8-19" (Central): last run 19:58
+AGENT_START_S = 1500      # kill the oneshot at 25 min when no `sent` call happened
+SUBMITTER_PROFILE = "citation-submitter"
+AGENT_AFTER_SENT_S = B.POLL_MAX_S + 300   # 30 min code wait + 5 min to type it; then the run ends the oneshot
+AGENT_GRACE_S = 60        # a closed request: the agent gets this long to exit on its own
+AGENT_TICK_S = 5
+LOCK_TRIES, LOCK_WAIT_S = 4, 2   # a bridge probe holds the tenant lock for a blink; do not let that defer a real run (Nate stop 7)
 COLLECTION = "Citations"
 FILL_JS = os.environ.get("CE_FILL_JS") or os.path.expandvars("%LOCALAPPDATA%/hermes/profiles/citation-submitter/skills/devops/vaultwarden-cli-write/scripts/vaultwarden-cli-fill.js")
 LIVE_STATUSES = ("code_sent", "checking")   # request states in which this run still owns the poll
@@ -139,35 +151,135 @@ class CylexDriver:
         raise DriverError("other")
 
 
+# ---- agent path --------------------------------------------------------------------------------------------------------------------
+class AgentProc:
+    """The running oneshot. kill() ends the WHOLE process tree (on Windows `taskkill /T`): killing only the parent leaves the model's child
+    processes running (lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent."""
+    def __init__(self, proc, runner=None):
+        self.proc, self._run = proc, runner or subprocess.run
+
+    def poll(self):
+        return self.proc.poll()
+
+    def kill(self):
+        if self.proc.poll() is not None: return
+        try:
+            if os.name == "nt": self._run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=60)
+            else: self.proc.kill()
+        except Exception as e:
+            log("agent kill failed: %s" % type(e).__name__)
+        try: self.proc.kill()
+        except Exception: pass
+
+
+def central_now(dt_utc):
+    """UTC -> US Central wall time (CST UTC-6, CDT UTC-5 from the 2nd Sunday of March 2:00 to the 1st Sunday of November 2:00). No tz database needed."""
+    y = dt_utc.year
+    def nth_sunday(month, n):
+        d = datetime.date(y, month, 1)
+        return d + datetime.timedelta(days=(6 - d.weekday()) % 7 + 7 * (n - 1))
+    start = datetime.datetime.combine(nth_sunday(3, 2), datetime.time(8), tzinfo=datetime.timezone.utc)    # 2:00 CST = 08:00 UTC
+    end = datetime.datetime.combine(nth_sunday(11, 1), datetime.time(7), tzinfo=datetime.timezone.utc)     # 2:00 CDT = 07:00 UTC
+    off = -5 if start <= dt_utc < end else -6
+    return (dt_utc + datetime.timedelta(hours=off)).replace(tzinfo=None)
+
+
+def relay_window_open(dt_utc):
+    """True from 08:00 to 19:58 Central, the minutes the nm-listings-relay cron (*/2 8-19) runs. NM mailed access codes arrive only then."""
+    c = central_now(dt_utc)
+    return RELAY_OPEN_MIN <= c.hour * 60 + c.minute <= RELAY_CLOSE_MIN
+
+
+def build_prompt(request_id, req, row, entry, tenant, masked, username):
+    """The agent's instructions. Request id, tenant, directory, channel, the row's steps and URL, the masked phone, the hard rules. Holds NO code
+    and no secret (the username is the login email, not a credential)."""
+    biz = tenant[0]
+    steps = row.get("steps")
+    steps_txt = "\n".join("  - %s" % s for s in steps) if isinstance(steps, list) and steps else "  (none on the row)"
+    ch = req.get("channel")
+    how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
+    helper = "python job/verify_step.py"
+    return (
+        "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
+        "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
+        "Directory page: %(url)s\nRow steps:\n%(steps)s\nMasked phone on file: %(masked)s\nLogin (vault item username): %(user)s\n\n"
+        "Steps:\n"
+        "1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n"
+        "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
+        "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code.\n"
+        "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+        "   (use the masked number you saw on the page when it differs in format). If it exits nonzero, stop.\n"
+        "5. Run: %(helper)s code --request-id %(rid)s\n"
+        "   It waits up to 30 minutes and prints the code on its stdout. Exit 3 means superseded and exit 4 means expired: stop at once.\n"
+        "6. Type the code into the Directory field and nowhere else. Read the page for accepted or rejected.\n"
+        "7. Run: %(helper)s result --request-id %(rid)s --outcome accepted   (or rejected). Then end the session.\n\n"
+        "Hard rules:\n"
+        "- One Directory session through sitegate for this run. Never open a second one and never retry a send.\n"
+        "- Never type the code anywhere except the Directory. Never print, log, write, quote or summarize the code.\n"
+        "- Never run any other command against the portal. The helper above is the only way to report progress. You do not have the service key.\n"
+        "- No CapSolver, no account creation, no payment, no client contact.\n"
+        "- If you are unsure at any step, stop. The run turns an unfinished request into a safe failure.\n"
+        % {"rid": request_id, "biz": biz, "dom": entry["domain"], "ch": ch, "how": how, "url": row.get("directory_url") or entry["signin_url"],
+           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper})
+
+
 # ---- runtime (everything with a side effect outside the page) ----------------------------------------------------------------------
 class Runtime:
     """Real implementations. Tests pass a fake with the same methods. Nothing here prints a secret."""
-    def __init__(self, runner=None, sleep=time.sleep, now=time.time):
-        self._run, self.sleep, self.now = runner or subprocess.run, sleep, now
+    def __init__(self, runner=None, sleep=time.sleep, now=time.time, popen=None):
+        self._run, self.sleep, self.now, self._popen = runner or subprocess.run, sleep, now, popen
         self.email_wait_s = EMAIL_WAIT_S
 
     def vault_lookup(self, tenant):
-        _biz, org, item = tenant
-        r = self._run(["node", FILL_JS, "--organization", org, "--collection", COLLECTION, "--name", item, "--url", SIGNIN_URL, "--lookup-only"],
+        _biz, org, item, url = tenant
+        r = self._run(["node", FILL_JS, "--organization", org, "--collection", COLLECTION, "--name", item, "--url", url, "--lookup-only"],
                       capture_output=True, text=True, timeout=180)
         return getattr(r, "returncode", 1) == 0
 
     def vault_fill(self, tenant, url, cdp):
-        _biz, org, item = tenant
+        _biz, org, item, _u = tenant
         r = self._run(["node", FILL_JS, "--organization", org, "--collection", COLLECTION, "--name", item, "--url", url, "--field", PASSWORD_IN, "--cdp", cdp or ""],
                       capture_output=True, text=True, timeout=180)
         return getattr(r, "returncode", 1) == 0
 
-    def login_email(self, tenant):
-        biz = tenant[0]
-        v = os.environ.get("CE_VERIFY_LOGIN_EMAIL_" + biz)
-        if v: return v
+    def login_username(self, tenant):
+        """The vault item's username field (the login email; never the password). None when the item has no username or cannot be read."""
+        import json
+        _biz, org, item, url = tenant
+        r = self._run(["node", os.path.join(HERE, "vault_username.cjs"), "--fill-js", FILL_JS, "--organization", org, "--collection", COLLECTION, "--name", item, "--url", url],
+                      capture_output=True, text=True, timeout=180)
+        if getattr(r, "returncode", 1) != 0: return None
         try:
-            import json
-            ident = os.environ.get("CE_IDENTITY") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/identity.json")
-            return json.load(open(ident, encoding="utf-8"))["BIZ"][biz].get("listing_email")
+            u = json.loads(r.stdout).get("username")
         except Exception:
             return None
+        return u.strip() if isinstance(u, str) and u.strip() else None
+
+    def business_phone_masked(self, tenant):
+        """The masked business phone the Directory will text or call, from the approved identity file; None when unreadable."""
+        import json
+        try:
+            ident = os.environ.get("CE_IDENTITY") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/identity.json")
+            with open(ident, encoding="utf-8") as f:
+                return B.mask_phone(json.load(f)["BIZ"][tenant[0]]["phones"][0])
+        except Exception:
+            return None
+
+    def write_prompt(self, request_id, text):
+        import sitegate
+        d = os.path.join(sitegate.logs_dir(), "verify-prompts"); os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, "verify-agent-%s.txt" % request_id)
+        with open(path, "w", encoding="utf-8", newline="\n") as f: f.write(text)
+        return path
+
+    def launch_agent(self, prompt_path):
+        """Start the submitter agent oneshot. Its output is NOT kept (the code passes through its context); the helper logs reason words to its own stderr.
+        The child env drops any service-role variable. -> a handle with poll() and kill() (kills the whole tree)."""
+        import postcard_step as PS
+        argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
+        env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
+        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
 
     def messages(self, tenant):
         import mail_scan as M
@@ -247,25 +359,40 @@ def run(request_id, portal, rpc, rt, now_dt=None):
     verdict, row = B.fence(req, portal)
     if verdict != "ok":
         log("fence refused %s: %s" % (request_id, verdict)); return end("failed", B.FENCE_FAIL[verdict])
-    tenant = TENANTS[req["client_id"]]
-    with B.tenant_lock(req["client_id"]) as got:   # one send run per tenant; held until this run ends, however it ends
-        if not got:
-            log("tenant busy; %s stays starting, the bridge retries it" % request_id)
-            B.clear_started(request_id)
-            return "deferred"
-        return _send(request_id, portal, rpc, rt, req, row, tenant, now_dt, end)
+    base = TENANTS[req["client_id"]]
+    for attempt in range(LOCK_TRIES):   # one send run per tenant; held until this run ends, however it ends
+        with B.tenant_lock(req["client_id"]) as got:
+            if got: return _send(request_id, portal, rpc, rt, req, row, base, now_dt, end)
+        if attempt < LOCK_TRIES - 1: rt.sleep(LOCK_WAIT_S)   # a bridge probe takes the lock for a blink; a real holder outlasts this
+    log("tenant busy; %s stays starting, the bridge retries it" % request_id)
+    B.clear_started(request_id)
+    return "deferred"
 
 
-def _send(request_id, portal, rpc, rt, req, row, tenant, now_dt, end):
+def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
+    entry = B.directory_entry(row.get("directory"), req.get("channel"))
+    if not entry or (entry["send"] == "script" and entry["domain"] != DOMAIN):
+        log("no send path for %s" % request_id); return end("failed", "no_playbook")
+    biz, org = base
+    item = entry["vault_items"].get(biz)
+    if not item:
+        log("no vault item named for %s on this Directory" % biz); return end("failed", "signin_failed")
+    tenant = (biz, org, item, entry["signin_url"])
+    since = now_dt or datetime.datetime.now(datetime.timezone.utc)
+    if biz == "NM" and not relay_window_open(since):   # Nate stop 3: the mailed access code comes from the relay cron, 08:00-19:58 CT only
+        log("NM send outside the mail relay window (08:00-19:58 CT); no Directory touched"); return end("failed", "timeout")
     if not rt.vault_lookup(tenant):
-        log("vault item for %s missing or unreadable" % tenant[0]); return end("failed", "signin_failed")
-    email = rt.login_email(tenant)
+        log("vault item for %s missing or unreadable" % biz); return end("failed", "signin_failed")
+    email = rt.login_username(tenant)
     if not email:
-        log("login email not configured for %s" % tenant[0]); return end("failed", "signin_failed")
-    g = rt.guard().reserve(DOMAIN, request_id)   # the one Directory session for this request
+        log("vault item for %s has no username" % biz); return end("failed", "signin_failed")
+    if email.strip().lower() != EXPECTED_LOGIN[biz]:   # fail closed: no fallback to any other address
+        log("vault username for %s is not the expected listings address" % biz); return end("failed", "signin_failed")
+    g = rt.guard().reserve(entry["domain"], request_id)   # the one Directory session for this request
     if not g.get("ok"):
         log("sitegate refused: %s" % ("cooldown or cap")); return end("could_not_start", "other")
-    since = now_dt or datetime.datetime.now(datetime.timezone.utc)
+    if entry["send"] == "agent":
+        return _agent_send(request_id, portal, rt, req, row, entry, tenant, email, end)
     code = None
     try:
         with rt.browser(tenant) as (page, cdp):
@@ -287,7 +414,8 @@ def _send(request_id, portal, rpc, rt, req, row, tenant, now_dt, end):
             while True:
                 try:   # one cheap portal read per pass: a request the portal closed (client asked for a new code) ends this run
                     cur = B.request_row(portal, request_id)
-                    if cur is None or cur.get("status") not in LIVE_STATUSES:
+                    if cur is None: raise B.BridgeError("empty status read")   # an empty read is a miss, not a verdict (Nate stop 5)
+                    if cur.get("status") not in LIVE_STATUSES:
                         log("superseded: %s is no longer waiting for a code; closing the browser, no finish" % request_id)
                         return "superseded"
                     code = rpc.consume(request_id); misses = 0
@@ -314,6 +442,51 @@ def _send(request_id, portal, rpc, rt, req, row, tenant, now_dt, end):
         code = None
 
 
+def _status(portal, request_id):
+    try:
+        cur = B.request_row(portal, request_id)
+    except Exception:
+        return None
+    return cur.get("status") if cur else None
+
+
+def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
+    """Hand ONE request to the submitter agent and own its clocks. The agent reports only through job/verify_step.py (sent, code, result).
+    -> verified | closed (the helper or portal closed it) | failed:<code> | unknown. The tenant lock and the sitegate reservation are already held."""
+    masked = rt.business_phone_masked(tenant)
+    try:
+        prompt = build_prompt(request_id, req, row, entry, tenant, masked, username)
+        agent = rt.launch_agent(rt.write_prompt(request_id, prompt))
+    except Exception as e:
+        log("agent did not start: %s" % type(e).__name__); return end("failed", "send_failed")
+    t0 = rt.now(); sent_at = closed_at = None; capped = False
+    try:
+        while agent.poll() is None:
+            now = rt.now(); st = _status(portal, request_id)
+            if st in LIVE_STATUSES and sent_at is None: sent_at = now
+            if st in ("verified", "failed", "could_not_start") and closed_at is None: closed_at = now
+            if sent_at is None and closed_at is None and now - t0 >= AGENT_START_S and st not in LIVE_STATUSES:
+                log("agent never reported the send in %d s; killing it" % AGENT_START_S)
+                agent.kill(); return end("failed", "send_failed")
+            if sent_at is not None and closed_at is None and now - sent_at >= AGENT_AFTER_SENT_S:
+                log("agent still running %d s after the send; killing it" % AGENT_AFTER_SENT_S); capped = True; break
+            if closed_at is not None and now - closed_at >= AGENT_GRACE_S:
+                log("request closed but the agent is still running; killing it"); break
+            rt.sleep(AGENT_TICK_S)
+    finally:
+        agent.kill()   # idempotent; every way out of this function leaves no oneshot (or its children) behind
+    st = _status(portal, request_id)
+    if st == "verified":
+        log("done %s verified (finished by the helper)" % request_id); return "verified"
+    if st in ("failed", "could_not_start"):
+        log("done %s closed by the helper or the portal" % request_id); return "closed"
+    if st in ("starting", "requested"):
+        log("agent ended without a send report"); return end("failed", "send_failed")
+    if st in LIVE_STATUSES:
+        log("agent ended without a result"); return end("failed", "code_expired" if capped else "other")
+    log("final status unreadable for %s; the sweeper will close it if it is stuck" % request_id); return "unknown"
+
+
 def main(argv=None):
     a = argparse.ArgumentParser(description="Verify Now send run (one claimed request)")
     a.add_argument("--request-id", required=True)
@@ -321,7 +494,7 @@ def main(argv=None):
     if not B.UUID_RE.match(n.request_id): log("bad request id"); return 2
     portal = P.Portal(*P.load_portal_env())
     out = run(n.request_id, portal, B.VerifyRpc(portal), Runtime())
-    return 0 if out in ("verified", "not_claimed", "claim_lost", "deferred", "superseded") or out.startswith(("failed", "could_not_start")) else 1
+    return 0 if out in ("verified", "not_claimed", "claim_lost", "deferred", "superseded", "closed", "unknown") or out.startswith(("failed", "could_not_start")) else 1
 
 
 if __name__ == "__main__":

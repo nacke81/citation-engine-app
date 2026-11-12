@@ -14,14 +14,14 @@ Why a direct subprocess: a Kanban dispatcher hop measured 37 s to 8m25s in spike
 
 Direct-run command for the submitter seat (verified to exist: `hermes -p citation-submitter chat --help` lists --query-file and --oneshot):
   hermes -p citation-submitter chat --query-file <file> --oneshot
-That path starts an LLM turn and is NOT used by the bridge. The bridge runs the deterministic send script instead:
+The bridge itself never starts it; the send run (job/verify_send.py) does, for send=agent Directories. The bridge starts the send run:
   python job/verify_send.py --request-id <uuid>
 
 Rules this module holds:
   * No send without a claimed request id for that exact row. fence() is the ONE decision (bridge and send run both call it) and a
     request whose client_id does not match the verification row is refused before the send run starts or any Directory is touched.
   * A code is never read here. Logs and cards carry request ids and allowlisted reason codes only, never exception text.
-  * Only the two allow-listed portal clients (portal.check_client). Slice 1 handles channel 'sms' and the Cylex playbook only.
+  * Only the two allow-listed portal clients (portal.check_client). Channels sms and phone-call, and only the Directories listed in config/verify_directories.json (send=agent default, send=script). `python job/verify_bridge.py --check` lists waiting rows whose Directory is missing from that file (read-only).
   * One send run per tenant at a time: a per-tenant OS file lock (the OS drops it when the run dies, however it dies) is taken by the
     send run before the browser opens. The bridge leaves a busy tenant's newly claimed request in 'starting' and retries it on the
     next pass (a started-marker file tells a deferred row from one whose run is already going). It stays inside the 10 min sweep.
@@ -44,7 +44,8 @@ POST_SEND_SWEEP_S = POLL_MAX_S + 600   # 40 min: a send run that died after mark
 POST_SEND_FAIL = {"code_sent": "code_expired", "checking": "other"}
 MAX_CLAIMS_PER_PASS = 3
 CARD_TIMEOUT_S = 60
-SMS_DIRECTORIES = ("cylex.us", "cylex.us.com")   # the only proven SMS Directory
+CHANNELS = ("sms", "phone-call")
+DIRECTORIES_PATH = os.path.join(HERE, "..", "config", "verify_directories.json")   # the operating seat edits this file; CE_VERIFY_DIRECTORIES overrides (tests)
 MASK_RE = re.compile(r"^\(\d{3}\) \*\*\*-\d{4}$")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{8,40}$")
 _card_runner = None   # tests inject a fake; None means subprocess.run
@@ -66,10 +67,37 @@ def mask_phone(phone):
     return "(%s) ***-%s" % (d[:3], d[6:]) if len(d) == 10 else None
 
 
-def directory_ok(directory):
+def norm_domain(directory):
     d = str(directory or "").lower().strip()
-    if d.startswith("www."): d = d[4:]
-    return d in SMS_DIRECTORIES
+    d = re.sub(r"^https?://", "", d).split("/")[0]
+    return d[4:] if d.startswith("www.") else d
+
+
+def load_directories(path=None):
+    """-> list of entries {domain, aliases, channels, send, signin_url, vault_items}. A missing or broken file is an empty list (fail closed)."""
+    import json
+    try:
+        with open(path or os.environ.get("CE_VERIFY_DIRECTORIES") or DIRECTORIES_PATH, encoding="utf-8") as f:
+            rows = json.load(f).get("directories")
+    except Exception:
+        return []
+    out = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict) or not norm_domain(r.get("domain")): continue
+        if r.get("send") not in ("script", "agent"): continue
+        out.append({"domain": norm_domain(r["domain"]), "aliases": [norm_domain(a) for a in r.get("aliases") or []],
+                    "channels": [c for c in r.get("channels") or [] if c in CHANNELS], "send": r["send"],
+                    "signin_url": r.get("signin_url") or "https://%s/" % norm_domain(r["domain"]),
+                    "vault_items": dict(r.get("vault_items") or {})})
+    return out
+
+
+def directory_entry(directory, channel=None, path=None):
+    """The file entry for this Directory (domain or alias) that lists the channel, else None."""
+    d = norm_domain(directory)
+    for e in load_directories(path):
+        if d in [e["domain"]] + e["aliases"] and (channel is None or channel in e["channels"]): return e
+    return None
 
 
 class VerifyRpc:
@@ -177,7 +205,7 @@ def prune_markers(max_age_s=86400):
 
 def verification_row(portal, vid):
     if not isinstance(vid, str) or not UUID_RE.match(vid): return None
-    rows = portal.call("GET", "%s?select=id,client_id,directory,state&id=eq.%s&limit=1" % (VERIFICATION_TABLE, vid))
+    rows = portal.call("GET", "%s?select=id,client_id,directory,state,verification_type,steps,directory_url&id=eq.%s&limit=1" % (VERIFICATION_TABLE, vid))
     return rows[0] if isinstance(rows, list) and rows else None
 
 
@@ -205,14 +233,14 @@ def fence(req, portal):
         P.check_client(req.get("client_id"))
     except P.PortalWriteError:
         return "bad_client", None
-    if req.get("channel") != "sms": return "channel", None
+    if req.get("channel") not in CHANNELS: return "channel", None
     try:
         row = verification_row(portal, req["citation_verification_id"])
     except Exception:
         return "no_row", None
     if not row: return "no_row", None
     if row.get("client_id") != req["client_id"]: return "mismatch", row
-    if not directory_ok(row.get("directory")): return "no_playbook", row
+    if not directory_entry(row.get("directory"), req.get("channel")): return "no_playbook", row
     return "ok", row
 
 
@@ -368,7 +396,30 @@ def run_pass(portal=None, rpc=None, now=None, spawner=None, card_runner=None):
     return res
 
 
+def check_missing(portal, path=None):
+    """Read-only. -> (rows, missing): the portal sms/phone-call rows still waiting for verification (allow-listed clients only) and those
+    whose Directory is not in the file for that channel. One GET, no write."""
+    rows = portal.call("GET", "%s?select=client_id,directory,verification_type,state&verification_type=in.(sms,phone-call)&state=eq.requires_verification&order=directory.asc" % VERIFICATION_TABLE) or []
+    ok_ids = set(P.ALLOWED.values())
+    rows = [r for r in rows if isinstance(r, dict) and r.get("client_id") in ok_ids]
+    return rows, [r for r in rows if not directory_entry(r.get("directory"), r.get("verification_type"), path)]
+
+
+def run_check(portal=None, out=print):
+    portal = portal or P.Portal(*P.load_portal_env())
+    rows, missing = check_missing(portal)
+    names = {v: k for k, v in P.ALLOWED.items()}
+    out("VERIFY DIRECTORIES CHECK: %d sms/phone-call rows waiting, %d missing from config/verify_directories.json" % (len(rows), len(missing)))
+    for r in missing:
+        out("  missing: %s | %s | %s" % (names.get(r.get("client_id")), r.get("directory"), r.get("verification_type")))
+    return 0
+
+
 def main(argv=None):
+    if "--check" in (argv if argv is not None else sys.argv[1:]):
+        try: return run_check()
+        except Exception as e:
+            print("VERIFY DIRECTORIES CHECK FAILED: " + type(e).__name__, file=sys.stderr, flush=True); return 1
     try:
         r = run_pass()
     except Exception as e:

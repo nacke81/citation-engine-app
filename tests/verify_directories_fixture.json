@@ -1,0 +1,6 @@
+{
+  "directories": [
+    {"domain": "cylex.us", "aliases": ["cylex.us.com"], "channels": ["sms"], "send": "script", "signin_url": "https://www.cylex.us.com/signin/", "vault_items": {"NM": "NM - cylex.us", "SCC": "SCC - cylex.us.com"}},
+    {"domain": "agentdir.example", "aliases": ["www.agentdir.example"], "channels": ["sms", "phone-call"], "send": "agent", "signin_url": "https://agentdir.example/login", "vault_items": {"NM": "NM - agentdir.example", "SCC": "SCC - agentdir.example"}}
+  ]
+}
