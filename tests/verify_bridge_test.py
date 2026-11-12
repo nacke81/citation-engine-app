@@ -45,7 +45,7 @@ res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
 argv, kw = spawned[0]
 check("pass claims the request and starts the send run", res["started"] == [F.RID] and len(spawned) == 1 and p.requests[F.RID]["status"] == "starting")
 check("send run is a direct python subprocess (no hermes, no kanban)", argv[0] == sys.executable and os.path.basename(argv[1]) == "verify_send.py" and argv[2:] == ["--request-id", F.RID] and not any("hermes" in a or "kanban" in a for a in [os.path.basename(argv[1])] + argv[2:]))
-check("no card is filed for a fresh request", cards.argvs == [])
+check("no sweeper card is filed for a fresh request (only the one first-use card)", [k for k in cards.cards if k.startswith("verify-now:")] == [] and cards.cards == ["verify-now-row:" + F.VID])
 page = F.FakePage(accepted=CODE); rt = F.FakeRuntime(page)
 r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
 check("happy path ends verified", r == "verified" and p.requests[F.RID]["status"] == "verified", r)
@@ -308,4 +308,48 @@ src["this test"] = open(__file__, encoding="utf-8").read()
 check("no WhatsApp wording (job files + fakes)", not [n for n, t in src.items() if n != "this test" and re.search("whats" + "app", t, re.I)])
 check("no em dashes in the new files", not [n for n, t in src.items() if "\u2014" in t])
 check("no scheduler created by the bridge", not re.search(r"schtasks|crontab|cronjob|Register-ScheduledTask", src["verify_bridge.py"] + src["verify_send.py"]))
+# 9 first-use cards (t_1a897431): a waiting row with no request reaches the reviewer by itself, once
+os.environ["CE_VERIFY_LOCKS"] = tempfile.mkdtemp()   # fresh "seen" markers for this section
+V1, V2, V3, V4 = ("cccccccc-0000-4000-8000-00000000000%d" % i for i in (1, 2, 3, 4))
+def fvp(rows): return portal(requests=[], verifications=rows)
+vs = [dict(F.verification(vid=V1, directory="agentdir.example"), verification_type="phone-call"),
+      dict(F.verification(vid=V2, directory="unlisted.example", client=F.SCC), verification_type="sms"),
+      dict(F.verification(vid=V3, state="live"), verification_type="sms"),
+      dict(F.verification(vid=V4, client="430b764e-1a44-4246-959f-6b8945bf6a7c"), verification_type="sms"),
+      dict(F.verification(vid="dddddddd-0000-4000-8000-000000000005"), verification_type="email")]
+p = fvp(vs); cards = F.FakeCards()
+res1, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
+res2, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, cards)
+check("two passes over the same rows file one card per row (not two)", sorted(res1["first_use"]) == sorted([V1, V2]) and res2["first_use"] == [] and len(cards.argvs) == 2 and sorted(cards.cards) == sorted(["verify-now-row:" + V1, "verify-now-row:" + V2]), cards.cards)
+check("live row, non-allow-listed client and email type never get a card", not any(k.endswith(x) for k in cards.cards for x in (V3, V4, "000000000005")))
+check("first-use pass writes nothing (GETs only, no rpc, no PATCH)", all(c[0] == "GET" for c in p.calls if c[1] != "rpc/claim_code_request") and p.count("rpc/finish_code_request") == 0)
+a1 = [a for a in cards.argvs if a[a.index("--idempotency-key") + 1] == "verify-now-row:" + V1][0]
+a2 = [a for a in cards.argvs if a[a.index("--idempotency-key") + 1] == "verify-now-row:" + V2][0]
+check("card shape: assignee reviewer, reviewer board, title", a1[a1.index("--assignee") + 1] == RV and a1[a1.index("--board") + 1] == RV and a1[a1.index("create") + 1] == "Verify Now: first-use row agentdir.example (NM)", a1[a1.index("create") + 1])
+b1, b2 = a1[a1.index("--body") + 1], a2[a2.index("--body") + 1]
+check("body names directory, tenant, type, allowlist yes/no", all(s in b1 for s in ("agentdir.example", "NM", "phone-call", "json for this type: yes")) and all(s in b2 for s in ("unlisted.example", "SCC", "sms", "json for this type: no")), (b1, b2))
+check("body carries no code, email or phone", not re.search(r"\d{4,}|@", b1 + b2 + a1[a1.index("create") + 1]), b1)
+# a failed filing is retried next pass, then filed once
+os.environ["CE_VERIFY_LOCKS"] = tempfile.mkdtemp()
+class FlakyCards(F.FakeCards):
+    def __init__(self): super().__init__(); self.fail = True
+    def __call__(self, argv, **kw):
+        if self.fail: raise RuntimeError("hermes down")
+        return super().__call__(argv, **kw)
+fc = FlakyCards(); p = fvp(vs[:1])
+r1, t1 = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, fc)
+fc.fail = False
+r2, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, fc)
+r3, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, fc)
+check("failed filing retries next pass and then files exactly once; failure log names the type only", r1["first_use"] == [] and r2["first_use"] == [V1] and r3["first_use"] == [] and len(fc.argvs) == 1 and "hermes down" not in t1, t1)
+# a broken list read never stops the claim path
+class ListDown(F.StrictPortal):
+    def call(self, method, path, body=None, prefer=None):
+        if path.startswith(B.VERIFICATION_TABLE) and "id=eq." not in path: raise RuntimeError("list down")
+        return super().call(method, path, body, prefer)
+p = ListDown(requests=[F.request()], verifications=[F.verification()]); spawned.clear()
+res, _ = quiet(B.run_pass, p, B.VerifyRpc(p), F.NOW, spawner, F.FakeCards())
+check("first-use list failure does not block a claim", res["first_use"] == [] and res["started"] == [F.RID])
+r, text = quiet(B.main, [])
+check("main prints first_use count", r in (0, 1))
 sys.exit(0 if all(ok) else 1)
