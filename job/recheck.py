@@ -889,8 +889,12 @@ def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
     due = (datetime.date.fromisoformat(day) + datetime.timedelta(days=BACKOFF_DAYS)).isoformat()
     res["recheck_due_old"] = row.get("recheck_due")   # t_8d1865a3: the report prints `old -> new` for every row it backs off
     res["recheck_due"] = due
-    if not write or row.get("state") not in T.NOTE_ONLY_STATES: return
+    if row.get("state") not in T.NOTE_ONLY_STATES: return
     cur = row.get("recheck_due")
+    if not write:   # t_bee96b30: a dry run predicts what --backoff-only / --write would do, including the 3/3 park; it writes nothing
+        if no_url and cur and str(cur) > day: res["recheck_due"] = cur; res["not_due"] = True
+        elif no_url and row.get("state") != "needs-human" and T.no_url_backoffs(row) >= T.MAX_NO_URL_BACKOFFS: res["after"] = "needs-human"; res["would_park"] = "no-public-permalink"; res["recheck_due"] = None
+        return
     if no_url and cur and str(cur) > day:   # t_8d1865a3 review: a named row read before it is due adds no counted backoff (at most one per due period); the date stays
         res["recheck_due"] = cur; res["not_due"] = True; res["written"] = True
         return
@@ -914,7 +918,7 @@ def _written(queue_path, rid, due):
 
 def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, day, write, include_live, only, proof_live, mail=None, backoff_only=False, any_state=False, guard=None):
     results = []
-    bw = write or backoff_only   # t_2d15878c: a dry-run batch still moves recheck_due (backoff only; no transition, never live)
+    bw = write or backoff_only   # t_2d15878c: a dry-run batch still moves recheck_due (backoff only, never live); t_bee96b30: it may also PARK a row (-> needs-human) after 3 no-URL backoffs
     for kind, row in candidates(q, include_live, only, day, any_state):
         d, rid, before = row["directory"], row["id"], row["state"]
         res = {"row": rid, "directory": d, "url": None, "before": before, "after": before, "verdict": None, "fields": [], "note": None, "error": None}
@@ -1076,6 +1080,7 @@ def format_report(results):
         if "recheck_due" in r:   # t_8d1865a3: old -> new for every backed-off row, and whether the queue file really holds it
             tag = {True: " (written)", False: " (NOT WRITTEN)", None: " (dry run: not stored)"}[r["written"]] if "written" in r else " (dry run: not stored)"
             if r.get("parked"): lines.append("    parked: %s -> needs-human, reason %s (3 no-URL backoffs used)" % (r["before"], r["parked"]))
+            elif r.get("would_park"): lines.extend(["    -> needs-human (would park: %s)" % r["would_park"], "    recheck_due %s -> none (dry run: not stored)" % (r.get("recheck_due_old") or "none")])
             elif r.get("not_due"): lines.append("    recheck_due %s (unchanged, not due; no backoff counted)" % r["recheck_due"])
             else: lines.append("    recheck_due %s -> %s%s" % (r.get("recheck_due_old") or "none", r["recheck_due"], tag))
     return "\n".join(lines)
@@ -1099,7 +1104,7 @@ def main(argv=None, plain=None, chrome=None):
     a.add_argument("--row", action="append", default=None)
     a.add_argument("--proof-live", action="store_true", help="with --write --include-live --row ID: write Proof for named rows already live (state unchanged)")
     a.add_argument("--proof-backfill", action="store_true", help="t_d660babc: for named LIVE rows with incomplete Proof: run the signed-out proof read and write Proof + build_action through transitions.record_proof. Needs --row. Dry run unless --write")
-    a.add_argument("--backoff-only", action="store_true", help="dry run that still writes ONLY recheck_due (+2 days) on not-public / unreadable-public waiting rows; no transition, never live")
+    a.add_argument("--backoff-only", action="store_true", help="dry run that still writes recheck_due (+2 days) on not-public / unreadable-public waiting rows; never live. A no-URL row that already has 3 no-URL backoffs is parked (-> needs-human, no-public-permalink, the 3/3 rule); a plain dry run predicts that park and writes nothing")
     a.add_argument("--any-state", action="store_true", help="with --row ID: read the row in ANY state (e.g. needs-human after a ruling). Dry run only; refused with --write")
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
