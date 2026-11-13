@@ -412,6 +412,7 @@ def structured_address(html_, business_name=None, same_entity=False):
     the block whose enclosing entity name matches it wins; else a LocalBusiness-like entity (not Organization / WebSite); an Organization-like address is never
     used (the *-selector fields are tried, else None and the caller falls back to the text block). Without `business_name` the first block wins, as before."""
     if not html_: return None
+    loose = []
     def walk(o, ctx=("", "")):
         if isinstance(o, dict):
             t, n = o.get("@type"), o.get("name")
@@ -420,6 +421,7 @@ def structured_address(html_, business_name=None, same_entity=False):
                 ctx = (" ".join(ts) if t else ctx[0], n if isinstance(n, str) else ctx[1])
             a = o.get("address")
             if isinstance(a, dict) and a.get("streetAddress"): yield a, ctx
+            elif isinstance(a, dict) and a: loose.append((a, ctx))   # a street-less block: never read as an address, but a same-name one still counts as disagreeing
             for v in o.values(): yield from walk(v, ctx)
         elif isinstance(o, list):
             for v in o: yield from walk(v, ctx)
@@ -434,6 +436,7 @@ def structured_address(html_, business_name=None, same_entity=False):
         same_name = [a for a, (t, n) in found if business_name and n and exact_name(n) == exact_name(business_name)]
         a = same_name[0] if same_name else None
         if not a: return None
+        if any(business_name and n and exact_name(n) == exact_name(business_name) for _a, (_t, n) in loose): return None   # a same-name block with no street disagrees with the one that has it
         def _key(x):   # t_0227a3ce: two same-name blocks must say the same street / city / state / zip, whatever their order
             st = str(x.get("addressRegion") or "").strip().lower()
             return (tuple(F._tok(str(x.get("streetAddress") or ""))), tuple(ctok(str(x.get("addressLocality") or ""))), US_STATES.get(st, st).lower(), str(x.get("postalCode") or "").strip()[:5])
@@ -597,6 +600,19 @@ def vis_state(line):
     if m and (m.group(1).isupper() or m.group(1).upper() in _STATE_ABBRS): return m.group(1).upper()
     fm = re.search(r"(?i)(?<![A-Za-z])(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(?![A-Za-z])", line)
     return US_STATES[fm.group(1).lower()] if fm else None
+
+
+def strip_locality_tail(line):
+    """The city words of a visible locality line: the part before the first comma, minus a ZIP and minus a state that is the LAST token (full name in any case, or a
+    2-letter real abbreviation in any case). Never a leading / middle word: St, Mt, El, La, Le, De are city words (t_d64aefb4)."""
+    if "," in line: return line.split(",")[0].strip(" .")   # a comma ends the city: strip nothing from what is before it
+    s = line
+    s = re.sub(r"\s*\b\d{5}(-\d{4})?\b\s*$", " ", s).strip(" .")
+    m = re.search(r"(?i)(?<![A-Za-z])(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")\.?\s*$", s)
+    if m: return s[:m.start()].strip(" .")   # a state / zip-only line (\"KY 40000\") has no city words at all
+    m = re.search(r"(?<![A-Za-z])([A-Za-z]{2})\.?\s*$", s)
+    if m and m.group(1).upper() in _STATE_ABBRS: return s[:m.start()].strip(" .")
+    return s
 
 
 def canon_state_zip(addr):
@@ -768,7 +784,7 @@ def compare(text, canonical, html_=None):
                 if _zs or _ab:
                     if _ab and _cs_s and _ab.upper() != _cs_s: wrong.append(("state", _ab))
                     if _zs and _cs_z and _zs[0] != _cs_z: wrong.append(("zip", _zs[0]))
-                    _cityp = re.sub(r"(?i)\b(" + _sn2 + r")\b|\b[A-Z]{2}\b|\d{5}(-\d{4})?", " ", _l.split(",")[0] if "," in _l else _l)
+                    _cityp = strip_locality_tail(_l)   # t_d64aefb4: only a TRAILING state / zip is dropped; St / Mt / El / La stay city words
                     _ct = ctok(re.sub(r"[^A-Za-z .'\-]", " ", _cityp))
                     if _ct and _cc and not city_same(_ct, _cc): wrong.append(("city", _cityp.strip()))
                 elif re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", _l) and len(_l.split()) <= 4 and _cc and not city_same(_l, _cc):
