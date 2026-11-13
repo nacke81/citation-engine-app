@@ -235,7 +235,7 @@ except PB.PlaybookError as e: e8 = str(e)
 check("8 render with no contact_name value fails closed (names the placeholder)", e8 is not None and "contact_name" in e8, e8)
 rt8 = S.Runtime()
 import tempfile as _tf
-_idn = os.path.join(_tf.mkdtemp(), "identity.json"); json.dump({"BIZ": {"NM": {"name": "Birch Media", "phones": ["6155550111"], "site": "https://example.test"}, "SCC": {"name": "Alder Care", "phones": ["5025550101"], "site": "https://example.test"}}}, open(_idn, "w"))
+_idn = os.path.join(_tf.mkdtemp(), "identity.json"); json.dump({"BIZ": {"NM": {"name": "Birch Media", "phones": ["6155550111"], "site": "https://example.test", "contact": "Pat Sample"}, "SCC": {"name": "Alder Care", "phones": ["5025550101"], "site": "https://example.test"}}}, open(_idn, "w"))
 _old = os.environ.get("CE_IDENTITY"); os.environ["CE_IDENTITY"] = _idn
 try:
     v_nm = rt8.tenant_values(("NM", "o", "NM - alignable.com", "https://www.alignable.com/"), "listings@na" + "ckemedia.com")
@@ -243,7 +243,7 @@ try:
 finally:
     if _old is None: os.environ.pop("CE_IDENTITY", None)
     else: os.environ["CE_IDENTITY"] = _old
-check("8 tenant_values gives NM its contact name", v_nm.get("contact_name") == "Mi" + "ke Nac" + "ke", sorted(v_nm))
+check("8 tenant_values reads NM contact_name from the identity file", v_nm.get("contact_name") == "Pat Sample", sorted(v_nm))
 check("8 tenant_values gives SCC none, so an SCC run of this playbook fails closed", "contact_name" not in v_scc)
 import importlib
 _keep = PB.PLACEHOLDERS
@@ -253,6 +253,57 @@ finally: PB.PLACEHOLDERS = _keep
 check("8 MUTATION validator without contact_name refuses the Alignable seed (the placeholder list is what lets it in)", m8 is not None and "contact_name" in m8, m8)
 p_al = S.build_prompt(F.RID, REQ, ROW, {"domain": "alignable.com", "signin_url": "https://www.alignable.com/"}, ("NM", "Na" + "cke Media", "NM - alignable.com", "https://www.alignable.com/"), MASK, VALUES["login_email"], playbook=dict(al, version=1, steps=rendered))
 check("8 the Alignable prompt carries the signup carve-out and the filled steps, nothing unfilled", "send IS the signup: do NOT sign in" in p_al and "Test Person" in p_al and "{contact_name}" not in p_al and "only for alignable.com" in p_al)
+
+# ---- 9 the send rule is ONE clear order, and contact_name comes from identity.json only (t_f683311e) ---------------------------------
+RULE = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it."
+OLD_RULE = "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code."
+def send_rule_problems(pr):
+    """[] when the prompt tells the agent to click send and no line forbids clicking send without a condition in front of it."""
+    bad = []
+    lines = pr.split("\n")
+    if RULE not in lines: bad.append("exact click-send rule line missing")
+    for ln in lines:
+        low = ln.lower()
+        if "stop at the send step" in low: bad.append("old STOP-at-send wording: " + ln[:60])
+        if "do not click" in low and not re.match(r"^3\. Click the send button\. Before you click it, if .*do NOT click;", ln): bad.append("unconditional do-not-click: " + ln[:60])
+    return bad
+al_pb = dict(al, version=1, steps=rendered)
+paths = {"signup (Thumbtack seed)": p_sign, "signup (Alignable seed)": p_al, "sign-in (playbook without send_is_signup)": p_plain, "sign-in (no playbook)": p_none}
+for name, pr in paths.items():
+    check("9 %s prompt: tells the agent to click send, and no line says do not click send without a condition" % name, send_rule_problems(pr) == [], send_rule_problems(pr))
+    check("9 %s prompt: the click-send rule sits after the phone check and before the send-the-code step" % name, pr.index(RULE) < pr.index("4. Choose the sms option") if "4. Choose the sms option" in pr else pr.index(RULE) < pr.index("4. Choose the"))
+for name, pr in paths.items():
+    m = pr.replace(RULE, OLD_RULE)   # MUTATION: the old ambiguous line is back
+    check("9 MUTATION %s prompt with the old STOP-at-send line is caught by the check" % name, send_rule_problems(m) != [] and any("old STOP" in x or "unconditional" in x for x in send_rule_problems(m)), send_rule_problems(m)[:2])
+check("9 MUTATION a bare 'do not click send' line is caught", send_rule_problems(p_sign + "\n- Do not click send.\n") != [])
+src = open(os.path.join(HERE, "..", "job", "verify_send.py"), encoding="utf-8").read()
+check("9 verify_send.py has no CONTACT_NAME constant and no hard-coded contact", "CONTACT_NAME" not in src and "STOP at the send step" not in src)
+
+# contact_name missing from identity.json: the playbook needs it, so the run fails before the agent launches
+class IdRuntime(PbRuntime):
+    def tenant_values(self, tenant, username): return S.Runtime.tenant_values(self, tenant, username)
+def run_identity(biz_nm):
+    idf = os.path.join(tempfile.mkdtemp(), "identity.json"); json.dump({"BIZ": {"NM": biz_nm}}, open(idf, "w"))
+    old = os.environ.get("CE_IDENTITY"); os.environ["CE_IDENTITY"] = idf
+    try:
+        p = agent_portal(); rt = IdRuntime(F.FakePage(), agent_factory=lambda rt: F.FakeAgent([lambda: None])); rt.pb = dict(al, version=1, domain=AGENT_DIR)
+        r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+    finally:
+        if old is None: os.environ.pop("CE_IDENTITY", None)
+        else: os.environ["CE_IDENTITY"] = old
+    return r, rt, p, text
+NMB = {"name": "Birch Media", "phones": ["6155550111"], "site": "https://example.test"}
+r, rt, p, text = run_identity(dict(NMB, contact="Pat Sample"))
+check("9 identity.json with contact: the Alignable run reaches the agent with the name filled", len(rt.launched) == 1 and rt.prompts and "Pat Sample" in rt.prompts[0], (r, text[-120:]))
+r, rt, p, text = run_identity(NMB)
+check("9 identity.json WITHOUT contact: send_failed before launch (no prompt, no agent, no browser)", not rt.launched and not rt.prompts and rt.browsers == 0 and p.requests[F.RID]["status"] == "failed" and "contact_name" in text, (r, p.requests[F.RID]["status"], text[-160:]))
+_orig = S.Runtime.tenant_values
+def _fallback(self, tenant, username):   # MUTATION: a code fallback constant is back
+    v = _orig(self, tenant, username); v.setdefault("contact_name", "Fallback Name"); return v
+S.Runtime.tenant_values = _fallback
+try: r, rt, p, text = run_identity(NMB)
+finally: S.Runtime.tenant_values = _orig
+check("9 MUTATION a code fallback for contact_name makes the missing-key run launch (so the fail-closed test above is the guard)", len(rt.launched) == 1 and rt.prompts and "Fallback Name" in rt.prompts[0], (r, text[-100:]))
 
 if "--print-thumbtack" in sys.argv:
     print("\n==== THUMBTACK PROMPT (dry run, fake tenant values, request id %s) ====\n%s" % (F.RID, p_sign))

@@ -42,7 +42,6 @@ TENANTS = {   # client_id -> (business code, vault organization). The vault item
     P.ALLOWED["NM"]: ("NM", "Na" + "cke Media"),
 }
 EXPECTED_LOGIN = {"NM": "listings@na" + "ckemedia.com", "SCC": "listings@seniorcaresolutions.co"}   # the vault item's username must equal this, else signin_failed (Nate stop 2)
-CONTACT_NAME = {"NM": "Mi" + "ke Nac" + "ke"}   # {contact_name} for a playbook (t_9de1c978); split so the repo leak check stays green. SCC has none: a playbook that needs it fails closed
 RELAY_OPEN_MIN, RELAY_CLOSE_MIN = 8 * 60, 19 * 60 + 58   # nm-listings-relay cron "*/2 8-19" (Central): last run 19:58
 AGENT_START_S = 1500      # kill the oneshot at 25 min when no `sent` call happened
 SUBMITTER_PROFILE = "citation-submitter"
@@ -251,7 +250,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "   Speed log (do not skip, it is how this step becomes a script): after each page action from sign-in to the send click, run: %(helper)s trace --request-id %(rid)s --action <goto, click, fill or press> --url <page url> --selector \"<css selector>\"\n"
         "   (no values, never what you typed). When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. If either exits nonzero, carry on.\n"
         "%(phone_step)s"
-        "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code.\n"
+        "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
         "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
         "   (use the masked number you saw on the page when it differs in format). If it exits nonzero, stop.\n"
         "5. Run: %(helper)s code --request-id %(rid)s   (run it with the terminal tool's timeout set to 600, in the foreground)\n"
@@ -329,7 +328,7 @@ class Runtime:
             d = re.sub(r"\D", "", (b.get("phones") or [""])[0])[-10:]
             if len(d) == 10: vals["phone"] = "(%s) %s-%s" % (d[:3], d[3:6], d[6:])
             vals["website"] = b.get("site")
-            vals["contact_name"] = b.get("contact") or CONTACT_NAME.get(tenant[0])   # t_9de1c978: no value (SCC) = render refuses = the run fails closed
+            vals["contact_name"] = b.get("contact")   # t_f683311e: from identity.json only. No key (SCC, or NM unset) = no value = render refuses = send_failed before launch
         except Exception:
             pass
         return {k: v for k, v in vals.items() if isinstance(v, str) and v}
