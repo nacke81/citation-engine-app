@@ -5,7 +5,8 @@ CE_LOGS/verify-stages/ (first write wins per stage); finalize(rid, outcome) appe
 (default %LOCALAPPDATA%/citation-engine/logs) and removes the scratch file. A second finalize writes nothing. VerifyRpc.finish calls
 finalize after a successful finish_code_request, so every close path (helper, send run, sweeper, fence refusal) lands one row.
 
-Row: request_id, tenant, domain, channel, requested_at (the click), bridge_pickup_at (portal claimed_at), agent_start_at, signed_in_at,
+Row: request_id, tenant, domain, channel, requested_at (the click), bridge_pickup_at (portal claimed_at), agent_start_at (launch),
+agent_ready_at (the agent's first helper call: its cold start is agent_start -> agent_ready; null for script rows), signed_in_at,
 send_clicked_at, code_sent_at, code_submitted_at (the client's code reached the agent/script), code_entered_at (typed and the page answered),
 verified_at, outcome, send_mode (agent|script). A stage the run never reached is null.
 
@@ -16,7 +17,7 @@ import argparse, datetime, json, os, statistics, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-STAGES = ("requested_at", "bridge_pickup_at", "agent_start_at", "signed_in_at", "send_clicked_at", "code_sent_at",
+STAGES = ("requested_at", "bridge_pickup_at", "agent_start_at", "agent_ready_at", "signed_in_at", "send_clicked_at", "code_sent_at",
           "code_submitted_at", "code_entered_at")
 META = ("tenant", "domain", "channel", "send_mode")
 FIELDS = ("request_id", "tenant", "domain", "channel") + STAGES + ("verified_at", "outcome", "send_mode")
@@ -81,7 +82,7 @@ def stamp(rid, stage, at=None, **meta):
 
 
 def finalize(rid, outcome, at=None):
-    """Append the one row for `rid` (outcome = verified | failed:<code> | could_not_start:<code>). No stage file = nothing to report."""
+    """Append the one row for `rid` (outcome = verified | failed:<code> | could_not_start:<code> | superseded). No stage file = nothing to report."""
     try:
         rid = _clean_rid(rid)
         if not rid: return False
@@ -130,7 +131,9 @@ def load(file=None):
 
 def durations(row):
     return {"pickup": _d(row, "requested_at", "bridge_pickup_at"), "start": _d(row, "bridge_pickup_at", "agent_start_at"),
-            "pickup_start": _d(row, "requested_at", "agent_start_at"), "signin": _d(row, "agent_start_at", "signed_in_at"),
+            "cold": _d(row, "agent_start_at", "agent_ready_at"),
+            "pickup_start": _d(row, "requested_at", "agent_ready_at") if row.get("agent_ready_at") else _d(row, "requested_at", "agent_start_at"),
+            "signin": _d(row, "agent_ready_at", "signed_in_at") if row.get("agent_ready_at") else _d(row, "agent_start_at", "signed_in_at"),
             "to_click": _d(row, "signed_in_at", "send_clicked_at"), "click_to_send": _d(row, "requested_at", "code_sent_at"),
             "code_to_verified": _d(row, "code_submitted_at", "verified_at"), "enter": _d(row, "code_submitted_at", "code_entered_at")}
 
@@ -145,8 +148,8 @@ def median(vals):
 
 
 def summary(rows, out=print):
-    cols = ("request", "tenant", "domain", "ch", "mode", "outcome", "pickup_s", "start_s", "signin_s", "to_click_s", "click_to_send_s", "code_to_verified_s")
-    keys = ("pickup", "start", "signin", "to_click", "click_to_send", "code_to_verified")
+    cols = ("request", "tenant", "domain", "ch", "mode", "outcome", "pickup_s", "start_s", "cold_s", "signin_s", "to_click_s", "click_to_send_s", "code_to_verified_s")
+    keys = ("pickup", "start", "cold", "signin", "to_click", "click_to_send", "code_to_verified")
     table = []
     for r in rows:
         d = durations(r)
@@ -165,8 +168,9 @@ def summary(rows, out=print):
     out("median bridge pickup (requested -> claimed): %s s" % _fmt(m("pickup")))
     out("median agent start (claimed -> agent_start): %s s" % _fmt(m("start")))
     ps = m("pickup_start")
-    out("median pickup+start (requested -> agent_start): %s s%s" % (_fmt(ps), "  ** over %d s: propose a faster pickup **" % PICKUP_START_FLAG_S if ps is not None and ps > PICKUP_START_FLAG_S else ""))
-    return {"click_to_send": m("click_to_send"), "code_to_verified": m("code_to_verified"), "pickup_start": ps}
+    out("median agent cold start (agent_start -> agent_ready, agent runs): %s s" % _fmt(m("cold")))
+    out("median pickup+start (requested -> agent_ready; agent_start for script rows): %s s%s" % (_fmt(ps), "  ** over %d s: propose a faster pickup **" % PICKUP_START_FLAG_S if ps is not None and ps > PICKUP_START_FLAG_S else ""))
+    return {"click_to_send": m("click_to_send"), "code_to_verified": m("code_to_verified"), "pickup_start": ps, "cold": m("cold")}
 
 
 def main(argv=None):

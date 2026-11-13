@@ -18,7 +18,7 @@ MUTATIONS = [  # (label, file, needle, replacement); every needle is a distinct 
     ("agent_start_at (agent launch)", "verify_send.py", 'agent = rt.launch_agent(rt.write_prompt(request_id, prompt))\n        SB.stamp(request_id, "agent_start_at")', 'agent = rt.launch_agent(rt.write_prompt(request_id, prompt))\n        SB.stamp(request_id, "zz")'),
     ("agent_start_at (script browser)", "verify_send.py", 'SB.stamp(request_id, "agent_start_at")   # script', 'SB.stamp(request_id, "zz")   # script'),
     ("signed_in_at (script)", "verify_send.py", 'SB.stamp(request_id, "signed_in_at")', 'SB.stamp(request_id, "zz")'),
-    ("signed_in_at (agent stage call)", "verify_step.py", 'STAGE_NAMES = {"signed_in": "signed_in_at"}', 'STAGE_NAMES = {"signed_in": "zz"}'),
+    ("signed_in_at (agent stage call)", "verify_step.py", 'STAGE_NAMES = {"signed_in": "signed_in_at", "ready": None}', 'STAGE_NAMES = {"signed_in": "zz", "ready": None}'),
     ("send_clicked_at (script)", "verify_send.py", 'SB.stamp(request_id, "send_clicked_at")', 'SB.stamp(request_id, "zz")'),
     ("send_clicked_at (agent sent)", "verify_step.py", 'SB.stamp(request_id, "send_clicked_at", now_dt)', 'SB.stamp(request_id, "zz", now_dt)'),
     ("code_sent_at (script)", "verify_send.py", 'SB.stamp(request_id, "code_sent_at")', 'SB.stamp(request_id, "zz")'),
@@ -29,6 +29,14 @@ MUTATIONS = [  # (label, file, needle, replacement); every needle is a distinct 
     ("code_entered_at (agent result)", "verify_step.py", 'SB.stamp(request_id, "code_entered_at", now_dt)', 'SB.stamp(request_id, "zz", now_dt)'),
     ("verified_at", "verify_scoreboard.py", 'row["verified_at"] = _at(at) if str(outcome) == "verified" else None', 'row["verified_at"] = None'),
     ("finalize hook in VerifyRpc.finish", "verify_bridge.py", "        SB.finalize(request_id, status", "        (lambda *a: None)(request_id, status"),
+    ("agent_ready_at (stage call: ready or any stage)", "verify_step.py", 'SB.stamp(request_id, "agent_ready_at", now_dt)', 'SB.stamp(request_id, "zz", now_dt)'),
+    ("agent_ready_at (first trace call fallback)", "verify_step.py", 'SB.stamp(request_id, "agent_ready_at")', 'SB.stamp(request_id, "zz")'),
+    ("summary cold_s", "verify_scoreboard.py", '"cold": _d(row, "agent_start_at", "agent_ready_at")', '"cold": _d(row, "agent_start_at", "signed_in_at")'),
+    ("summary pickup+start uses agent_ready", "verify_scoreboard.py", '"pickup_start": _d(row, "requested_at", "agent_ready_at") if', '"pickup_start": _d(row, "requested_at", "agent_start_at") if'),
+    ("superseded row (send run)", "verify_send.py", 'SB.finalize(request_id, "superseded")', 'None'),
+    ("superseded row (helper code)", "verify_step.py", 'no finish" % request_id); SB.finalize(request_id, "superseded"); return SUPERSEDED', 'no finish" % request_id); return SUPERSEDED'),
+    ("superseded row (helper result)", "verify_step.py", '\n            SB.finalize(request_id, "superseded"); return SUPERSEDED', '\n            return SUPERSEDED'),
+    ("requested_at not faked when the portal has none", "verify_bridge.py", 'if t_req is not None: SB.stamp', 'if True: SB.stamp'),
     ("summary click-to-send median", "verify_scoreboard.py", '"click_to_send": _d(row, "requested_at", "code_sent_at")', '"click_to_send": _d(row, "requested_at", "send_clicked_at")'),
     ("summary code-to-verified median", "verify_scoreboard.py", '"code_to_verified": _d(row, "code_submitted_at", "verified_at")', '"code_to_verified": _d(row, "code_entered_at", "verified_at")'),
 ]
@@ -143,14 +151,14 @@ rows = board()
 check("agent run: exactly one scoreboard row", len(rows) == 1, len(rows))
 row = rows[0] if rows else {}
 want = {"request_id": F.RID, "tenant": "NM", "domain": AGENT_DIR, "channel": "sms", "send_mode": "agent", "outcome": "verified",
-        "requested_at": at(0), "bridge_pickup_at": at(30), "agent_start_at": at(50), "signed_in_at": at(90), "send_clicked_at": at(110),
+        "requested_at": at(0), "bridge_pickup_at": at(30), "agent_start_at": at(50), "agent_ready_at": at(90), "signed_in_at": at(90), "send_clicked_at": at(110),
         "code_sent_at": at(110), "code_submitted_at": at(200), "code_entered_at": at(230)}
 for k, v in want.items():
     check("agent row: %s" % k, row.get(k) == v, (row.get(k), v))
 check("agent row: verified_at is the finish time", row.get("verified_at") == at(230) or row.get("verified_at") == at(235), row.get("verified_at"))
 check("agent row: the code is nowhere in the scoreboard or stage files", CODE not in open(SB.path()).read() and not os.listdir(os.path.join(TMP, "logs", "verify-stages")))
 d = SB.durations(row)
-check("agent row: click-to-send and code-to-verified derive from the stamps", d["click_to_send"] == 110 and d["code_to_verified"] in (35, 30) and d["pickup_start"] == 50, d)
+check("agent row: click-to-send and code-to-verified derive from the stamps", d["click_to_send"] == 110 and d["code_to_verified"] in (35, 30) and d["pickup_start"] == 90 and d["cold"] == 40, d)   # the first agent call came 40 s after launch
 check("agent row: the sweeper finishing the closed request later writes no second row", quiet(rpc.finish, F.RID, "failed", "timeout")[0] is None and len(board()) == 1)
 
 # ---- 3 script path (Cylex fake page): every stage is stamped, in order -------------------------------------------------------------------
@@ -225,8 +233,8 @@ os.environ["CE_LOGS"] = os.path.join(TMP, "logs")
 
 # ---- 7 summary ----------------------------------------------------------------------------------------------------------------------------
 fresh()
-def mk(rid, tenant, dom, mode, req, pick, start, signin, click, code_sent, sub, entered, ver, outcome="verified"):
-    return {"request_id": rid, "tenant": tenant, "domain": dom, "channel": "sms", "requested_at": at(req), "bridge_pickup_at": at(pick), "agent_start_at": at(start),
+def mk(rid, tenant, dom, mode, req, pick, start, signin, click, code_sent, sub, entered, ver, outcome="verified", ready=None):
+    return {"request_id": rid, "tenant": tenant, "domain": dom, "channel": "sms", "requested_at": at(req), "bridge_pickup_at": at(pick), "agent_start_at": at(start), "agent_ready_at": at(ready),
             "signed_in_at": at(signin), "send_clicked_at": at(click), "code_sent_at": at(code_sent), "code_submitted_at": at(sub), "code_entered_at": at(entered),
             "verified_at": at(ver) if ver is not None else None, "outcome": outcome, "send_mode": mode}
 os.makedirs(os.path.join(TMP, "logs"))
@@ -252,6 +260,71 @@ check("summary: an empty file prints dashes, not a crash", any("click-to-send" i
 r, text = quiet(SB.main, ["--summary", "--file", SB.path()])
 check("CLI --summary reads the file and exits 0", r == 0 and "runs: 3" in text)
 check("CLI refuses to run without --summary", quiet(SB.main, [])[0] if False else subprocess.run([sys.executable, os.path.join(ROOT, "job", "verify_scoreboard.py")], capture_output=True).returncode != 0)
+
+# ---- 8 round 2: agent_ready_at / cold_s, superseded rows, no faked requested_at ----------------------------------------------------------
+fresh()
+p = agent_portal(); SB.stamp(F.RID, "agent_start_at", at(50))
+adv(90); check("ready: `stage --name ready` is accepted", ST.step_stage(F.RID, "ready", p) == 0)
+adv(100); ST.step_stage(F.RID, "signed_in", p); ST.step_trace(F.RID, "goto", "https://agentdir.example/x", "", p)
+cur = json.load(open(SB._stage_file(F.RID)))
+check("ready: stamped at the first call (90), first write wins over signed_in (100) and the trace", cur.get("agent_ready_at") == at(90) and cur.get("signed_in_at") == at(100), cur)
+fresh(); p = agent_portal(); SB.stamp(F.RID, "agent_start_at", at(50)); adv(95)
+ST.step_trace(F.RID, "goto", "https://agentdir.example/x", "", p); adv(130); ST.step_stage(F.RID, "ready", p)
+check("ready fallback: a first trace call stamps agent_ready_at when the agent skipped `ready`", json.load(open(SB._stage_file(F.RID))).get("agent_ready_at") == at(95))
+fresh(); p = agent_portal(); SB.stamp(F.RID, "agent_start_at", at(50)); adv(120); ST.step_stage(F.RID, "signed_in", p)
+check("ready fallback: a first signed_in call stamps agent_ready_at", json.load(open(SB._stage_file(F.RID))).get("agent_ready_at") == at(120))
+fresh(); p = agent_portal(); adv(70)
+check("ready: refused on a closed/other-client request, nothing stamped", (p.requests[F.RID].update(client_id="not-a-client") or True) and ST.step_stage(F.RID, "ready", p) == ST.REFUSED and not os.path.exists(SB._stage_file(F.RID)))
+pr = S.build_prompt(F.RID, F.request(), F.verification(directory=AGENT_DIR), {"domain": AGENT_DIR, "signin_url": "https://agentdir.example/login"}, ("NM", "o", "i", "u"), MASK, "x@y.example")
+check("prompt: step 0 makes `stage --name ready` the FIRST command, before sign-in", "--name ready" in pr and pr.index("--name ready") < pr.index("1. Sign in"))
+# summary: cold_s, medians, and the 90 s flag now counts the cold start
+lines4 = []
+m4 = SB.summary([mk("55555555-eeee", "NM", "cylex.us", "agent", 0, 20, 30, 150, 170, 175, 240, 250, 260, ready=130),
+                 mk("66666666-ffff", "NM", "cylex.us", "agent", 0, 25, 35, 140, 160, 165, 230, 240, 250, ready=105),
+                 mk("77777777-9999", "NM", "cylex.us", "script", 0, 10, 15, 45, 60, 65, 100, 110, 120)], out=lines4.append)
+t4 = "\n".join(lines4)
+check("summary: cold_s column and median (100, 70 -> 85)", "cold_s" in lines4[0] and m4["cold"] == 85 and "median agent cold start (agent_start -> agent_ready, agent runs): 85 s" in t4, t4)
+check("summary: pickup+start counts the cold start (130, 105, script 15 -> 105 flagged), start alone (30,35,15) would not flag", m4["pickup_start"] == 105 and "over 90" in t4, t4)
+# superseded: one row per superseded attempt, in both modes, and no finish_code_request
+fresh(); p = agent_portal(); rpc = B.VerifyRpc(p); out = io.StringIO()
+SB.stamp(F.RID, "requested_at", at(0)); SB.stamp(F.RID, "agent_start_at", at(10)); adv(60)
+ST.step_sent(F.RID, MASK, p, rpc, SB.now())
+clk = F.Clock(); p.code_after_polls = 99; _orig = p.call
+def closing(method, path, body=None, prefer=None):   # the client clicked "No code? Send a new one." while `code` waits
+    if path.startswith("rpc/consume_verify_code") and p.consume_calls >= 2:
+        p.requests[F.RID]["status"] = "failed"; p.requests[F.RID]["fail_code"] = "resend"; adv(200)
+    return _orig(method, path, body, prefer)
+p.call = closing
+rc, _ = quiet(ST.step_code, F.RID, p, rpc, out, clk.sleep, clk.now, wall=clk.wall)
+rows = board()
+check("superseded (agent, helper code): exit 3, no finish, ONE row with outcome superseded and no verified_at", rc == ST.SUPERSEDED and p.finish_log == [] and len(rows) == 1 and rows[0]["outcome"] == "superseded" and rows[0]["verified_at"] is None, (rc, rows))
+check("superseded (agent): the first attempt's stamps are kept in the row", rows and rows[0]["code_sent_at"] == at(60) and rows[0]["agent_start_at"] == at(10), rows)
+check("superseded (agent): the scratch stage file is gone (no orphan)", not os.path.exists(SB._stage_file(F.RID)))
+fresh(); p = agent_portal(); rpc = B.VerifyRpc(p)
+SB.stamp(F.RID, "requested_at", at(0)); ST.step_sent(F.RID, MASK, p, rpc, SB.now())
+p.requests[F.RID]["status"] = "failed"; p.requests[F.RID]["fail_code"] = "resend"
+rc, _ = quiet(ST.step_result, F.RID, "accepted", p, rpc, SB.now())
+check("superseded (agent, helper result): exit 3, no finish, one superseded row", rc == ST.SUPERSEDED and p.finish_log == [] and [r["outcome"] for r in board()] == ["superseded"], (rc, board()))
+fresh(); clk = F.Clock(); SB.now = lambda: F.NOW + datetime.timedelta(seconds=clk.t - 1000)
+p = F.StrictPortal(requests=[F.request(status="starting", age_s=0)], verifications=[F.verification()], queued_code=CODE)
+p.code_after_polls = 9
+rt = F.FakeRuntime(F.FakePage(accepted=CODE), clock=clk); polls = {"n": 0}; _o = p.call
+def _spy(method, path, *a, **kw):
+    if method == "GET" and path.startswith("citation_code_request?") and "id=eq." in path and p.requests[F.RID]["status"] == "code_sent":
+        polls["n"] += 1
+        if polls["n"] == 2: p.requests[F.RID]["status"] = "failed"; p.requests[F.RID]["fail_code"] = "resend"
+    return _o(method, path, *a, **kw)
+p.call = _spy
+r, _ = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+rows = board()
+check("superseded (script run): returns superseded, no finish_code_request, ONE row outcome superseded with code_sent_at set", r == "superseded" and p.finish_log == [] and len(rows) == 1 and rows[0]["outcome"] == "superseded" and rows[0]["code_sent_at"] and rows[0]["send_mode"] == "script" and not rows[0]["code_submitted_at"], (r, rows))
+SB.now = lambda: F.NOW + datetime.timedelta(seconds=T["s"])
+# requested_at: a portal row without it must not be faked with the pickup time
+fresh(); r0 = F.request(status="starting", age_s=0); r0["claimed_at"] = at(30); r0["requested_at"] = None
+p = F.StrictPortal(requests=[r0], verifications=[F.verification(directory=AGENT_DIR)], queued_code=CODE); T["s"] = 40
+quiet(B.dispatch, dict(p.requests[F.RID]), p, B.VerifyRpc(p), {"refused": [], "deferred": [], "started": []}, set(), lambda *a, **k: NoSpawn())
+cur = json.load(open(SB._stage_file(F.RID))) if os.path.exists(SB._stage_file(F.RID)) else {}
+check("requested_at: no portal value -> not stamped (not faked as the pickup time); pickup is still stamped", cur.get("requested_at") is None and cur.get("bridge_pickup_at") == at(30), cur)
 
 # ---- sample row (dry run) -----------------------------------------------------------------------------------------------------------------
 if "--sample" in sys.argv:

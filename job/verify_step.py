@@ -85,7 +85,7 @@ def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time
         try:
             cur = B.request_row(portal, request_id)
             if cur is not None and cur.get("status") not in LIVE_STATUSES:   # a PRESENT row that is no longer waiting = superseded
-                log("superseded: %s is no longer waiting for a code; no finish" % request_id); return SUPERSEDED
+                log("superseded: %s is no longer waiting for a code; no finish" % request_id); SB.finalize(request_id, "superseded"); return SUPERSEDED
             if cur is None:   # an empty read is a miss, not a verdict (Nate stop 5)
                 raise B.BridgeError("empty read")
             if not expired():
@@ -122,7 +122,9 @@ def step_result(request_id, outcome, portal, rpc, now_dt=None):
     if outcome not in ("accepted", "rejected"): return BAD_ARGS
     req, row = _claimed(portal, request_id, LIVE_STATUSES)
     if not req:
-        return SUPERSEDED if _closed_by_portal(portal, request_id) else REFUSED
+        if _closed_by_portal(portal, request_id):
+            SB.finalize(request_id, "superseded"); return SUPERSEDED
+        return REFUSED
     SB.stamp(request_id, "code_entered_at", now_dt)   # typed into the Directory and the page answered
     if outcome == "rejected":
         return _finish(rpc, request_id, "failed", "code_rejected", OK)
@@ -140,7 +142,7 @@ def step_result(request_id, outcome, portal, rpc, now_dt=None):
 # ---- scoreboard stage + step trace (t_e49457af) ---------------------------------------------------------------------------------------
 TRACE_ACTIONS = ("goto", "click", "fill", "press")
 TRACE_MAX_STEPS = 80
-STAGE_NAMES = {"signed_in": "signed_in_at"}
+STAGE_NAMES = {"signed_in": "signed_in_at", "ready": None}   # ready: only the agent_ready_at stamp in step_stage
 
 
 def _trace_dir():
@@ -155,7 +157,8 @@ def step_stage(request_id, name, portal, now_dt=None):
     if name not in STAGE_NAMES: return BAD_ARGS
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
-    SB.stamp(request_id, STAGE_NAMES[name], now_dt)
+    SB.stamp(request_id, "agent_ready_at", now_dt)   # any stage call is proof the agent is up (first write wins)
+    if STAGE_NAMES[name]: SB.stamp(request_id, STAGE_NAMES[name], now_dt)
     return OK
 
 
@@ -175,6 +178,7 @@ def step_trace(request_id, action, url, selector, portal):
     if u is None or len(sel) > 200 or "\n" in sel or re.search(r"\d{6,}", sel): return BAD_ARGS
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
+    SB.stamp(request_id, "agent_ready_at")   # fallback ready stamp (first write wins)
     f = _trace_file(request_id)
     try:
         os.makedirs(os.path.dirname(f), exist_ok=True)

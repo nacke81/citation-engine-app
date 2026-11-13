@@ -216,6 +216,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username):
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
         "Directory page: %(url)s\nRow steps:\n%(steps)s\nMasked phone on file: %(masked)s\nLogin (vault item username): %(user)s\n\n"
         "Steps:\n"
+        "0. FIRST command of the run, before anything else (it times your start): %(helper)s stage --request-id %(rid)s --name ready   If it exits nonzero, carry on.\n"
         "1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n"
         "   Speed log (do not skip, it is how this step becomes a script): after each page action from sign-in to the send click, run: %(helper)s trace --request-id %(rid)s --action <goto, click, fill or press> --url <page url> --selector \"<css selector>\"\n"
         "   (no values, never what you typed). When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. If either exits nonzero, carry on.\n"
@@ -438,6 +439,7 @@ def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
                     if cur is None: raise B.BridgeError("empty status read")   # an empty read is a miss, not a verdict (Nate stop 5)
                     if cur.get("status") not in LIVE_STATUSES:
                         log("superseded: %s is no longer waiting for a code; closing the browser, no finish" % request_id)
+                        SB.finalize(request_id, "superseded")   # the first attempt's timing row; not finish_code_request
                         return "superseded"
                     code = rpc.consume(request_id); misses = 0
                 except B.BridgeError as e:

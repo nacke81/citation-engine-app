@@ -11,3 +11,10 @@ Scope:
 6. Tests: `tests/verify_scoreboard_test.py` (CI) with a virtual wall clock; one mutation per stage timestamp run by `--mutations` (a copy of job/ with that stamp renamed, the test must fail). Dry run prints one sample row.
 7. Measure the bridge poll: summary reports the pickup and pickup+start medians; the completion states what the first runs show (none yet = stated as such) and proposes the fix by the numbers.
 No live send, no portal write, no deploy.
+
+## Round 2 (Nate changes_requested at 698ba1c)
+Cites the same lesson `2026-11-13-a-fixture-where-two-stages-tie-cannot-tell-them-apart.md`: new fixtures use distinct values per stage so a swapped stamp cannot hide.
+1. `agent_ready_at`: new stage, stamped by `stage --name ready` (prompt step 0, the agent's FIRST command) and, first write wins, by any first `stage`/`trace` call. `agent_start_at` stays the launch time. Summary gets `cold_s` (agent_start -> agent_ready) + median; the pickup+start flag uses requested -> agent_ready (agent_start for script rows). Mutation + test with the first call 40 s after launch (cold_s=40).
+2. Superseded exits (send run `return "superseded"`, helper exit 3 in `code` and `result`) call `SB.finalize(rid, "superseded")`, never `finish_code_request`. Tests: one superseded agent run and one superseded script run each write exactly one row.
+3. Bridge dispatch skips the `requested_at` stamp when the portal value is missing (no fake click = pickup time). One test.
+4. Wording correction: prod `config/verify_directories.json` has cylex.us `send=agent`; only the test fixture marks it script. A real Cylex agent send writes a promote trace; Cylex stays the first candidate.

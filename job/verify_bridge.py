@@ -374,7 +374,8 @@ def start_send(request_id, spawner=None):
 def _stamp_pickup(req, row):
     """Scoreboard: the click (requested_at) and the bridge pickup (portal claimed_at, else now). First write wins, so a deferred retry keeps the first pickup."""
     rid = req.get("id")
-    SB.stamp(rid, "requested_at", _parse(req.get("requested_at")))
+    t_req = _parse(req.get("requested_at"))
+    if t_req is not None: SB.stamp(rid, "requested_at", t_req)   # no portal value = no stamp (never fake the click with the pickup time)
     SB.stamp(rid, "bridge_pickup_at", _parse(req.get("claimed_at")) or SB.now())
     ent = directory_entry((row or {}).get("directory"), req.get("channel")) or {}
     SB.stamp(rid, None, tenant=next((k for k, v in P.ALLOWED.items() if v == req.get("client_id")), None), domain=ent.get("domain"),
