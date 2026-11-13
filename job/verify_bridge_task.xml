@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Citation Engine Verify Now bridge, one pass every 60 s from the runtime clone (job\verify_bridge.cmd). Card t_1a897431. Register: schtasks /create /tn CitationEngineVerifyBridge /xml job\verify_bridge_task.xml</Description>
+    <Description>Citation Engine Verify Now bridge, one pass every 60 s from the runtime clone (job\verify_bridge.cmd). Card t_1a897431. Register: python job\register_verify_bridge.py (schtasks rejects this UTF-8 file directly, the script feeds it a UTF-16 copy)</Description>
   </RegistrationInfo>
   <Triggers>
     <TimeTrigger>
