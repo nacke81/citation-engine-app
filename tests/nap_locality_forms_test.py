@@ -55,6 +55,11 @@ for form, addr in FORMS.items():
     for label, lines in (("Exampleton, KY 40000", ["Exampleton, KY 40000"]), ("Exampleton only", ["Exampleton"]), ("Exampleton / KY 40000", ["Exampleton", "KY 40000"])):
         c = R.compare(text(*lines), CANON, ldonly())
         check(T("N1 under-street %s + correct LD -> match" % label), c["verdict"] == "match", c)
+    # round 2: zip-before-city under the street ("40000 City[, ST]") - the visible city is checked, never filled from LD
+    for label, lines, want in (("40000 Otherville", ["40000 Otherville"], "mismatch"), ("40000 Otherville, KY", ["40000 Otherville, KY"], "mismatch"), ("40000 Exampleton, TN", ["40000 Exampleton, TN"], "mismatch"),
+                               ("99999 Exampleton", ["99999 Exampleton"], "mismatch"), ("40000 Exampleton", ["40000 Exampleton"], "match"), ("40000 Exampleton, KY", ["40000 Exampleton, KY"], "match"), ("40000 alone", ["40000"], "match")):
+        c = R.compare(text(*lines), CANON, ldonly())
+        check(T("Z1 zip-first '%s' + correct LD -> %s" % (label, want)), c["verdict"] == want, c)
     # old structured path: no street in the text, LD carries everything
     nostreet = "Home\n%s\n(502) 555-0101\n" % NAME + PAD
     c = R.compare(nostreet, CANON, ldonly())

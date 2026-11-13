@@ -721,7 +721,9 @@ def compare(text, canonical, html_=None):
             _un = []
             for _k in range(_j, min(_j + 3, len(block))):
                 _l = block[_k]
-                if not _l or len(_l) > 60 or phones_in([_l]) or F.parse_street(_l): break
+                _zf = re.match(r"\d{5}(-\d{4})?\s+[A-Za-z]", _l) is not None   # zip-first locality "40000 City[, ST]": parse_street reads it as number+name, but with no street type it is not a street
+                _ps = F.parse_street(_l)
+                if not _l or len(_l) > 60 or phones_in([_l]) or (_ps and not (_zf and not _ps.get("type"))): break
                 _un.append(_l.strip())
                 if _k - _j >= 1 and not re.fullmatch(r"\d{5}(-\d{4})?", _un[0]): break   # 2 lines, unless the first is a bare zip (street / zip / city / state)
             for _l in _un:
