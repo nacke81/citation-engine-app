@@ -208,7 +208,9 @@ def read_rendered(pg, url, wait_s=30, canonical=None, referer=None, info=None):
         if canonical is None:   # no NAP to judge: the whole text must hold still
             key, verdict = text, None
         else:   # t_0c4ebee8 round 1: stability is the NAP READ (verdict + the NAP found) holding still, not the body (a rotating ad / timestamp must not matter)
-            c = compare(text, canonical); verdict = c["verdict"]; key = (verdict, json.dumps(c.get("nap"), sort_keys=True, default=str))
+            try: raw_now = pg.content()   # t_69102cc9: the poll scores with the same comparator inputs (text + markup) as the final read
+            except Exception: raw_now = None
+            c = compare(text, canonical, raw_now); verdict = c["verdict"]; key = (verdict, json.dumps(c.get("nap"), sort_keys=True, default=str))
         seen.append(verdict)
         same = same + 1 if key == prev else 0; prev = key
         if canonical is None:
@@ -403,7 +405,7 @@ def structured_phones(html_):
 ORG_LIKE_TYPES = {"organization", "corporation", "website", "webpage", "ngo", "person", "newsmediaorganization", "educationalorganization"}   # a site's own entity, not a local business
 
 
-def structured_address(html_, business_name=None):
+def structured_address(html_, business_name=None, same_entity=False):
     """The listing's postal address from its own markup -> {street, city, state, zip} (missing parts absent) or None. Generic, no per-Directory code:
     schema.org JSON-LD `address` (PostalAddress) first, then the *-selector fields (street-address-selector, city-selector, ...).
     t_ff6ed622: a page can carry several PostalAddress blocks (the directory's own sitewide Organization next to the listing's entity). With `business_name`:
@@ -427,6 +429,12 @@ def structured_address(html_, business_name=None):
         except Exception: continue
         found += list(walk(data))
     chosen = None
+    if same_entity:   # t_69102cc9: only the block whose enclosing entity IS this business (exact name). No LocalBusiness fallback, no Organization, no *-selector fields:
+        # this is what may supplement a locality the page text does not show, so a directory HQ or any other entity can never stand in
+        a = next((a for a, (t, n) in found if business_name and n and exact_name(n) == exact_name(business_name)), None) if found else None
+        if not a: return None
+        out = {k: str(a.get(f) or "").strip() for k, f in (("street", "streetAddress"), ("city", "addressLocality"), ("state", "addressRegion"), ("zip", "postalCode"))}
+        return {k: v for k, v in out.items() if v}
     if found and business_name:
         want = F._norm_name(business_name)
         is_org = lambda t: all(x.lower() in ORG_LIKE_TYPES for x in t.split())
@@ -686,6 +694,33 @@ def compare(text, canonical, html_=None):
                     if cst2 and ((not state and not got[2] and not zfirst) or (cst2.group(2) and not got[2] and not zfirst)) and not wrong: gaps.append("address")   # a shown, equal zip stands in for the state ("100 Example Drive, 40000" / "Exampleton")
     elif not got:
         gaps.append("address")
+    if got and cstreet and not sa_used and "address" in gaps and html_ and canonical["address"].count(",") >= 1 and not any(f in ("address", "city", "state", "zip") for f, _v in wrong):
+        # t_69102cc9: the text shows the canonical street but not (all of) the locality. The SAME business entity's own JSON-LD address (name == canonical name; never an
+        # Organization / directory HQ / other entity) may supply what is genuinely missing, only when its street equals the canonical street. What the text DID show
+        # (zip, state) must still equal canonical: a visible wrong value is a mismatch and structured data never overrides it. Structured values are checked like the
+        # structured path does: wrong city / state / zip -> mismatch; a part still missing -> the gap stays (nap-incomplete).
+        ent = structured_address(html_, canonical["name"], same_entity=True)
+        esp = F.parse_street(ent["street"]) if ent and ent.get("street") else None
+        if esp and F.street_equal(esp, cstreet) and all(ent.get(k) for k in ("city", "state", "zip")):
+            cparts = [x.strip() for x in canonical["address"].split(",")]
+            cst = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?", cparts[-1]) if len(cparts) >= 3 else None
+            vz, vs = zfirst or (got[2] if got else None), None   # fragments the page text showed
+            for x in segs:
+                m = re.fullmatch(r"([A-Za-z]{2})\.?(?:\s+(\d{5})(?:-\d{4})?)?", x.strip())
+                z = re.fullmatch(r"(\d{5})(?:-\d{4})?", x.strip())
+                if m: vs, vz = m.group(1), vz or m.group(2)
+                elif z: vz = vz or z.group(1)
+            n0 = len(wrong)
+            if vs and cst and vs.upper() != cst.group(1).upper(): wrong.append(("state", vs))
+            if vz and cst and cst.group(2) and vz[:5] != cst.group(2): wrong.append(("zip", vz))
+            if len(wrong) == n0:
+                if len(cparts) >= 2 and F._tok(ent["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", ent["city"]))
+                est = US_STATES.get(ent["state"].strip().lower(), ent["state"]).upper()
+                if cst and est != cst.group(1).upper(): wrong.append(("state", ent["state"]))
+                if cst and cst.group(2) and ent["zip"][:5] != cst.group(2): wrong.append(("zip", ent["zip"]))
+                if len(wrong) == n0:
+                    gaps.remove("address"); sa_used = True
+                    got = ("%s, %s, %s %s" % (ent["street"], ent["city"], ent["state"], ent["zip"]), got[1], ent["zip"])
     street_txt = got[0] if got else None
     if got and segs and not sa_used and segs[0] not in got[0]:   # t_f2bc28d2: street and city/state/zip on separate lines -> quote both (display only; verdict logic unchanged)
         _zr = r"\b\d{5}(?:-\d{4})?\b"
