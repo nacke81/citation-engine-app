@@ -563,6 +563,13 @@ def prose_street(block, canonical):
     return None
 
 
+def canon_state_zip(addr):
+    """State and ZIP of the canonical address, parsed from the WHOLE string ("street, City, ST zip" and "street, City ST zip" alike). (None, None) when the state cannot be
+    read: callers treat the locality as unverifiable, never as 'skip the check'."""
+    m = re.search(r"\b([A-Za-z]{2})\.?\s*(\d{5})?(?:-\d{4})?\s*$", (addr or "").strip())
+    return (m.group(1).upper(), m.group(2)) if m and m.group(1).upper() in {v.upper() for v in US_STATES.values()} else (None, None)   # "Dr" is not a state
+
+
 def compare(text, canonical, html_=None):
     """-> {"verdict": match|mismatch|nap-incomplete|not-public|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
     nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
@@ -610,14 +617,14 @@ def compare(text, canonical, html_=None):
         p = F.parse_street(sa["street"]) if sa and sa.get("street") else None
         if p:
             cparts = [x.strip() for x in canonical["address"].split(",")]
-            cst = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?", cparts[-1]) if len(cparts) >= 3 else None
+            cst_s, cst_z = canon_state_zip(canonical["address"])
             missing = [k for k in ("city", "state", "zip") if not sa.get(k)]
-            if missing: gaps.append("address")   # a street alone is not the full canonical NAP
+            if missing or not cst_s: gaps.append("address")   # a street alone is not the full canonical NAP; an unreadable canonical state is unverifiable, never skipped
             else:
                 if len(cparts) >= 2 and F._tok(sa["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", sa["city"]))
                 sst = US_STATES.get(sa["state"].strip().lower(), sa["state"]).upper()   # JSON-LD addressRegion may be the full name ("Kentucky")
-                if cst and sst != cst.group(1).upper(): wrong.append(("state", sa["state"]))
-                if cst and cst.group(2) and sa["zip"][:5] != cst.group(2): wrong.append(("zip", sa["zip"]))
+                if sst != cst_s: wrong.append(("state", sa["state"]))
+                if cst_z and sa["zip"][:5] != cst_z: wrong.append(("zip", sa["zip"]))
             sa_used = True
             got = (sa["street"] + ((", %s, %s %s" % (sa["city"], sa["state"], sa["zip"])) if not missing else ""), p, sa.get("zip") if not missing else None)
     if got and cstreet:
@@ -701,9 +708,40 @@ def compare(text, canonical, html_=None):
         # structured path does: wrong city / state / zip -> mismatch; a part still missing -> the gap stays (nap-incomplete).
         ent = structured_address(html_, canonical["name"], same_entity=True)
         esp = F.parse_street(ent["street"]) if ent and ent.get("street") else None
+        # Visible locality on the 1-2 lines UNDER the street (and a zip-first third line) is read too: a wrong visible city / state / zip is a mismatch and structured
+        # data never overrides it; a letters-only line there that is not the canonical city blocks the supplement (stays nap-incomplete, never match).
+        under_blocked = not all(canon_state_zip(canonical["address"]))   # unreadable canonical state / ZIP: unverifiable, never "skip the check" -> no supplement
+        if esp and i0 is not None:
+            _cp = [x.strip() for x in canonical["address"].split(",")]
+            _cs_s, _cs_z = canon_state_zip(canonical["address"])
+            if not (_cs_s and _cs_z): under_blocked = True   # canonical state / ZIP unreadable: cannot verify, no supplement
+            _cc = F._tok(_cp[1])[:1] if len(_cp) >= 2 else []
+            _j = i0 + 1 + (0 if got[0] == block[i0] else 1)
+            _sn2 = "|".join(sorted(US_STATES, key=len, reverse=True))
+            _un = []
+            for _k in range(_j, min(_j + 3, len(block))):
+                _l = block[_k]
+                if not _l or len(_l) > 60 or phones_in([_l]) or F.parse_street(_l): break
+                _un.append(_l.strip())
+                if _k - _j >= 1 and not re.fullmatch(r"\d{5}(-\d{4})?", _un[0]): break   # 2 lines, unless the first is a bare zip (street / zip / city / state)
+            for _l in _un:
+                _zs = re.findall(r"(?<!\d)(\d{5})(?:-\d{4})?(?!\d)", _l)
+                _sm = re.search(r"(?<![A-Za-z])([A-Z]{2})\.?(?=\s+\d{5}\b|\s*$)", _l)
+                _fm = re.search(r"(?i)(?<![A-Za-z])(" + _sn2 + r")(?![A-Za-z])", _l)
+                _ab = _sm.group(1) if _sm else (US_STATES[_fm.group(1).lower()] if _fm else None)
+                if _zs or _ab:
+                    if _ab and _cs_s and _ab.upper() != _cs_s: wrong.append(("state", _ab))
+                    if _zs and _cs_z and _zs[0] != _cs_z: wrong.append(("zip", _zs[0]))
+                    _cityp = re.sub(r"(?i)\b(" + _sn2 + r")\b|\b[A-Z]{2}\b|\d{5}(-\d{4})?", " ", _l.split(",")[0] if "," in _l else _l)
+                    _ct = F._tok(re.sub(r"[^A-Za-z .'\-]", " ", _cityp))
+                    if _ct and _cc and _ct[:1] != _cc: wrong.append(("city", _cityp.strip()))
+                elif re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", _l) and len(_l.split()) <= 4 and _cc and F._tok(_l)[:1] != _cc:
+                    under_blocked = True
+        if wrong or under_blocked: esp = None
         if esp and F.street_equal(esp, cstreet) and all(ent.get(k) for k in ("city", "state", "zip")):
             cparts = [x.strip() for x in canonical["address"].split(",")]
-            cst = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?", cparts[-1]) if len(cparts) >= 3 else None
+            cst_s, cst_z = canon_state_zip(canonical["address"])
+            if not (cst_s and cst_z): esp = None   # unreadable canonical state / ZIP: unverifiable, no supplement
             vz, vs = zfirst or (got[2] if got else None), None   # fragments the page text showed
             for x in segs:
                 m = re.fullmatch(r"([A-Za-z]{2})\.?(?:\s+(\d{5})(?:-\d{4})?)?", x.strip())
@@ -711,13 +749,13 @@ def compare(text, canonical, html_=None):
                 if m: vs, vz = m.group(1), vz or m.group(2)
                 elif z: vz = vz or z.group(1)
             n0 = len(wrong)
-            if vs and cst and vs.upper() != cst.group(1).upper(): wrong.append(("state", vs))
-            if vz and cst and cst.group(2) and vz[:5] != cst.group(2): wrong.append(("zip", vz))
+            if vs and vs.upper() != cst_s: wrong.append(("state", vs))
+            if vz and vz[:5] != cst_z: wrong.append(("zip", vz))
             if len(wrong) == n0:
                 if len(cparts) >= 2 and F._tok(ent["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", ent["city"]))
                 est = US_STATES.get(ent["state"].strip().lower(), ent["state"]).upper()
-                if cst and est != cst.group(1).upper(): wrong.append(("state", ent["state"]))
-                if cst and cst.group(2) and ent["zip"][:5] != cst.group(2): wrong.append(("zip", ent["zip"]))
+                if est != cst_s: wrong.append(("state", ent["state"]))
+                if ent["zip"][:5] != cst_z: wrong.append(("zip", ent["zip"]))
                 if len(wrong) == n0:
                     gaps.remove("address"); sa_used = True
                     got = ("%s, %s, %s %s" % (ent["street"], ent["city"], ent["state"], ent["zip"]), got[1], ent["zip"])
