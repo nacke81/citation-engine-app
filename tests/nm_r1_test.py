@@ -115,7 +115,7 @@ Q.submit_row(dict(NM, approval=NATE()), login, record=rec)
 Q.submit_row(dict(SCC, mike_approval=MIKE("fix-yelp")), login, record=rec)
 check("N4 record() is called with client NM for an NM row and SCC for an SCC row", seen == [("NM", "nm-fix-yelp"), ("SCC", "fix-yelp")], seen)
 import transitions as T
-check("N4 transitions (SCC only) fail closed on an NM client", raises(lambda: T.record_transition("NM", "nm-fix-yelp", "submitted"), T.TransitionRefused))
+check("N4 transitions fail closed: NM only on nm-fix-queue.json (t_cb7bad04 tenant lock), SCC never on an nm- row, unknown client refused", raises(lambda: T.record_transition("NM", "nm-fix-yelp", "submitted", queue_path="scc-fix-create-queue.json"), T.TransitionRefused) and raises(lambda: T.record_transition("SCC", "nm-fix-yelp", "submitted", queue_path="scc-fix-create-queue.json"), T.TransitionRefused) and raises(lambda: T.record_transition("ZZZ", "x", "submitted"), T.TransitionRefused))
 
 # ---- N5
 tmp = tempfile.mkdtemp()

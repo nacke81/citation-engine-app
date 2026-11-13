@@ -1,4 +1,5 @@
-"""Citation state transitions: one call records a state change in the SCC queue file, the SCC Local SEO portal snapshot, and (gated) Activities.
+"""Citation state transitions: one call records a state change in the tenant's queue file (TENANTS: SCC, NM), the SCC Local SEO portal snapshot, and (gated) Activities.
+NM (t_cb7bad04): queue + Your turn verification row + Verify Now allowlist + Directory DB; no portal snapshot, no client Activities. `--create-row` adds an NM queue row.
 
 record_transition(client, row_id, new_state, evidence_url, note) accepts only:
   queued -> found, queued|found|needs-human|submitted -> created-unlisted (internal; live|needs-human|rejected from it), queued|found|needs-human -> submitted|pending-verify, found|submitted|pending-verify|needs-human -> live,
@@ -38,6 +39,46 @@ def _resolve_vault_item(directory, items=None):
         return V.resolve_for_domain(directory, items=items)[1] or None
     except Exception:
         return None
+
+
+# t_cb7bad04: the tenant is read from here, never from a hardcoded client guard. A new client is one entry (and a P.ALLOWED id), not code.
+#   slug      portal tenant slug (shown in the dry run; the write itself is keyed by the P.ALLOWED client id)
+#   queue_name/queue_default  the tenant's queue file; row_prefix  its row ids (None: SCC ids carry no prefix, and must not carry another tenant's)
+#   snapshot  the queue overlays a portal footprint_snapshot (SCC only: the NM queue has no portal snapshot)
+#   activities  client-voiced deliverables rows on submitted/pending-verify/live/rejected (SCC only)
+#   create_row  `--create-row` adds queue rows (NM; SCC rows come from job/buildrows.py)
+NM_QUEUE_NAME = "nm-fix-queue.json"
+TENANTS = {
+    "SCC": {"slug": "scc", "queue_name": None, "queue_default": lambda: Q.QUEUE_PATH, "row_prefix": None, "snapshot": True, "activities": True, "create_row": False},
+    "NM": {"slug": "na" + "cke-media", "queue_name": NM_QUEUE_NAME,
+           "queue_default": lambda: os.environ.get("CE_NM_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/queue/" + NM_QUEUE_NAME),
+           "row_prefix": "nm-", "snapshot": False, "activities": False, "create_row": True},
+}
+
+
+def tenant_of(client):
+    t = TENANTS.get(client)
+    if not t: raise TransitionRefused("no tenant config for client %r (known: %s)" % (client, ", ".join(sorted(TENANTS))))
+    return t
+
+
+def check_tenant_lock(client, row_id, path):
+    """Tenant lock, before any read or write: a park for one tenant can never touch another tenant's row or queue file."""
+    t = tenant_of(client)
+    pre = t["row_prefix"]
+    if pre and not str(row_id).startswith(pre):
+        raise TransitionRefused("tenant lock: %s rows start %r, got %r" % (client, pre, row_id))
+    if not pre:
+        for other, ot in TENANTS.items():
+            if other != client and ot["row_prefix"] and str(row_id).startswith(ot["row_prefix"]):
+                raise TransitionRefused("tenant lock: %r is a %s row, not %s" % (row_id, other, client))
+    if t["queue_name"] and os.path.basename(path) != t["queue_name"]:
+        raise TransitionRefused("tenant lock: %s writes only %s, got %s" % (client, t["queue_name"], os.path.basename(path)))
+    return t
+
+
+def _tenant_lock(client, row_id, path):   # one indirection: the mutation test swaps this to prove the lock tests can fail
+    return check_tenant_lock(client, row_id, path)
 
 
 STATES = ("queued", "found", "claimed-unverified", "created-unlisted") + Q.PORTAL_STATES  # queued, found, claimed-unverified, created-unlisted, submitted, pending-verify, needs-human, live, rejected
@@ -421,10 +462,10 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     directories: object with .owner and call(method, path, body, prefer) for the Directory database (default: DirDB from the weekly job env;
     CE_DIRECTORIES_WRITE=0 turns the sink off)."""
     real_sink = portal is None and verification is None   # t_f31e2490: only a run on the real Portal writes the machine-wide allowlist file; an injected fake (tests) needs allowlist_path
-    if client != "SCC":
-        raise TransitionRefused("queue transitions are SCC only, got %r" % (client,))
+    tenant = tenant_of(client)
     client_id = P.client_for(client)
-    path = queue_path or Q.QUEUE_PATH
+    path = queue_path or tenant["queue_default"]()
+    tenant = _tenant_lock(client, row_id, path)
     day = today or datetime.date.today().isoformat()
     q = _read(path)
     Q.parse_rows(q)
@@ -486,13 +527,15 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
 
     out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "reason_code": reason_code, "errors": []}
     same_state = old == new_state  # note refresh: no client news, no Activities row
-    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day, hold=activities_hold_flag) if new_state in ACTIVITY_STATES and not same_state else None
+    rec = build_activity_record(client_id, new_row, new_state, evidence_url, day, hold=activities_hold_flag) if tenant["activities"] and new_state in ACTIVITY_STATES and not same_state else None
     out["activity_record"] = rec
     out["activities_written"] = False
-    use_act = activities_enabled(activities_flag) and new_state in ACTIVITY_STATES and not same_state
+    use_act = tenant["activities"] and activities_enabled(activities_flag) and new_state in ACTIVITY_STATES and not same_state
     out["activities_flag_on"] = use_act
     ver_rec = build_verification_record(client_id, row["directory"], verify_type, day, verify_deadline_days, steps=steps, directory_url=directory_url) if verify_type else None
     out["verification_record"] = ver_rec
+    out["tenant"] = {"client": client, "slug": tenant["slug"], "client_id": client_id}
+    if ver_rec: assert ver_rec["client_id"] == client_id == P.client_for(client)   # the portal row can only carry THIS tenant's id
     out["verification_written"] = False
     out["allowlist"] = None
     ver_patch_path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, row["directory"])
@@ -500,10 +543,11 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if dry_run:
         pp = portal_payload_for(None, new_row, day)
         out["queue_row_after"] = {k: new_row[k] for k in ("id", "directory", "state", "evidence_url", "history") if k in new_row}
-        out["portal_request"] = {"method": "POST", "path": "footprint_snapshot?on_conflict=client_id,source,captured_day",
-                                 "row": {"client_id": client_id, "source": P.SOURCE, "captured_day": day,
-                                         "payload": "latest snapshot payload, directories patched with:",
-                                         "directory_patch": pp["directories"]}}
+        out["portal_request"] = ({"method": "POST", "path": "footprint_snapshot?on_conflict=client_id,source,captured_day",
+                                  "row": {"client_id": client_id, "source": P.SOURCE, "captured_day": day,
+                                          "payload": "latest snapshot payload, directories patched with:",
+                                          "directory_patch": pp["directories"]}} if tenant["snapshot"]
+                                 else "skipped: %s queue has no portal snapshot (Your turn row + allowlist only)" % client)
         out["directories_request"] = {"queue_state": new_state, "reason_code": reason_code if new_state == "needs-human" else None}
         out["activities_request"] = ({"method": "POST", "path": "deliverables?on_conflict=client_id,source_ref", "body": [rec]} if use_act
                                      else "skipped: %s=0 or state %s is not client news" % (FLAG, new_state))
@@ -521,20 +565,28 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         for i, r in enumerate(rows):
             if r.get("id") == row_id: rows[i] = new_row
     out["proof_mirrored"] = mirror_proof_quiet(q, directories)   # t_78dc54b5: fill live rows whose DB Proof is complete but whose queue row has none
+    if tenant["queue_name"]:   # NM: first write of the day keeps a backup, as nm_transitions does
+        import shutil
+        bak = "%s.bak-nm-%s" % (path, day)
+        if not os.path.exists(bak): shutil.copyfile(path, bak)
+        out["backup"] = bak
     _write_atomic(path, q)
     out["queue_written"] = path
 
-    # 2 portal snapshot
-    try:
-        portal = portal or P.Portal(*P.load_portal_env())
-        latest = portal.latest_snapshot(client_id)
-        base = latest["payload"] if latest else None
-        if base is None: raise P.PortalWriteError("no existing SCC snapshot to overlay; run the weekly scan first")
-        portal.upsert_snapshot(client_id, day, full_portal_payload(base, q, new_row, day))
-        out["portal_written"] = True
-    except Exception as e:
-        out["portal_written"] = False
-        out["errors"].append("portal: %s" % e)
+    # 2 portal snapshot (SCC only; the NM queue has none)
+    if not tenant["snapshot"]:
+        out["portal_written"] = "skipped"
+    else:
+        try:
+            portal = portal or P.Portal(*P.load_portal_env())
+            latest = portal.latest_snapshot(client_id)
+            base = latest["payload"] if latest else None
+            if base is None: raise P.PortalWriteError("no existing SCC snapshot to overlay; run the weekly scan first")
+            portal.upsert_snapshot(client_id, day, full_portal_payload(base, q, new_row, day))
+            out["portal_written"] = True
+        except Exception as e:
+            out["portal_written"] = False
+            out["errors"].append("portal: %s" % e)
 
     # 3 activities (gated)
     if use_act:
@@ -587,6 +639,40 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     return out
 
 
+def create_row(client, domain, kind, *, queue_path=None, today=None, dry_run=False, note=None):
+    """t_cb7bad04: add ONE queued row for a Directory that has no row yet (NM: nm-fix-queue.json, fix_queue). No hand JSON edits.
+    Refused: a tenant without create_row, a bad domain/kind, a Directory that already has a row (any list), an id collision. Backup (first write of the day) + atomic write."""
+    t = tenant_of(client)
+    if not t["create_row"]:
+        raise TransitionRefused("--create-row is not available for %s (SCC rows come from job/buildrows.py)" % client)
+    if kind not in ("fix", "create"): raise TransitionRefused("kind must be fix or create, got %r" % (kind,))
+    domain = str(domain or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9\-]*(\.[a-z0-9][a-z0-9\-]*)+", domain): raise TransitionRefused("domain %r is not a bare domain like example.com" % (domain,))
+    path = queue_path or t["queue_default"]()
+    day = today or datetime.date.today().isoformat()
+    rid = "%s%s-%s" % (t["row_prefix"] or "", kind, domain.split(".")[0])
+    _tenant_lock(client, rid, path)
+    q = _read(path)
+    Q.parse_rows(q)
+    have = {r.get("directory") for _k, _kd, rows in _row_lists(q) for r in rows}
+    if domain in have: raise TransitionRefused("%s already has a queue row; use --row to move it" % domain)
+    taken = {r.get("id") for _k, _kd, rows in _row_lists(q) for r in rows}
+    if rid in taken: rid = "%s%s-%s" % (t["row_prefix"] or "", kind, domain.replace(".", "-"))
+    if rid in taken: raise TransitionRefused("row id %s would collide" % rid)
+    row = {"id": rid, "group": "C-new-row", "kind": kind, "directory": domain, "state": "queued", "cost": "free", "mike_approval": None,
+           "build_note": (note or "row added by transitions.py --create-row (t_cb7bad04); no listing read yet").strip(),
+           "history": [{"at": day, "from": None, "to": "queued", "evidence_url": None, "note": "row created (--create-row)"}]}
+    out = {"dry_run": bool(dry_run), "client": client, "queue": path, "row": row, "backup": None}
+    if dry_run: return out
+    import shutil
+    bak = "%s.bak-nm-%s" % (path, day)
+    if not os.path.exists(bak): shutil.copyfile(path, bak)
+    out["backup"] = bak
+    q.setdefault("fix_queue", []).append(row)
+    _write_atomic(path, q)
+    return out
+
+
 def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Record a citation state transition (queue + Local SEO + gated Activities)")
@@ -616,7 +702,16 @@ def main(argv=None):
     a.add_argument("--audit", action="store_true", help="read-only: list live rows with incomplete Proof; exit 1 if any")
     a.add_argument("--mirror-proof", action="store_true", dest="mirror_proof", help="t_78dc54b5: copy complete ce_directory_status Proof into live queue rows that lack it (dry run unless --write; backup first; no DB write, no state change)")
     a.add_argument("--write", action="store_true", help="with --mirror-proof: write the queue file")
+    a.add_argument("--create-row", action="store_true", dest="create_row", help="t_cb7bad04: add ONE queued row for a Directory that has no row yet (needs --domain and --kind; NM only; --dry-run prints the row)")
+    a.add_argument("--domain", default=None, help="with --create-row: the Directory domain, e.g. foursquare.com")
+    a.add_argument("--kind", default=None, choices=("fix", "create"), help="with --create-row: fix (a wrong listing exists) or create (no listing yet)")
     n = a.parse_args(argv)
+    if n.create_row:
+        if not n.domain or not n.kind: a.error("--create-row needs --domain and --kind")
+        try: res = create_row(n.client, n.domain, n.kind, queue_path=n.queue, today=n.today, dry_run=n.dry_run, note=n.note)
+        except (TransitionRefused, Q.QueueError) as e:
+            print("REFUSED: %s" % e, file=sys.stderr); return 1
+        print(json.dumps(res, indent=2)); return 0
     if n.audit:
         miss = live_rows_missing_proof(_read(n.queue or Q.QUEUE_PATH), db_proof_by_directory())   # one read-only GET; DB Proof columns are the truth
         for rid, bad in miss: print("LIVE WITHOUT PROOF %s: %s" % (rid, ", ".join(bad)))

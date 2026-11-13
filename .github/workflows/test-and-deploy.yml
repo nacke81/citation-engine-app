@@ -123,6 +123,8 @@ jobs:
         run: python tests/recheck_dryrun_park_test.py
       - name: recheck --any-state --write promotes a NAMED needs-human row on a match only (t_dca17786)
         run: python tests/recheck_promote_test.py
+      - name: Park works for any tenant, NM first; tenant lock; --create-row (t_cb7bad04)
+        run: python tests/park_any_tenant_test.py
       - name: Recheck phone reading (uuid, masked, structured, real-page fixtures)
         run: python tests/recheck_phone_test.py
       - name: Recheck reads signed out (fresh context, never the signed-in profile)
