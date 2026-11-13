@@ -33,6 +33,7 @@ import contextlib, datetime, os, re, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import portal as P
+import verify_scoreboard as SB
 
 REQUEST_TABLE = "citation_code_request"   # contract table (portal card t_c55c728e); pinned by tests/verify_bridge_test.py
 VERIFICATION_TABLE = "citation_verification"
@@ -157,6 +158,7 @@ class VerifyRpc:
         if status == "verified": fail_code = None
         elif fail_code not in FAIL_CODES: raise BridgeError("finish_code_request refused: fail code")
         self._rpc("finish_code_request", {"p_request_id": request_id, "p_status": status, "p_fail_code": fail_code})
+        SB.finalize(request_id, status if status == "verified" else "%s:%s" % (status, fail_code))   # the one scoreboard row; never raises
 
 
 # ---- reads (PostgREST GET on the existing service-role client; no code table is ever read) --------------------------------------------
@@ -369,6 +371,17 @@ def start_send(request_id, spawner=None):
         out.close()
 
 
+def _stamp_pickup(req, row):
+    """Scoreboard: the click (requested_at) and the bridge pickup (portal claimed_at, else now). First write wins, so a deferred retry keeps the first pickup."""
+    rid = req.get("id")
+    t_req = _parse(req.get("requested_at"))
+    if t_req is not None: SB.stamp(rid, "requested_at", t_req)   # no portal value = no stamp (never fake the click with the pickup time)
+    SB.stamp(rid, "bridge_pickup_at", _parse(req.get("claimed_at")) or SB.now())
+    ent = directory_entry((row or {}).get("directory"), req.get("channel")) or {}
+    SB.stamp(rid, None, tenant=next((k for k, v in P.ALLOWED.items() if v == req.get("client_id")), None), domain=ent.get("domain"),
+             channel=req.get("channel"), send_mode=ent.get("send"))
+
+
 def dispatch(req, portal, rpc, res, busy, spawner=None):
     """Fence one claimed request, then start its send run unless its tenant is busy. A busy tenant's request stays in 'starting'
     (no finish, no card) and is retried by the next pass; the sweeper still ends it at 10 minutes."""
@@ -381,6 +394,7 @@ def dispatch(req, portal, rpc, res, busy, spawner=None):
         except BridgeError as e: log(str(e))
         return
     cid = req["client_id"]
+    _stamp_pickup(req, _row)
     if cid in busy or tenant_busy(cid):
         log("tenant busy; %s stays starting, retry next pass" % rid)
         if rid not in res["deferred"]: res["deferred"].append(rid)

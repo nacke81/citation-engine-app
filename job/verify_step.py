@@ -4,6 +4,8 @@ process reads it from the portal env pointer, the agent only sees stdout and the
   python job/verify_step.py sent   --request-id X --masked "(629) ***-2578"   the code was just sent to that number
   python job/verify_step.py code   --request-id X [--wait-s 540]               waits up to --wait-s (max 540) per call, prints the code ONLY on stdout
   python job/verify_step.py result --request-id X --outcome accepted|rejected  the Directory accepted or rejected the typed code
+  python job/verify_step.py stage  --request-id X --name signed_in             scoreboard: the sign-in just finished (before the send)
+  python job/verify_step.py trace  --request-id X --action goto|click|fill|press --url U [--selector S]   one step before the send (promotion trace)
 
 Exit codes: 0 done | 2 bad arguments | 3 superseded (the client asked for a new code or the portal closed the request: stop, do not finish) |
             4 no code within 30 min of code_sent_at (the request is finished failed/code_expired, once) | 5 refused or failed (nothing was sent or recorded) |
@@ -13,12 +15,14 @@ The helper owns mark_code_sent, consume_verify_code, the superseded check, set_v
 re-reads the request and runs the same bridge.fence() the bridge and the send run use. A code is held in a local variable and written to
 stdout once; it is never logged, put in an exception message, or sent anywhere else. stderr carries request ids and reason words only.
 """
-import argparse, datetime, os, sys, time
+import argparse, datetime, json, os, re, sys, time
+from urllib.parse import urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import portal as P
 import verify_bridge as B
+import verify_scoreboard as SB
 
 LIVE_STATUSES = ("code_sent", "checking")
 POLL_EVERY_S = 10
@@ -54,6 +58,9 @@ def step_sent(request_id, masked, portal, rpc, now_dt=None):
         log(str(e)); return REFUSED
     t0 = B._parse(req.get("requested_at"))
     now_dt = now_dt or datetime.datetime.now(datetime.timezone.utc)
+    SB.stamp(request_id, "send_clicked_at", now_dt)   # the agent runs `sent` right after it clicks send
+    SB.stamp(request_id, "code_sent_at", now_dt)
+    promote_trace(request_id, req, _row)
     if t0: log("click_to_send_s=%d request=%s" % ((now_dt - t0).total_seconds(), request_id))   # Nate stop 7: the measured click-to-send
     log("sent recorded for %s" % request_id)
     return OK
@@ -78,7 +85,7 @@ def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time
         try:
             cur = B.request_row(portal, request_id)
             if cur is not None and cur.get("status") not in LIVE_STATUSES:   # a PRESENT row that is no longer waiting = superseded
-                log("superseded: %s is no longer waiting for a code; no finish" % request_id); return SUPERSEDED
+                log("superseded: %s is no longer waiting for a code; no finish" % request_id); SB.finalize(request_id, "superseded"); return SUPERSEDED
             if cur is None:   # an empty read is a miss, not a verdict (Nate stop 5)
                 raise B.BridgeError("empty read")
             if not expired():
@@ -91,6 +98,7 @@ def step_code(request_id, portal, rpc, out=None, sleep=time.sleep, now=time.time
             misses += 1; log("poll miss %d: %s" % (misses, type(e).__name__))
             if misses >= 3: return _finish(rpc, request_id, "failed", "other", REFUSED)
         if code:
+            SB.stamp(request_id, "code_submitted_at", wall())
             try:
                 out.write(code + "\n"); out.flush()
             finally:
@@ -114,7 +122,10 @@ def step_result(request_id, outcome, portal, rpc, now_dt=None):
     if outcome not in ("accepted", "rejected"): return BAD_ARGS
     req, row = _claimed(portal, request_id, LIVE_STATUSES)
     if not req:
-        return SUPERSEDED if _closed_by_portal(portal, request_id) else REFUSED
+        if _closed_by_portal(portal, request_id):
+            SB.finalize(request_id, "superseded"); return SUPERSEDED
+        return REFUSED
+    SB.stamp(request_id, "code_entered_at", now_dt)   # typed into the Directory and the page answered
     if outcome == "rejected":
         return _finish(rpc, request_id, "failed", "code_rejected", OK)
     from verify_send import set_live
@@ -128,6 +139,78 @@ def step_result(request_id, outcome, portal, rpc, now_dt=None):
     return _finish(rpc, request_id, "verified", None, OK)
 
 
+# ---- scoreboard stage + step trace (t_e49457af) ---------------------------------------------------------------------------------------
+TRACE_ACTIONS = ("goto", "click", "fill", "press")
+TRACE_MAX_STEPS = 80
+STAGE_NAMES = {"signed_in": "signed_in_at", "ready": None}   # ready: only the agent_ready_at stamp in step_stage
+
+
+def _trace_dir():
+    return os.path.join(SB._dir(), "verify-traces")
+
+
+def _trace_file(request_id):
+    return os.path.join(_trace_dir(), "%s.jsonl" % request_id)
+
+
+def step_stage(request_id, name, portal, now_dt=None):
+    if name not in STAGE_NAMES: return BAD_ARGS
+    req, _row = _claimed(portal, request_id, ("starting",))
+    if not req: return REFUSED
+    SB.stamp(request_id, "agent_ready_at", now_dt)   # any stage call is proof the agent is up (first write wins)
+    if STAGE_NAMES[name]: SB.stamp(request_id, STAGE_NAMES[name], now_dt)
+    return OK
+
+
+def clean_url(url):
+    """http(s) only, query and fragment dropped (a code or token can ride there)."""
+    p = urlsplit(str(url or "").strip())
+    if p.scheme not in ("http", "https") or not p.netloc: return None
+    return ("%s://%s%s" % (p.scheme, p.netloc, p.path))[:300]
+
+
+def step_trace(request_id, action, url, selector, portal):
+    """Append one step (action, URL, selector) to the request's trace. Only while the request is `starting` (before the send). There is no value
+    argument: a typed secret or code has no way in. A selector holding a 6+ digit run is refused."""
+    if action not in TRACE_ACTIONS: return BAD_ARGS
+    u = clean_url(url)
+    sel = (selector or "").strip()
+    if u is None or len(sel) > 200 or "\n" in sel or re.search(r"\d{6,}", sel): return BAD_ARGS
+    req, _row = _claimed(portal, request_id, ("starting",))
+    if not req: return REFUSED
+    SB.stamp(request_id, "agent_ready_at")   # fallback ready stamp (first write wins)
+    f = _trace_file(request_id)
+    try:
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        n = sum(1 for _ in open(f, encoding="utf-8")) if os.path.exists(f) else 0
+        if n >= TRACE_MAX_STEPS: log("trace full"); return REFUSED
+        with open(f, "a", encoding="utf-8") as h:
+            h.write(json.dumps({"n": n + 1, "action": action, "url": u, "selector": sel or None, "at": SB.iso(SB.now())}, separators=(",", ":")) + "\n")
+    except OSError as e:
+        log("trace write failed: %s" % type(e).__name__); return REFUSED
+    return OK
+
+
+def promote_trace(request_id, req, row):
+    """A clean agent send (the `sent` call succeeded): save the pre-send trace where a citation-engineer card can turn it into a send=script
+    entry. -> the path, or None (no trace, or not an agent run). Never raises."""
+    try:
+        f = _trace_file(request_id)
+        if not os.path.exists(f): return None
+        steps = [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+        ent = B.directory_entry((row or {}).get("directory"), req.get("channel")) or {}
+        if not steps or ent.get("send") != "agent": return None
+        d = os.path.join(_trace_dir(), "promote"); os.makedirs(d, exist_ok=True)
+        out = os.path.join(d, "%s__%s__%s.json" % (ent["domain"], req.get("channel"), request_id))
+        with open(out, "w", encoding="utf-8") as h:
+            json.dump({"request_id": request_id, "domain": ent["domain"], "channel": req.get("channel"), "signin_url": ent.get("signin_url"),
+                       "saved_at": SB.iso(SB.now()), "steps": steps, "next": "citation-engineer card: turn into a send=script entry"}, h, indent=1)
+        log("trace saved for promotion: %d steps" % len(steps))
+        return out
+    except Exception as e:
+        log("trace promote skipped: %s" % type(e).__name__); return None
+
+
 def _closed_by_portal(portal, request_id):
     try:
         cur = B.request_row(portal, request_id)
@@ -139,8 +222,11 @@ def _closed_by_portal(portal, request_id):
 def main(argv=None, portal=None, rpc=None, out=None):
     a = argparse.ArgumentParser(description="Verify Now agent helper")
     sub = a.add_subparsers(dest="cmd", required=True)
-    for name in ("sent", "code", "result"):
+    for name in ("sent", "code", "result", "stage", "trace"):
         s = sub.add_parser(name); s.add_argument("--request-id", required=True)
+        if name == "stage": s.add_argument("--name", required=True, choices=tuple(STAGE_NAMES))
+        if name == "trace":
+            s.add_argument("--action", required=True, choices=TRACE_ACTIONS); s.add_argument("--url", required=True); s.add_argument("--selector", default="")
         if name == "sent": s.add_argument("--masked", required=True)
         if name == "code": s.add_argument("--wait-s", type=int, default=WAIT_DEFAULT_S)
         if name == "result": s.add_argument("--outcome", required=True, choices=("accepted", "rejected"))
@@ -155,6 +241,8 @@ def main(argv=None, portal=None, rpc=None, out=None):
         log("portal env unavailable: %s" % type(e).__name__); return REFUSED
     rpc = rpc or B.VerifyRpc(portal)
     if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc)
+    if n.cmd == "stage": return step_stage(n.request_id, n.name, portal)
+    if n.cmd == "trace": return step_trace(n.request_id, n.action, n.url, n.selector, portal)
     if n.cmd == "code": return step_code(n.request_id, portal, rpc, out, wait_s=n.wait_s)
     return step_result(n.request_id, n.outcome, portal, rpc)
 
