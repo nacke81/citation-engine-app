@@ -396,7 +396,9 @@ def run_pass(portal=None, rpc=None, now=None, spawner=None, card_runner=None):
     starved by new claims. Then retries deferred rows (starting, no run started yet), then claims new ones."""
     portal = portal or P.Portal(*P.load_portal_env())
     rpc = rpc or VerifyRpc(portal)
-    res = {"swept": sweep(portal, rpc, now, card_runner), "started": [], "refused": [], "deferred": []}
+    res = {"swept": sweep(portal, rpc, now, card_runner), "started": [], "refused": [], "deferred": [], "first_use": []}
+    try: res["first_use"] = file_first_use_cards(portal, card_runner)   # never blocks claim or dispatch
+    except Exception as e: log("first-use cards failed: %s" % type(e).__name__)
     busy = set()   # tenants this pass already started a run for (the new run may not hold its lock yet)
     try: prune_markers()
     except Exception as e: log("marker prune failed: %s" % type(e).__name__)
@@ -414,6 +416,52 @@ def run_pass(portal=None, rpc=None, now=None, spawner=None, card_runner=None):
         if not req: break
         dispatch(req, portal, rpc, res, busy, spawner)
     return res
+
+
+def first_use_rows(portal):
+    """Read-only. The sms/phone-call rows waiting for verification (allow-listed clients only). One GET, no write."""
+    rows = portal.call("GET", "%s?select=id,client_id,directory,verification_type,state&verification_type=in.(sms,phone-call)&state=eq.requires_verification&order=directory.asc" % VERIFICATION_TABLE) or []
+    ok_ids = set(P.ALLOWED.values())
+    return [r for r in rows if isinstance(r, dict) and r.get("client_id") in ok_ids and r.get("state", "requires_verification") == "requires_verification"
+            and r.get("verification_type") in CHANNELS and UUID_RE.match(str(r.get("id") or ""))]
+
+
+def first_use_argv(row):
+    import postcard_step as PS
+    tenant = {v: k for k, v in P.ALLOWED.items()}.get(row.get("client_id"), "unknown")
+    directory = str(row.get("directory") or "")[:120]
+    listed = "yes" if directory_entry(directory, row.get("verification_type")) else "no"
+    title = "Verify Now: first-use row %s (%s)" % (directory, tenant)
+    body = ("A client row is waiting for verification and no request exists yet. Directory: %s. Tenant: %s. Type: %s. "
+            "In config/verify_directories.json for this type: %s. This card carries no code, no client email, no phone number." % (directory, tenant, row.get("verification_type"), listed))
+    return [PS._hermes_exe(), "-p", PS.REVIEWER, "kanban", "--board", PS.REVIEWER, "create", title, "--assignee", PS.REVIEWER,
+            "--workspace", "scratch", "--idempotency-key", "verify-now-row:%s" % row["id"], "--body", body]
+
+
+def _seen_marker(rid): return os.path.join(lock_dir(), "first-use-%s" % rid)
+
+
+def file_first_use_cards(portal, card_runner=None):
+    """-> [row ids a card was filed for this pass]. A row id is filed once: the marker is written only after the card call worked, so a
+    failed filing retries next pass; the board's idempotency key stops a duplicate if the marker is ever lost."""
+    done = []
+    try:
+        rows = first_use_rows(portal)
+    except Exception as e:
+        log("first-use list failed: %s" % type(e).__name__); return done
+    for r in rows:
+        rid = r["id"]
+        if os.path.exists(_seen_marker(rid)): continue
+        if os.environ.get("CE_NO_CARDS") == "1" and card_runner is None and _card_runner is None:
+            log("first-use card skipped (CE_NO_CARDS) for %s" % rid); continue
+        try:
+            (card_runner or _card_runner or subprocess.run)(first_use_argv(r), capture_output=True, timeout=CARD_TIMEOUT_S, check=True)
+        except Exception as e:
+            log("first-use card failed for %s: %s" % (rid, type(e).__name__)); continue
+        with open(_seen_marker(rid), "wb"): pass
+        log("first-use card filed for %s" % rid)
+        done.append(rid)
+    return done
 
 
 def check_missing(portal, path=None):
@@ -448,7 +496,7 @@ def main(argv=None):
     except Exception as e:
         print("VERIFY BRIDGE FAILED: " + type(e).__name__, file=sys.stderr, flush=True)
         return 1
-    print("VERIFY BRIDGE OK swept=%d started=%d refused=%d deferred=%d" % (len(r["swept"]), len(r["started"]), len(r["refused"]), len(r["deferred"])), flush=True)
+    print("VERIFY BRIDGE OK swept=%d started=%d refused=%d deferred=%d first_use=%d" % (len(r["swept"]), len(r["started"]), len(r["refused"]), len(r["deferred"]), len(r["first_use"])), flush=True)
     return 0
 
 
