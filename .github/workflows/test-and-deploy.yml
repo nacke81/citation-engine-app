@@ -185,6 +185,8 @@ jobs:
         run: python tests/verify_bridge_test.py
       - name: Verify Now agent send path (fake oneshot, helper CLI, vault username, relay window, directories file, --check, code leak)
         run: python tests/verify_agent_test.py
+      - name: Verify Now auto-allowlist on park (local file outside repo, repo wins, idempotent, postcard adds nothing, bridge fence)
+        run: python tests/verify_allowlist_test.py
       - name: Register script writes UTF-16 task XML for schtasks (no schtasks run)
         run: python tests/register_verify_bridge_test.py
       - name: Verify Now Cylex send step dry run (fake page)
