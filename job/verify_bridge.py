@@ -107,6 +107,13 @@ def load_directories(path=None):
     lp = local_directories_path()
     for e in _load_file(lp, "local", agent_only=True) if lp else []:
         names = [e["domain"]] + e["aliases"]
+        base = next((o for o in out if o["source"] == "repo" and set(names) & set([o["domain"]] + o["aliases"])), None)
+        if base is not None:   # a runtime row for a repo Directory only SUPPLEMENTS it: missing channels / tenant vault items. Repo values win; send is the repo's; a repo script entry is never extended.
+            if base["send"] == "agent":
+                base["channels"] = base["channels"] + [c for c in e["channels"] if c not in base["channels"]]
+                for t, v in e["vault_items"].items(): base["vault_items"].setdefault(t, v)
+                base["supplemented"] = True
+            continue
         if taken.intersection(names): continue
         taken.update(names); out.append(e)
     return out
@@ -483,6 +490,8 @@ def run_check(portal=None, out=print):
     lp = local_directories_path()
     for src, p in (("repo", os.environ.get("CE_VERIFY_DIRECTORIES") or DIRECTORIES_PATH), ("local", lp)):
         out("  source %s: %s (%d entries)" % (src, os.path.abspath(p) if p else "none", len([e for e in load_directories() if e["source"] == src])))
+    sup = [e["domain"] for e in load_directories() if e.get("supplemented")]
+    out("  supplements (local rows adding a channel or tenant item to a repo Directory): %s" % (", ".join(sup) if sup else "none"))
     return 0
 
 

@@ -143,6 +143,64 @@ class CP:
 B.run_check(CP(), out=lines.append)
 check("11 --check lists the repo and local sources", any("source repo" in x for x in lines) and any("source local" in x and LOCAL in x for x in lines), lines)
 
+# 13 merge on a listed Directory (review round 2): the bridge matches domain AND channel and the send needs vault_items[tenant]
+LOCAL2 = os.path.join(TMP, "outside2", "verify_directories.local.json")
+def local2(): 
+    try: return json.load(open(LOCAL2, encoding="utf-8"))["directories"]
+    except Exception: return []
+_p1, _r1, dX = fresh(1)
+FIX2 = os.path.join(TMP, "repo2.json")
+with open(FIX2, "w", encoding="utf-8") as f:
+    json.dump({"directories": [{"domain": dX, "channels": ["sms"], "send": "agent", "vault_items": {"NM": "NM - " + dX}},
+                               {"domain": "scriptdir.example", "channels": ["sms"], "send": "script", "vault_items": {"NM": "NM - s"}}]}, f)
+fix2_0 = sha(FIX2)
+saved_dirs = os.environ["CE_VERIFY_DIRECTORIES"]; os.environ["CE_VERIFY_DIRECTORIES"] = FIX2
+class _NoLocal: pass
+# 13a cylex-like: a phone-call park on a repo Directory that lists sms only -> local supplement; bridge accepts phone-call; repo file untouched
+r13, _, _, _ = park(1, "phone-call", vault_item="SCC - X item", allowlist_path=LOCAL2)
+rows2 = local2()
+check("13a phone-call park on a repo sms-only Directory writes one supplement row", r13["allowlist"]["added"] and r13["allowlist"]["kind"] == "supplement" and len(rows2) == 1 and rows2[0]["channels"] == ["phone-call"] and rows2[0]["vault_items"] == {"SCC": "SCC - X item"}, rows2)
+os.environ["CE_VERIFY_DIRECTORIES_LOCAL"] = LOCAL2
+m2 = {e["domain"]: e for e in B.load_directories()}
+check("13b merged entry: repo channel kept, phone-call added, repo vault item kept, SCC item added, source repo, send agent",
+      m2[dX]["channels"] == ["sms", "phone-call"] and m2[dX]["vault_items"] == {"NM": "NM - " + dX, "SCC": "SCC - X item"} and m2[dX]["send"] == "agent" and m2[dX]["source"] == "repo" and m2[dX].get("supplemented"))
+v_pc = B.fence(F.request(client=SCC, channel="phone-call"), F.StrictPortal(requests=[F.request(client=SCC, channel="phone-call")], verifications=[F.verification(client=SCC, directory=dX)]))[0]
+v_sms = B.fence(F.request(client=SCC, channel="sms"), F.StrictPortal(requests=[F.request(client=SCC)], verifications=[F.verification(client=SCC, directory=dX)]))[0]
+check("13c bridge accepts a phone-call request (and still sms) for the supplemented Directory", v_pc == "ok" and v_sms == "ok", [v_pc, v_sms])
+# 13d repeating the park adds nothing
+rr, _, _, _ = park(1, "phone-call", vault_item="other", allowlist_path=LOCAL2)
+check("13d repeating the park adds nothing", rr["allowlist"]["added"] is False and len(local2()) == 1 and local2()[0]["vault_items"] == {"SCC": "SCC - X item"}, rr["allowlist"])
+# 13e a repo-listed channel + tenant adds nothing
+os.unlink(LOCAL2)
+rn = AL.auto_add(dX, "sms", "NM", "x", "x", DAY, path=LOCAL2)
+check("13e channel and tenant already in the repo entry: nothing written", rn["added"] is False and not os.path.exists(LOCAL2), rn)
+# 13f a repo send=script entry is never extended
+rs = AL.auto_add("scriptdir.example", "phone-call", "SCC", "SCC - s", "x", DAY, path=LOCAL2)
+check("13f repo send=script entry is not extended", rs["added"] is False and not os.path.exists(LOCAL2) and "scriptdir.example" not in [e["domain"] for e in B.load_directories() if "phone-call" in e["channels"]], rs)
+# 13g NM then SCC on one NEW directory: one local entry, both tenants, both pass; repeats add nothing
+NEWD = "newdir.example"
+a1 = AL.auto_add(NEWD, "sms", "NM", "NM - newdir", "r-nm", DAY, path=LOCAL2)
+a2 = AL.auto_add(NEWD, "sms", "SCC", "SCC - newdir", "r-scc", DAY, path=LOCAL2)
+rows3 = [e for e in local2() if e["domain"] == NEWD]
+check("13g NM then SCC park: one entry, both tenants' vault items", a1["kind"] == "new" and a2["kind"] == "merged" and len(rows3) == 1 and rows3[0]["vault_items"] == {"NM": "NM - newdir", "SCC": "SCC - newdir"} and rows3[0]["channels"] == ["sms"], [a1, a2, rows3])
+nm_v = B.fence(F.request(client=P.ALLOWED["NM"]), F.StrictPortal(requests=[F.request(client=P.ALLOWED["NM"])], verifications=[F.verification(client=P.ALLOWED["NM"], directory=NEWD)]))[0]
+scc_v = B.fence(F.request(client=SCC), F.StrictPortal(requests=[F.request(client=SCC)], verifications=[F.verification(client=SCC, directory=NEWD)]))[0]
+ent = B.directory_entry(NEWD, "sms")
+check("13h both tenants' requests pass the fence and both have a vault item", nm_v == "ok" and scc_v == "ok" and ent["vault_items"].get("NM") and ent["vault_items"].get("SCC"), [nm_v, scc_v])
+snap = open(LOCAL2, "rb").read()
+b1 = AL.auto_add(NEWD, "sms", "NM", "z", "r", DAY, path=LOCAL2); b2 = AL.auto_add(NEWD, "sms", "SCC", "z", "r", DAY, path=LOCAL2)
+check("13i repeating either park adds nothing (file unchanged)", not b1["added"] and not b2["added"] and open(LOCAL2, "rb").read() == snap)
+# 13j a later phone-call park on the new local entry adds the channel
+a3 = AL.auto_add(NEWD, "phone-call", "SCC", "z", "r", DAY, path=LOCAL2)
+check("13j a local entry gains a missing channel", a3["kind"] == "merged" and [e for e in local2() if e["domain"] == NEWD][0]["channels"] == ["sms", "phone-call"], a3)
+# 13k --check lists the supplement
+AL.auto_add(dX, "phone-call", "SCC", "SCC - X item", "r", DAY, path=LOCAL2)
+lines2 = []
+B.run_check(CP(), out=lines2.append)
+check("13k --check lists supplements", any("supplements" in x and dX in x for x in lines2), lines2)
+check("13l repo fixture 2 byte-identical", sha(FIX2) == fix2_0)
+os.environ["CE_VERIFY_DIRECTORIES"] = saved_dirs; os.environ["CE_VERIFY_DIRECTORIES_LOCAL"] = LOCAL
+
 # 12 the tracked files are byte-identical after the whole run
 check("12 repo allowlist file byte-identical", sha(REPO_FILE) == repo0)
 check("12b fixture byte-identical", sha(os.environ["CE_VERIFY_DIRECTORIES"]) == fix0)

@@ -11,3 +11,6 @@ Scope:
 4. `verify_bridge.py --check` prints both sources and counts.
 5. Tests `tests/verify_allowlist_test.py` + CI step.
 No live session, no portal write outside tests, no send.
+
+## Round 2 (review changes_requested, Nate)
+The bridge matches domain AND channel and the send needs vault_items[tenant], so "domain listed" is not done. auto_add now: new entry if unlisted; MERGES the missing channel / tenant item into a LOCAL entry; for a REPO send=agent entry writes a local supplement row (repo file untouched) that load_directories merges (repo values win, send stays the repo send); a repo send=script entry is never extended. --check prints supplements. Tests 13a-13l: sms-only repo entry + phone-call park, NM then SCC on one new directory, repeats add nothing, script entry untouched, repo fixture byte-identical. Main (d03c11c) merged.

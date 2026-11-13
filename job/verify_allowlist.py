@@ -33,29 +33,58 @@ def _read_rows(path):
     return rows if isinstance(rows, list) else []
 
 
-def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=None):
-    """-> {"added": bool, "reason": str, "path": str|None}. Idempotent: a Directory already listed (repo or local, domain or alias) adds nothing."""
-    import verify_bridge as B
-    if verify_type not in AUTO_TYPES: return {"added": False, "reason": "type %s is never auto-added" % verify_type, "path": None}
-    dom = B.norm_domain(directory)
-    if not dom or not re.fullmatch(r"[a-z0-9.\-]+", dom): return {"added": False, "reason": "bad directory", "path": None}
-    if not tenant or not vault_item: return {"added": False, "reason": "tenant and vault item are required", "path": None}
-    p = path or local_path()
-    if not p: return {"added": False, "reason": "no local file configured", "path": None}
-    if _inside_repo(p): raise ValueError("the auto allowlist file must live outside the repo")
-    for e in B._load_file(os.environ.get("CE_VERIFY_DIRECTORIES") or B.DIRECTORIES_PATH, "repo") + B._load_file(p, "local"):   # the target file itself, not the machine default
-        if dom in [e["domain"]] + e["aliases"]: return {"added": False, "reason": "already listed", "path": p}
-    rows = _read_rows(p)
-    entry = {"domain": dom, "aliases": [], "channels": [verify_type], "send": "agent", "signin_url": "https://%s/" % dom,
-             "vault_items": {tenant: vault_item}, "added_by": "auto", "row_id": row_id,
-             "added_on": day or datetime.date.today().isoformat()}
+def _write_rows(p, rows):
     os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(p)), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"_comment": "Auto-added by record_transition on a phone/SMS park. The repo file wins on conflict.", "directories": rows + [entry]}, f, indent=2); f.write("\n")
+            json.dump({"_comment": "Auto-added by record_transition on a phone/SMS park. The repo file wins on conflict; a row for a repo Directory only supplements it (adds a channel or a tenant vault item).", "directories": rows}, f, indent=2); f.write("\n")
         os.replace(tmp, p)
     except Exception:
         if os.path.exists(tmp): os.unlink(tmp)
         raise
-    return {"added": True, "reason": "added", "path": p}
+
+
+def _find(entries, dom):
+    for e in entries:
+        if dom in [e["domain"]] + e["aliases"]: return e
+    return None
+
+
+def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=None):
+    """-> {"added": bool, "reason": str, "path": str|None, "kind": "new"|"merged"|"supplement"|None}.
+    The bridge matches domain AND channel and the send needs vault_items[tenant], so "domain listed" is not enough:
+      * not listed anywhere            -> a new local entry;
+      * listed in the LOCAL file       -> that entry gains the missing channel and/or tenant vault item (atomic rewrite);
+      * listed in the REPO file (agent)-> a local supplement row adds only the missing channel/tenant (the repo file is never touched; load_directories merges it);
+      * a repo send=script entry       -> untouched (changing a script send needs a PR).
+    Idempotent: when channel and tenant item are both already present (repo, supplement or local), nothing is written."""
+    import verify_bridge as B
+    if verify_type not in AUTO_TYPES: return {"added": False, "reason": "type %s is never auto-added" % verify_type, "path": None, "kind": None}
+    dom = B.norm_domain(directory)
+    if not dom or not re.fullmatch(r"[a-z0-9.\-]+", dom): return {"added": False, "reason": "bad directory", "path": None, "kind": None}
+    if not tenant or not vault_item: return {"added": False, "reason": "tenant and vault item are required", "path": None, "kind": None}
+    p = path or local_path()
+    if not p: return {"added": False, "reason": "no local file configured", "path": None, "kind": None}
+    if _inside_repo(p): raise ValueError("the auto allowlist file must live outside the repo")
+    repo = _find(B._load_file(os.environ.get("CE_VERIFY_DIRECTORIES") or B.DIRECTORIES_PATH, "repo"), dom)   # the target file itself, not the machine default
+    rows = _read_rows(p)
+    loc = None
+    for r in rows:
+        if isinstance(r, dict) and dom in [B.norm_domain(r.get("domain"))] + [B.norm_domain(x) for x in r.get("aliases") or []]: loc = r; break
+    have_ch = set((repo or {}).get("channels") or []) | set((loc or {}).get("channels") or [])
+    have_vi = set(((repo or {}).get("vault_items") or {}).keys()) | set(((loc or {}).get("vault_items") or {}).keys())
+    need_ch, need_vi = verify_type not in have_ch, tenant not in have_vi
+    if not need_ch and not need_vi: return {"added": False, "reason": "already listed", "path": p, "kind": None}
+    if repo and repo["send"] != "agent": return {"added": False, "reason": "repo entry is send=%s; extending it needs a PR" % repo["send"], "path": p, "kind": None}
+    if loc is not None:
+        if need_ch: loc["channels"] = list(loc.get("channels") or []) + [verify_type]
+        if need_vi: loc["vault_items"] = dict(loc.get("vault_items") or {}, **{tenant: vault_item})
+        _write_rows(p, rows)
+        return {"added": True, "reason": "merged", "path": p, "kind": "merged"}
+    entry = {"domain": repo["domain"] if repo else dom, "aliases": [], "channels": [verify_type] if need_ch else [], "send": "agent",
+             "signin_url": "https://%s/" % dom, "vault_items": {tenant: vault_item} if need_vi else {}, "added_by": "auto", "row_id": row_id,
+             "added_on": day or datetime.date.today().isoformat()}
+    if repo: entry["supplement"] = True
+    _write_rows(p, rows + [entry])
+    return {"added": True, "reason": "added", "path": p, "kind": "supplement" if repo else "new"}
