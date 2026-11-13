@@ -1,4 +1,4 @@
-"""NM queue state writer (kanban t_00a75d04 r2). The ONE writer for rows of nm-fix-queue.json. transitions.py stays SCC-only.
+"""NM queue state writer (kanban t_00a75d04 r2). The ONE writer for NM queue HISTORY from a build run (no portal). A park (needs-human + --verify-type: Your turn row + Verify Now allowlist) goes through `transitions.py --client NM` (t_cb7bad04), never here, so nothing writes twice.
 
   python job/nm_transitions.py --row nm-fix-bbb --to submitted --note "submitted via build queue" [--evidence URL] [--listing-url URL] [--queue PATH] [--dry-run]
 
