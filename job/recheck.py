@@ -431,8 +431,13 @@ def structured_address(html_, business_name=None, same_entity=False):
     chosen = None
     if same_entity:   # t_69102cc9: only the block whose enclosing entity IS this business (exact name). No LocalBusiness fallback, no Organization, no *-selector fields:
         # this is what may supplement a locality the page text does not show, so a directory HQ or any other entity can never stand in
-        a = next((a for a, (t, n) in found if business_name and n and exact_name(n) == exact_name(business_name)), None) if found else None
+        same_name = [a for a, (t, n) in found if business_name and n and exact_name(n) == exact_name(business_name)]
+        a = same_name[0] if same_name else None
         if not a: return None
+        def _key(x):   # t_0227a3ce: two same-name blocks must say the same street / city / state / zip, whatever their order
+            st = str(x.get("addressRegion") or "").strip().lower()
+            return (tuple(F._tok(str(x.get("streetAddress") or ""))), tuple(ctok(str(x.get("addressLocality") or ""))), US_STATES.get(st, st).lower(), str(x.get("postalCode") or "").strip()[:5])
+        if len({_key(x) for x in same_name}) > 1: return None   # they disagree: nothing is read as this entity's address (never a match, whichever came first)
         out = {k: str(a.get(f) or "").strip() for k, f in (("street", "streetAddress"), ("city", "addressLocality"), ("state", "addressRegion"), ("zip", "postalCode"))}
         return {k: v for k, v in out.items() if v}
     if found and business_name:
@@ -552,15 +557,46 @@ def prose_street(block, canonical):
     Only a hit whose city, state and zip are the canonical ones counts; a street in a sentence about another place is not ours (t_6b1e01ff)."""
     cparts = [p.strip() for p in (canonical.get("address") or "").split(",")]
     cst_zip = re.search(r"\b([A-Z]{2})\s+(\d{5})\b", canonical.get("address") or "")
-    ccity = F._tok(cparts[1])[:1] if len(cparts) > 1 else []
+    ccity = ctok(cparts[1], True) if len(cparts) > 1 else []
     for l in block:
         for m in PROSE_ADDR_RE.finditer(l):
             street, city, st, zp = m.group(1).strip(" ,"), m.group(2).strip(), m.group(3), m.group(4)
             if cst_zip and (st != cst_zip.group(1) or zp != cst_zip.group(2)): continue
-            if ccity and F._tok(city)[:1] != ccity: continue
+            if ccity and not city_same(city, ccity): continue
             p = F.parse_street(street)
             if p and p["num"].lstrip("0") and p["type"]: return street + ", " + city + ", " + st + " " + zp, p, zp
     return None
+
+
+_CITY_ABBR = {"saint": "st", "fort": "ft", "mount": "mt"}
+_STATE_WORDS = set(US_STATES) | {v.lower() for v in US_STATES.values()}
+_STATE_ABBRS = {v.upper() for v in US_STATES.values()}
+
+
+def ctok(s, canon=False):
+    """A city as comparable tokens: ALL words; case, punctuation, hyphens and apostrophes ignored; Saint = St, Fort = Ft, Mount = Mt (t_0227a3ce: one comparator for every city check)."""
+    out = [_CITY_ABBR.get(t, t) for t in F._tok(re.sub(r"['\u2019\-]", " ", html.unescape(s or "")))]
+    if canon:   # the canonical address part may be "City ST 40000" (no comma before the state): drop the trailing zip and state, keep every city word
+        while out and re.fullmatch(r"\d{5}(\d{4})?", out[-1]): out.pop()
+        if len(out) > 1 and out[-1].upper() in _STATE_ABBRS: out.pop()
+    return out
+
+
+def city_same(shown, want, tail_ok=False):
+    """True when the WHOLE shown city equals the canonical city (a first word alone never counts: Fort Wayne != Fort Worth). `shown` / `want` are text or ctok lists.
+    tail_ok: the shown text may end with a state name / abbreviation and / or a ZIP (one run of text such as "Exampleton KY 40000"); nothing else may follow."""
+    a, b = (shown if isinstance(shown, list) else ctok(shown)), (want if isinstance(want, list) else ctok(want, True))
+    if not a or not b or a[:len(b)] != b: return False
+    rest = [t for t in a[len(b):] if not re.fullmatch(r"\d{5}(\d{4})?", t)]
+    return not rest or (tail_ok and " ".join(rest) in _STATE_WORDS)
+
+
+def vis_state(line):
+    """The state a visible locality line names -> upper-case abbreviation or None. 2-letter in ANY case ("Exampleton, tn") when upper-case or a real state; else a full name."""
+    m = re.search(r"(?<![A-Za-z])([A-Za-z]{2})\.?(?=\s+\d{5}\b|\s*$)", line)
+    if m and (m.group(1).isupper() or m.group(1).upper() in _STATE_ABBRS): return m.group(1).upper()
+    fm = re.search(r"(?i)(?<![A-Za-z])(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")(?![A-Za-z])", line)
+    return US_STATES[fm.group(1).lower()] if fm else None
 
 
 def canon_state_zip(addr):
@@ -621,7 +657,7 @@ def compare(text, canonical, html_=None):
             missing = [k for k in ("city", "state", "zip") if not sa.get(k)]
             if missing or not cst_s: gaps.append("address")   # a street alone is not the full canonical NAP; an unreadable canonical state is unverifiable, never skipped
             else:
-                if len(cparts) >= 2 and F._tok(sa["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", sa["city"]))
+                if len(cparts) >= 2 and not city_same(sa["city"], cparts[1]): wrong.append(("city", sa["city"]))
                 sst = US_STATES.get(sa["state"].strip().lower(), sa["state"]).upper()   # JSON-LD addressRegion may be the full name ("Kentucky")
                 if sst != cst_s: wrong.append(("state", sa["state"]))
                 if cst_z and sa["zip"][:5] != cst_z: wrong.append(("zip", sa["zip"]))
@@ -632,13 +668,13 @@ def compare(text, canonical, html_=None):
         street_txt_norm = " ".join(F._tok(re.sub(r"\s[\u00b7|\u2022]\s", ", ", got[0])))   # t_3f38d45e: "street · city" / "street | city" is a separator, only between street and city
         want_norm = " ".join(F._tok(canonical["address"].split(",")[0]))
         # exact street: number, name, type (Drive/Dr only) and unit via street_equal; "street + city on one line" must continue with the city, not extra words
-        ccity = F._tok(canonical["address"].split(",")[1])[:1] if canonical["address"].count(",") >= 1 else []
+        ccity = ctok(canonical["address"].split(",")[1], True) if canonical["address"].count(",") >= 1 else []
         rest = street_txt_norm[len(want_norm):].split() if street_txt_norm.startswith(want_norm + " ") or street_txt_norm == want_norm else None
         if rest is None:   # "100 Example Dr 40000 Exampleton Kentucky": the street is spelled Dr / Drive; compare the first words as a street
             _w = street_txt_norm.split(); _n = len(want_norm.split())
             _p = F.parse_street(" ".join(_w[:_n])) if len(_w) > _n else None
             if _p and F.street_equal(_p, cstreet) and re.fullmatch(r"\d{5}", _w[_n]): rest = _w[_n:]
-        same = F.street_equal(got[1], cstreet) or (rest is not None and (not rest or rest[:1] == ccity or bool(re.fullmatch(r"\d{5}", rest[0]))))   # one line: street + city (or street + zip + city)
+        same = F.street_equal(got[1], cstreet) or (rest is not None and (not rest or (bool(ccity) and [_CITY_ABBR.get(x, x) for x in rest][:len(ccity)] == ccity) or bool(re.fullmatch(r"\d{5}", rest[0]))))   # one line: street + city (or street + zip + city)
         if same and rest is None and cstreet.get("type") and got[1].get("type") != cstreet["type"]: same = False   # exact: Drive == Dr only; a dropped type is a different street
         if not same or (got[2] and czip and got[2] != czip.group(1)):
             wrong.append(("address", got[0] if (got[2] or "") in got[0] else got[0] + ((" " + got[2]) if got[2] else "")))
@@ -681,12 +717,12 @@ def compare(text, canonical, html_=None):
                     s2 = [x.strip() for x in n2s.split(",") if x.strip()]
                     segs = ([n1.strip()] + s2) if no_city(s2) else s2   # "City" / "ST zip"; "Website" / "City, ST zip" (a UI label above the city line is skipped)
                 elif alpha(n1) and segs and zip_only(segs[0]): segs = [n1.strip()] + segs   # "street, 40000" / "City" (only the canonical city: another letters-only line may be a UI label)
-                elif alpha(n1) and not segs and F._tok(n1)[:1] == ccity: segs = [n1.strip()]   # canonical city alone under the street: no state / zip
+                elif alpha(n1) and not segs and ccity and city_same(n1, ccity): segs = [n1.strip()]   # canonical city alone under the street: no state / zip
             if no_city(segs):
                 gaps.append("address")   # street alone, or street + zip / state with no city anywhere near it
             else:
                 cst2 = re.search(r"\b([A-Za-z]{2})\b\s*(\d{5})?\s*$", canonical["address"].strip())
-                city_tok = F._tok(segs[0])
+                city_tok = ctok(segs[0])
                 tail = " ".join(segs)
                 sm = re.search(r"(?<![A-Za-z])([A-Za-z]{2})\.?,?\s+\d{5}\b", tail) or re.search(r"(?<![A-Za-z])([A-Z]{2})\s*$", tail)
                 state = sm.group(1) if sm and sm.lastindex else None
@@ -694,7 +730,7 @@ def compare(text, canonical, html_=None):
                     fm = re.search(r"(?i)\b(" + "|".join(sorted(US_STATES, key=len, reverse=True)) + r")\b", " ".join(segs[1:]))
                     state = US_STATES[fm.group(1).lower()] if fm else None
                     if state is None and len(city_tok) > 1 and city_tok[-1] in US_STATES: state = US_STATES[city_tok[-1]]   # "Exampleton Kentucky" with no comma
-                if city_tok[:1] != ccity: wrong.append(("city", segs[0]))
+                if not city_same(city_tok, ccity, tail_ok=True): wrong.append(("city", segs[0]))
                 else:
                     if cst2 and state and state.upper() != cst2.group(1).upper(): wrong.append(("state", state))
                     if zfirst and cst2 and cst2.group(2) and zfirst != cst2.group(2): wrong.append(("zip", zfirst))
@@ -715,7 +751,7 @@ def compare(text, canonical, html_=None):
             _cp = [x.strip() for x in canonical["address"].split(",")]
             _cs_s, _cs_z = canon_state_zip(canonical["address"])
             if not (_cs_s and _cs_z): under_blocked = True   # canonical state / ZIP unreadable: cannot verify, no supplement
-            _cc = F._tok(_cp[1])[:1] if len(_cp) >= 2 else []
+            _cc = ctok(_cp[1], True) if len(_cp) >= 2 else []
             _j = i0 + 1 + (0 if got[0] == block[i0] else 1)
             _sn2 = "|".join(sorted(US_STATES, key=len, reverse=True))
             _un = []
@@ -728,16 +764,14 @@ def compare(text, canonical, html_=None):
                 if _k - _j >= 1 and not re.fullmatch(r"\d{5}(-\d{4})?", _un[0]): break   # 2 lines, unless the first is a bare zip (street / zip / city / state)
             for _l in _un:
                 _zs = re.findall(r"(?<!\d)(\d{5})(?:-\d{4})?(?!\d)", _l)
-                _sm = re.search(r"(?<![A-Za-z])([A-Z]{2})\.?(?=\s+\d{5}\b|\s*$)", _l)
-                _fm = re.search(r"(?i)(?<![A-Za-z])(" + _sn2 + r")(?![A-Za-z])", _l)
-                _ab = _sm.group(1) if _sm else (US_STATES[_fm.group(1).lower()] if _fm else None)
+                _ab = vis_state(_l)   # t_0227a3ce: a 2-letter state in any case ("Exampleton, tn") or a full name
                 if _zs or _ab:
                     if _ab and _cs_s and _ab.upper() != _cs_s: wrong.append(("state", _ab))
                     if _zs and _cs_z and _zs[0] != _cs_z: wrong.append(("zip", _zs[0]))
                     _cityp = re.sub(r"(?i)\b(" + _sn2 + r")\b|\b[A-Z]{2}\b|\d{5}(-\d{4})?", " ", _l.split(",")[0] if "," in _l else _l)
-                    _ct = F._tok(re.sub(r"[^A-Za-z .'\-]", " ", _cityp))
-                    if _ct and _cc and _ct[:1] != _cc: wrong.append(("city", _cityp.strip()))
-                elif re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", _l) and len(_l.split()) <= 4 and _cc and F._tok(_l)[:1] != _cc:
+                    _ct = ctok(re.sub(r"[^A-Za-z .'\-]", " ", _cityp))
+                    if _ct and _cc and not city_same(_ct, _cc): wrong.append(("city", _cityp.strip()))
+                elif re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", _l) and len(_l.split()) <= 4 and _cc and not city_same(_l, _cc):
                     under_blocked = True
         if wrong or under_blocked: esp = None
         if esp and F.street_equal(esp, cstreet) and all(ent.get(k) for k in ("city", "state", "zip")):
@@ -748,13 +782,14 @@ def compare(text, canonical, html_=None):
             for x in segs:
                 m = re.fullmatch(r"([A-Za-z]{2})\.?(?:\s+(\d{5})(?:-\d{4})?)?", x.strip())
                 z = re.fullmatch(r"(\d{5})(?:-\d{4})?", x.strip())
+                if not m and x.strip().lower() in US_STATES: vs = US_STATES[x.strip().lower()]   # a full state name alone ("Ohio") is read too
                 if m: vs, vz = m.group(1), vz or m.group(2)
                 elif z: vz = vz or z.group(1)
             n0 = len(wrong)
             if vs and vs.upper() != cst_s: wrong.append(("state", vs))
             if vz and vz[:5] != cst_z: wrong.append(("zip", vz))
             if len(wrong) == n0:
-                if len(cparts) >= 2 and F._tok(ent["city"])[:1] != F._tok(cparts[1])[:1]: wrong.append(("city", ent["city"]))
+                if len(cparts) >= 2 and not city_same(ent["city"], cparts[1]): wrong.append(("city", ent["city"]))
                 est = US_STATES.get(ent["state"].strip().lower(), ent["state"]).upper()
                 if est != cst_s: wrong.append(("state", ent["state"]))
                 if ent["zip"][:5] != cst_z: wrong.append(("zip", ent["zip"]))
