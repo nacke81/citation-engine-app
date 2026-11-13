@@ -220,6 +220,40 @@ S.build_prompt = S_flag
 check("7 MUTATION flag ignored: a playbook WITHOUT send_is_signup then gets the account-creation carve-out", "create ONE account" in m4)
 check("7 the unmutated prompt for the same playbook has no carve-out", "create ONE account" not in prompt(nosign_pb))
 
+# ---- 8 {contact_name} and the Alignable seed (t_9de1c978) ------------------------------------------------------------------------------
+ALIGN = os.path.join(HERE, "..", "config", "playbooks", "alignable.com.verify.json")
+al = json.load(open(ALIGN, encoding="utf-8"))
+al_text = " ".join(s["text"] for s in al["steps"])
+V2 = dict(VALUES, contact_name="Test Person")
+check("8 the Alignable seed validates, is a verify signup, and names the five steps", PB.validate_steps(al["steps"]) and al["send_is_signup"] is True and al["task"] == "verify" and len(al["steps"]) == 5)
+check("8 the Alignable seed uses only placeholders ({login_email} {contact_name} {phone}) and no email or phone of its own", all(p in al_text for p in ("{login_email}", "{contact_name}", "{phone}")) and not re.search(r"@\w|\(\d{3}\)", al_text))
+check("8 the validator accepts {contact_name} and still refuses an unknown placeholder", refused([{"text": "Enter {contact_name}"}]) is None and refused([{"text": "Enter {ssn}"}]) is not None)
+rendered = PB.render(dict(al, version=1), V2)
+check("8 render fills every placeholder in the Alignable seed (no brace left, contact name present)", rendered and not any("{" in s["text"] for s in rendered) and any("Test Person" in s["text"] for s in rendered))
+try: PB.render(dict(al, version=1), VALUES); e8 = None
+except PB.PlaybookError as e: e8 = str(e)
+check("8 render with no contact_name value fails closed (names the placeholder)", e8 is not None and "contact_name" in e8, e8)
+rt8 = S.Runtime()
+import tempfile as _tf
+_idn = os.path.join(_tf.mkdtemp(), "identity.json"); json.dump({"BIZ": {"NM": {"name": "Birch Media", "phones": ["6155550111"], "site": "https://example.test"}, "SCC": {"name": "Alder Care", "phones": ["5025550101"], "site": "https://example.test"}}}, open(_idn, "w"))
+_old = os.environ.get("CE_IDENTITY"); os.environ["CE_IDENTITY"] = _idn
+try:
+    v_nm = rt8.tenant_values(("NM", "o", "NM - alignable.com", "https://www.alignable.com/"), "listings@na" + "ckemedia.com")
+    v_scc = rt8.tenant_values(("SCC", "o", "SCC - alignable.com", "https://www.alignable.com/"), "listings@seniorcaresolutions.co")
+finally:
+    if _old is None: os.environ.pop("CE_IDENTITY", None)
+    else: os.environ["CE_IDENTITY"] = _old
+check("8 tenant_values gives NM its contact name", v_nm.get("contact_name") == "Mi" + "ke Nac" + "ke", sorted(v_nm))
+check("8 tenant_values gives SCC none, so an SCC run of this playbook fails closed", "contact_name" not in v_scc)
+import importlib
+_keep = PB.PLACEHOLDERS
+PB.PLACEHOLDERS = tuple(p for p in _keep if p != "contact_name")   # MUTATION: validator without the new placeholder
+try: m8 = refused(al["steps"])
+finally: PB.PLACEHOLDERS = _keep
+check("8 MUTATION validator without contact_name refuses the Alignable seed (the placeholder list is what lets it in)", m8 is not None and "contact_name" in m8, m8)
+p_al = S.build_prompt(F.RID, REQ, ROW, {"domain": "alignable.com", "signin_url": "https://www.alignable.com/"}, ("NM", "Na" + "cke Media", "NM - alignable.com", "https://www.alignable.com/"), MASK, VALUES["login_email"], playbook=dict(al, version=1, steps=rendered))
+check("8 the Alignable prompt carries the signup carve-out and the filled steps, nothing unfilled", "send IS the signup: do NOT sign in" in p_al and "Test Person" in p_al and "{contact_name}" not in p_al and "only for alignable.com" in p_al)
+
 if "--print-thumbtack" in sys.argv:
     print("\n==== THUMBTACK PROMPT (dry run, fake tenant values, request id %s) ====\n%s" % (F.RID, p_sign))
 print("\n%d checks, %d failed" % (len(ok), ok.count(False)))

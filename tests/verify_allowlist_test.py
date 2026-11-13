@@ -226,6 +226,51 @@ check("13k --check lists supplements", any("supplements" in x and dX in x for x 
 check("13l repo fixture 2 byte-identical", sha(FIX2) == fix2_0)
 os.environ["CE_VERIFY_DIRECTORIES"] = saved_dirs; os.environ["CE_VERIFY_DIRECTORIES_LOCAL"] = LOCAL
 
+# 14 park --signin-url (t_9de1c978): the real sign-in page instead of the bare domain root
+L14 = os.path.join(TMP, "s14", "verify_directories.local.json")
+SU = "https://www.alignable.example/onboarding/verify"
+a14 = AL.auto_add("alignable.example", "sms", "NM", "NM - alignable.example", "r1", DAY, path=L14, signin_url=SU)
+rows14 = json.load(open(L14, encoding="utf-8"))["directories"]
+check("14 a new auto entry takes the given signin_url", a14["added"] and rows14[0]["signin_url"] == SU, rows14)
+L14b = os.path.join(TMP, "s14b", "verify_directories.local.json")
+AL.auto_add("plain.example", "sms", "NM", "NM - plain.example", "r2", DAY, path=L14b)
+check("14 no flag = the bare domain root, as before", json.load(open(L14b, encoding="utf-8"))["directories"][0]["signin_url"] == "https://plain.example/")
+for why, bad in (("another host", "https://evil.example/login"), ("a look-alike suffix", "https://notalignable.example/x"), ("http", "http://www.alignable.example/x"),
+                 ("a login in the url", "https://u:p@www.alignable.example/x"), ("a space", "https://www.alignable.example/a b"), ("not a string", None)):
+    before14 = open(L14, "rb").read()
+    try: AL.auto_add("alignable.example", "sms", "NM", "NM - alignable.example", "r3", DAY, path=L14, signin_url=bad if bad is not None else 5); err = None
+    except ValueError as e: err = str(e)
+    check("14 refused with no write: %s" % why, err is not None and open(L14, "rb").read() == before14, err or "")
+L14c = os.path.join(TMP, "s14c", "verify_directories.local.json")
+AL.auto_add("thumb.example", "sms", "NM", "NM - thumb.example", "r4", DAY, path=L14c)   # earlier auto-add wrote the bare root
+up = AL.auto_add("thumb.example", "sms", "NM", "NM - thumb.example", "r5", DAY, path=L14c, signin_url="https://thumb.example/pro/signup")
+check("14 a local auto entry still on the bare root is upgraded to the given URL", up["added"] and json.load(open(L14c, encoding="utf-8"))["directories"][0]["signin_url"] == "https://thumb.example/pro/signup", up)
+again = AL.auto_add("thumb.example", "sms", "NM", "NM - thumb.example", "r6", DAY, path=L14c, signin_url="https://thumb.example/pro/other")
+check("14 a real (non-root) URL already on an entry is not replaced by a later one", again["added"] is False and json.load(open(L14c, encoding="utf-8"))["directories"][0]["signin_url"] == "https://thumb.example/pro/signup", again)
+# through the park: refused before any write, and passed through when good
+p14, rid14, d14 = fresh(2); fp14 = FP(d14); q14 = open(p14, "rb").read(); L14d = os.path.join(TMP, "s14d", "verify_directories.local.json")
+try:
+    T.record_transition("SCC", rid14, "needs-human", "https://a.example/listing/1", "n", queue_path=p14, today=DAY, portal=fp14, verify_type="sms", observation=YO.obs("sms", DAY),
+                        allowlist_path=L14d, vault_item="SCC - x", signin_url="https://evil.example/login"); ref14 = None
+except T.TransitionRefused as e: ref14 = str(e)
+check("14 park with a foreign-host --signin-url is refused before any write", ref14 is not None and open(p14, "rb").read() == q14 and not fp14.calls and not os.path.exists(L14d), ref14 or "")
+try:
+    T.record_transition("SCC", rid14, "needs-human", "https://a.example/listing/1", "n", queue_path=p14, today=DAY, portal=fp14, verify_type="postcard", observation=YO.obs("postcard", DAY),
+                        allowlist_path=L14d, signin_url="https://%s/x" % d14); ref14b = None
+except T.TransitionRefused as e: ref14b = str(e)
+check("14 --signin-url on a postcard park is refused", ref14b is not None and not os.path.exists(L14d), ref14b or "")
+r14, _, d14b, _ = park(3, "sms", vault_item="SCC - x", signin_url="https://%s/signup/phone" % fresh(3)[2], allowlist_path=L14d)
+row14 = json.load(open(L14d, encoding="utf-8"))["directories"][0] if os.path.exists(L14d) else {}
+check("14 a good --signin-url flows from the park into the allowlist entry", r14["allowlist"]["added"] and row14.get("signin_url", "").endswith("/signup/phone"), r14["allowlist"])
+_keep14 = AL.check_signin_url
+AL.check_signin_url = lambda d, u: u   # MUTATION: host check gone
+try:
+    L14e = os.path.join(TMP, "s14e", "verify_directories.local.json")
+    mm = AL.auto_add("alignable.example", "sms", "NM", "NM - alignable.example", "r7", DAY, path=L14e, signin_url="https://evil.example/login")
+    mut_row = json.load(open(L14e, encoding="utf-8"))["directories"][0]
+finally: AL.check_signin_url = _keep14
+check("14 MUTATION without the host check a foreign-host URL is written (so the host check is what refuses it)", mut_row["signin_url"] == "https://evil.example/login")
+
 # 12 the tracked files are byte-identical after the whole run
 check("12 repo allowlist file byte-identical", sha(REPO_FILE) == repo0)
 check("12b fixture byte-identical", sha(os.environ["CE_VERIFY_DIRECTORIES"]) == fix0)

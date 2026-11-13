@@ -51,7 +51,21 @@ def _find(entries, dom):
     return None
 
 
-def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=None):
+def check_signin_url(directory, url):
+    """t_9de1c978: park --signin-url. -> the clean https URL; ValueError when it is not one https address on the Directory's own host
+    (no userinfo, no spaces, no other host). The bare domain root was the auto-add default and is not a sign-in page."""
+    import verify_bridge as B
+    from urllib.parse import urlparse
+    dom = B.norm_domain(directory)
+    if not isinstance(url, str) or not re.match(r"^https://[^\s]+$", url): raise ValueError("signin_url must be one https URL with no spaces")
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
+    if p.username or p.password or "@" in (p.netloc or ""): raise ValueError("signin_url carries a login")
+    if not dom or not (host == dom or host.endswith("." + dom)): raise ValueError("signin_url host is not the Directory's own domain")
+    return url
+
+
+def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=None, signin_url=None):
     """-> {"added": bool, "reason": str, "path": str|None, "kind": "new"|"merged"|"supplement"|None}.
     The bridge matches domain AND channel and the send needs vault_items[tenant], so "domain listed" is not enough:
       * not listed anywhere            -> a new local entry;
@@ -78,15 +92,19 @@ def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=
     # a LOCAL auto entry's wrong item is replaced by a later explicit/resolved one; a repo value is never replaced
     fix_vi = (not need_vi and tenant not in ((repo or {}).get("vault_items") or {}) and loc is not None and loc.get("added_by") == "auto"
               and (loc.get("vault_items") or {}).get(tenant) not in (None, vault_item))
-    if not need_ch and not need_vi and not fix_vi: return {"added": False, "reason": "already listed", "path": p, "kind": None}
+    if signin_url is not None: signin_url = check_signin_url(dom, signin_url)
+    # a LOCAL auto entry still on the bare domain root is upgraded to the given sign-in page; a repo entry's URL is never replaced
+    fix_url = bool(signin_url and loc is not None and loc.get("added_by") == "auto" and loc.get("signin_url") in (None, "https://%s/" % dom) and loc.get("signin_url") != signin_url)
+    if not need_ch and not need_vi and not fix_vi and not fix_url: return {"added": False, "reason": "already listed", "path": p, "kind": None}
     if repo and repo["send"] != "agent": return {"added": False, "reason": "repo entry is send=%s; extending it needs a PR" % repo["send"], "path": p, "kind": None}
     if loc is not None:
         if need_ch: loc["channels"] = list(loc.get("channels") or []) + [verify_type]
         if need_vi or fix_vi: loc["vault_items"] = dict(loc.get("vault_items") or {}, **{tenant: vault_item})
+        if fix_url: loc["signin_url"] = signin_url
         _write_rows(p, rows)
         return {"added": True, "reason": "merged", "path": p, "kind": "merged"}
     entry = {"domain": repo["domain"] if repo else dom, "aliases": [], "channels": [verify_type] if need_ch else [], "send": "agent",
-             "signin_url": "https://%s/" % dom, "vault_items": {tenant: vault_item} if need_vi else {}, "added_by": "auto", "row_id": row_id,
+             "signin_url": signin_url or "https://%s/" % dom, "vault_items": {tenant: vault_item} if need_vi else {}, "added_by": "auto", "row_id": row_id,
              "added_on": day or datetime.date.today().isoformat()}
     if repo: entry["supplement"] = True
     _write_rows(p, rows + [entry])

@@ -2,7 +2,7 @@
 (same Supabase as ce_directories). The app shows them; the agents run from them. No local copy.
 
 A playbook = (domain, task) -> ordered steps [{text, url?, selector?}] + send_is_signup (verify only). Steps carry PLACEHOLDERS, never tenant values:
-  {business_name} {login_email} {phone} {website} {vault_item}
+  {business_name} {login_email} {phone} {website} {vault_item} {contact_name}
 validate_steps refuses a secret-shaped or tenant-valued step BEFORE any write (6+ digit runs, emails, phones, `password: x`).
 Everything goes through one injectable `db` with call(method, path, body=None, prefer=None) (directories.DirDB for real; tests pass a fake).
 
@@ -16,7 +16,7 @@ from urllib.parse import quote, urlparse, parse_qs
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 TASKS = ("check", "create", "claim", "fix", "verify")
-PLACEHOLDERS = ("business_name", "login_email", "phone", "website", "vault_item")
+PLACEHOLDERS = ("business_name", "login_email", "phone", "website", "vault_item", "contact_name")
 STEP_KEYS = ("text", "url", "selector")
 _PH = re.compile(r"\{([A-Za-z_]+)\}")
 _EMAIL = re.compile(r"[^\s@/]+@[^\s@/]+\.[A-Za-z]{2,}")

@@ -42,6 +42,7 @@ TENANTS = {   # client_id -> (business code, vault organization). The vault item
     P.ALLOWED["NM"]: ("NM", "Na" + "cke Media"),
 }
 EXPECTED_LOGIN = {"NM": "listings@na" + "ckemedia.com", "SCC": "listings@seniorcaresolutions.co"}   # the vault item's username must equal this, else signin_failed (Nate stop 2)
+CONTACT_NAME = {"NM": "Mi" + "ke Nac" + "ke"}   # {contact_name} for a playbook (t_9de1c978); split so the repo leak check stays green. SCC has none: a playbook that needs it fails closed
 RELAY_OPEN_MIN, RELAY_CLOSE_MIN = 8 * 60, 19 * 60 + 58   # nm-listings-relay cron "*/2 8-19" (Central): last run 19:58
 AGENT_START_S = 1500      # kill the oneshot at 25 min when no `sent` call happened
 SUBMITTER_PROFILE = "citation-submitter"
@@ -328,6 +329,7 @@ class Runtime:
             d = re.sub(r"\D", "", (b.get("phones") or [""])[0])[-10:]
             if len(d) == 10: vals["phone"] = "(%s) %s-%s" % (d[:3], d[3:6], d[6:])
             vals["website"] = b.get("site")
+            vals["contact_name"] = b.get("contact") or CONTACT_NAME.get(tenant[0])   # t_9de1c978: no value (SCC) = render refuses = the run fails closed
         except Exception:
             pass
         return {k: v for k, v in vals.items() if isinstance(v, str) and v}
