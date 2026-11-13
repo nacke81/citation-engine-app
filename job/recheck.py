@@ -953,10 +953,11 @@ def _last_note(row):
 
 def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_path=None, today=None, write=False, include_live=False, only=None, use_chrome=True, proof_live=False, mail=None, backoff_only=False, any_state=False, guard=None, store=None, from_read=None):
     """-> list of per-row results {row, directory, url, before, after, verdict, fields, note, error}. Never raises per row.
-    any_state (t_89f4aebf): read the NAMED rows (`only`) in any state, e.g. a needs-human row after a ruling. Dry-run reads only: it refuses write / backoff / proof."""
+    any_state (t_89f4aebf): read the NAMED rows (`only`) in any state, e.g. a needs-human row after a ruling. Refuses backoff / proof.
+    With write (t_dca17786) it promotes a NAMED needs-human row to live when the read matches (same writer as every live write); any other verdict, and any row not needs-human, writes nothing."""
     import datetime
     if any_state:
-        if write or backoff_only or proof_live: raise Q.QueueError("--any-state is a dry-run read only: it never combines with --write, --backoff-only or --proof-live")
+        if backoff_only or proof_live: raise Q.QueueError("--any-state never combines with --backoff-only or --proof-live")
         if not only: raise Q.QueueError("--any-state needs --row ID (it reads named rows only)")
     day = today or datetime.date.today().isoformat()
     canonical = q.get("canonical")
@@ -1064,6 +1065,9 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
         d, rid, before = row["directory"], row["id"], row["state"]
         res = {"row": rid, "directory": d, "url": None, "before": before, "after": before, "verdict": None, "fields": [], "note": None, "error": None}
         results.append(res)
+        parked = bool(any_state and before == "needs-human")   # t_dca17786: a NAMED parked row. Only a `match` may change it (-> live); nothing else is ever written to it
+        if any_state and write and not parked:   # --any-state --write is for needs-human rows only: any other named row is not read and not touched
+            res["note"] = "--any-state --write promotes needs-human rows only; this row is %s: not read, nothing written" % before; res["skipped"] = True; continue
         try:
             url = _permalink(row)
             if url is None and d == "bbb.org":
@@ -1131,6 +1135,8 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 if write:
                     _proof_then_live(row, kind, url, cmp_["nap"], day, db, record, queue_path, res["note"])
                 res["after"] = "live"
+            elif parked:   # t_dca17786: no demotion, no note, no state change: the verdict is printed and the row stays parked
+                res["note"] = note_for(cmp_)
             elif before != "live":
                 note = note_for(cmp_) + (" (repeat reads disagreed: %s; not counted live)" % ", ".join(cmp_["unstable"]) if cmp_.get("unstable") else ""); res["note"] = note
                 if cmp_["verdict"] == "not-public":   # t_962161f4: a hidden / paused banner: back off 2 days (the same one note write carries the date)
@@ -1141,7 +1147,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
             res["error"] = (str(e)[:200] or type(e).__name__)
     # t_f6267312: every live row that was read gets its NAP result stored on the queue row, whatever the verdict (unread = consistent None + a reason).
     for res in results:
-        if res["before"] != "live": continue
+        if res["before"] != "live" or res.get("skipped"): continue   # t_dca17786: a row skipped unread is never touched, not even its NAP check
         if res.get("verdict") == "rate-limited": continue   # t_e34fc55c: a quota page says nothing about the NAP; the stored nap_check stays as it was
         res["nap_check"] = nap_check_from_result(res, canonical, day)
         if write and queue_path:
@@ -1247,7 +1253,7 @@ def main(argv=None, plain=None, chrome=None):
     a.add_argument("--proof-live", action="store_true", help="with --write --include-live --row ID: write Proof for named rows already live (state unchanged)")
     a.add_argument("--proof-backfill", action="store_true", help="t_d660babc: for named LIVE rows with incomplete Proof: run the signed-out proof read and write Proof + build_action through transitions.record_proof. Needs --row. Dry run unless --write")
     a.add_argument("--backoff-only", action="store_true", help="dry run that still writes recheck_due (+2 days) on not-public / unreadable-public waiting rows; never live. A no-URL row that already has 3 no-URL backoffs is parked (-> needs-human, no-public-permalink, the 3/3 rule); a plain dry run predicts that park and writes nothing")
-    a.add_argument("--any-state", action="store_true", help="with --row ID: read the row in ANY state (e.g. needs-human after a ruling). Dry run only; refused with --write")
+    a.add_argument("--any-state", action="store_true", help="with --row ID: read the row in ANY state (e.g. needs-human after a ruling). Dry run; with --write only a needs-human row whose read MATCHES goes live (full Proof), anything else is left as it is")
     a.add_argument("--no-chrome", action="store_true")
     a.add_argument("--today", default=None)
     a.add_argument("--live-sweep-ok", action="store_true", help="t_e34fc55c: --include-live over the whole queue (no --row) reads every live row on the Directories; the weekly job only")
@@ -1261,8 +1267,8 @@ def main(argv=None, plain=None, chrome=None):
         print("REFUSED: --include-live without --row reads every live row on the Directories (that is how we got blocked). Use --row ID, --replay DIR on saved pages, or --live-sweep-ok (weekly job only)", file=sys.stderr); return 1
     if n.replay and (n.write or n.backoff_only or n.proof_live or n.proof_backfill or n.save_pages):
         print("REFUSED: --replay reads saved pages only; never with --write / --backoff-only / --proof-live / --proof-backfill / --save-pages", file=sys.stderr); return 1
-    if n.any_state and (n.write or n.backoff_only or n.proof_live or not n.row):
-        print("REFUSED: --any-state is a dry-run read of named rows (--row ID); never with --write / --backoff-only / --proof-live", file=sys.stderr); return 1
+    if n.any_state and (n.backoff_only or n.proof_live or not n.row):
+        print("REFUSED: --any-state reads NAMED rows only (--row ID); never with --backoff-only / --proof-live. With --write it promotes needs-human rows to live on a match, nothing else", file=sys.stderr); return 1
     if n.proof_backfill:   # t_d660babc: eligible = named LIVE rows whose stored Proof is incomplete; reads via the existing signed-out path, writes via transitions.record_proof
         if not n.row or n.any_state or n.backoff_only:
             print("REFUSED: --proof-backfill needs --row ID and never combines with --any-state / --backoff-only", file=sys.stderr); return 1
