@@ -32,11 +32,11 @@ import your_turn_gate as YT
 import verify_allowlist as AL
 
 
-def _resolve_vault_item(directory, items=None):
+def _resolve_vault_item(directory, items=None, tenant="SCC"):
     """t_f31e2490: the build run's own resolver (vault_item.resolve_for_domain). -> item name or None. Never a naming-convention guess."""
     try:
         import vault_item as V
-        return V.resolve_for_domain(directory, items=items)[1] or None
+        return V.resolve_for_domain(directory, items=items, tenant=tenant)[1] or None
     except Exception:
         return None
 
@@ -612,7 +612,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         # 3b2 t_f31e2490: in the same transition, a phone/SMS park puts the Directory on the Verify Now allowlist (runtime file outside the repo). Never blocks.
         if ver_rec and out["verification_written"] and verify_type in AL.AUTO_TYPES and (real_sink or allowlist_path):
             try:
-                item = vault_item or _resolve_vault_item(row["directory"], vault_items_lookup)
+                item = vault_item or _resolve_vault_item(row["directory"], vault_items_lookup, client)
                 if item:
                     out["allowlist"] = AL.auto_add(row["directory"], verify_type, client, item, row_id, day, path=allowlist_path)
                     out["allowlist"]["vault_item_resolved"] = not vault_item

@@ -33,6 +33,7 @@ sys.path.insert(0, HERE)
 import portal as P
 import verify_bridge as B
 import verify_scoreboard as SB
+import playbook as PB
 
 DOMAIN = "cylex.us"
 SIGNIN_URL = "https://www.cylex.us.com/signin/"
@@ -202,25 +203,53 @@ def helper_command():
     return "%s %s" % (q(sys.executable), q(STEP_PY))
 
 
-def build_prompt(request_id, req, row, entry, tenant, masked, username):
+NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n")
+PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
+
+
+def playbook_block(playbook):
+    """The numbered Directory playbook (already rendered: placeholders filled, no secrets) as prompt lines."""
+    lines = []
+    for i, s in enumerate(playbook["steps"], 1):
+        extra = "".join(" [%s: %s]" % (k, s[k]) for k in ("url", "selector") if s.get(k))
+        lines.append("  %d. %s%s" % (i, s["text"], extra))
+    return "Directory playbook (version %s, from the Directory DB; follow these in order, they win over the row steps):\n%s\n" % (playbook.get("version", "?"), "\n".join(lines))
+
+
+def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=None):
     """The agent's instructions. Request id, tenant, directory, channel, the row's steps and URL, the masked phone, the hard rules. Holds NO code
-    and no secret (the username is the login email, not a credential)."""
+    and no secret (the username is the login email, not a credential).
+    playbook (t_413687a7): the RENDERED `verify` playbook for this Directory ({steps: [{text, url?, selector?}], send_is_signup, version}) or None.
+    Its steps are listed. ONLY when send_is_signup is true is the account for THIS Directory created (the signup click is the send); otherwise the old
+    'no account creation' rule stands. Payment and client contact are never allowed either way. CapSolver (cap 3 per request, NM) only with the carve-out."""
     biz = tenant[0]
+    signup = bool(playbook and playbook.get("send_is_signup"))
+    pb_txt = playbook_block(playbook) if playbook else ""
+    sign_in = SIGN_IN_STEP
+    phone_step = PHONE_STEP
+    rules = NO_ACCOUNT_RULE
+    if signup:
+        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n")
+        phone_step = "2. Before the signup click, check the phone in the form against the masked phone above. If it differs, or you cannot read it, STOP.\n"
+        rules = ("- No payment, no client contact. You may create ONE account, only the one the playbook describes, only for %(dom)s, only with the vault item's login. No other account anywhere.\n"
+                 + ("- CapSolver is allowed only for a CAPTCHA on this signup page, at most 3 solves for this request: python job/capsolver_solve.py --row verify-%(rid)s --kind <kind> --url <page url> --sitekey <key>. A fourth try is never allowed.\n" if biz == "NM" else "- No CapSolver.\n"))
     steps = row.get("steps")
     steps_txt = "\n".join("  - %s" % s for s in steps) if isinstance(steps, list) and steps else "  (none on the row)"
     ch = req.get("channel")
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
     helper = helper_command()
+    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2]}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
-        "Directory page: %(url)s\nRow steps:\n%(steps)s\nMasked phone on file: %(masked)s\nLogin (vault item username): %(user)s\n\n"
+        "Directory page: %(url)s\nRow steps:\n%(steps)s\n%(pb)sMasked phone on file: %(masked)s\nLogin (vault item username): %(user)s\n\n"
         "Steps:\n"
         "0. FIRST command of the run, before anything else (it times your start): %(helper)s stage --request-id %(rid)s --name ready   If it exits nonzero, carry on.\n"
-        "1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n"
+        "%(sign_in)s"
         "   Speed log (do not skip, it is how this step becomes a script): after each page action from sign-in to the send click, run: %(helper)s trace --request-id %(rid)s --action <goto, click, fill or press> --url <page url> --selector \"<css selector>\"\n"
         "   (no values, never what you typed). When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. If either exits nonzero, carry on.\n"
-        "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
+        "%(phone_step)s"
         "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code.\n"
         "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
         "   (use the masked number you saw on the page when it differs in format). If it exits nonzero, stop.\n"
@@ -233,9 +262,10 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username):
         "- One Directory session through sitegate for this run. Never open a second one and never retry a send.\n"
         "- Never type the code anywhere except the Directory. Never print, log, write, quote or summarize the code.\n"
         "- Never run any other command against the portal. The helper above is the only way to report progress. You do not have the service key.\n"
-        "- No CapSolver, no account creation, no payment, no client contact.\n"
+        "%(rules)s"
         "- If you are unsure at any step, stop. The run turns an unfinished request into a safe failure.\n"
         % {"rid": request_id, "biz": biz, "dom": entry["domain"], "ch": ch, "how": how, "url": row.get("directory_url") or entry["signin_url"],
+           "sign_in": sign_in % fmt, "phone_step": phone_step, "rules": rules % fmt, "pb": pb_txt, "item": tenant[2],
            "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper})
 
 
@@ -280,6 +310,27 @@ class Runtime:
                 return B.mask_phone(json.load(f)["BIZ"][tenant[0]]["phones"][0])
         except Exception:
             return None
+
+    def verify_playbook(self, domain):
+        """The Directory DB `verify` playbook row for this Directory (t_413687a7) or None. A read failure raises (the caller logs it and runs without)."""
+        import directories as D
+        return PB.get_playbook(D.DirDB(), domain, "verify")
+
+    def tenant_values(self, tenant, username):
+        """Placeholder values for the playbook: business name, phone, website from the approved identity file; the login email and vault item NAME from this run.
+        Only what is known; render() refuses a placeholder with no value. No password, ever."""
+        import json
+        vals = {"login_email": username, "vault_item": tenant[2]}
+        try:
+            ident = os.environ.get("CE_IDENTITY") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/identity.json")
+            with open(ident, encoding="utf-8") as f: b = json.load(f)["BIZ"][tenant[0]]
+            vals["business_name"] = b.get("name")
+            d = re.sub(r"\D", "", (b.get("phones") or [""])[0])[-10:]
+            if len(d) == 10: vals["phone"] = "(%s) %s-%s" % (d[:3], d[3:6], d[6:])
+            vals["website"] = b.get("site")
+        except Exception:
+            pass
+        return {k: v for k, v in vals.items() if isinstance(v, str) and v}
 
     def write_prompt(self, request_id, text):
         import sitegate
@@ -479,8 +530,18 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
     """Hand ONE request to the submitter agent and own its clocks. The agent reports only through job/verify_step.py (sent, code, result).
     -> verified | closed (the helper or portal closed it) | failed:<code> | unknown. The tenant lock and the sitegate reservation are already held."""
     masked = rt.business_phone_masked(tenant)
+    playbook = None
     try:
-        prompt = build_prompt(request_id, req, row, entry, tenant, masked, username)
+        raw = rt.verify_playbook(entry["domain"]) if hasattr(rt, "verify_playbook") else None
+    except Exception as e:   # no DB read = no playbook = no signup carve-out; the run falls back to the row steps
+        log("playbook read failed (%s); running without one" % type(e).__name__); raw = None
+    if raw:
+        try:
+            playbook = dict(raw, steps=PB.render(raw, rt.tenant_values(tenant, username)))
+        except PB.PlaybookError as e:   # a playbook that cannot be filled never reaches the agent
+            log("playbook not usable: %s" % e); return end("failed", "send_failed")
+    try:
+        prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
         agent = rt.launch_agent(rt.write_prompt(request_id, prompt))
         SB.stamp(request_id, "agent_start_at")
     except Exception as e:
