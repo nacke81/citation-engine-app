@@ -31,9 +31,14 @@ import your_turn_gate as YT
 import verify_allowlist as AL
 
 
-def _default_vault_item(client, directory):
-    """Convention '<TENANT> - <directory>' (the Citations collection naming), used only when the build run did not pass --vault-item."""
-    return "%s - %s" % (client, directory)
+def _resolve_vault_item(directory, items=None):
+    """t_f31e2490: the build run's own resolver (vault_item.resolve_for_domain). -> item name or None. Never a naming-convention guess."""
+    try:
+        import vault_item as V
+        return V.resolve_for_domain(directory, items=items)[1] or None
+    except Exception:
+        return None
+
 
 STATES = ("queued", "found", "claimed-unverified", "created-unlisted") + Q.PORTAL_STATES  # queued, found, claimed-unverified, created-unlisted, submitted, pending-verify, needs-human, live, rejected
 ALLOWED_FROM = {
@@ -408,7 +413,7 @@ def set_verification_live(portal, verification_id, client_id, now=None):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None, vault_items_lookup=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -506,7 +511,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             {"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]} if ver_rec else
             {"method": "PATCH", "path": ver_patch_path, "body": {"state": "live", "verified_at": "<now>"}} if new_state == "live"
             else "skipped: no verification step")
-        out["allowlist_request"] = ({"directory": row["directory"], "channel": verify_type, "tenant": client, "vault_item": vault_item or _default_vault_item(client, row["directory"])}
+        out["allowlist_request"] = ({"directory": row["directory"], "channel": verify_type, "tenant": client, "vault_item": vault_item or "<resolved from the vault at write time; no guess>"}
                                     if verify_type in AL.AUTO_TYPES else "skipped: not a phone/SMS park")
         return out
 
@@ -555,9 +560,12 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         # 3b2 t_f31e2490: in the same transition, a phone/SMS park puts the Directory on the Verify Now allowlist (runtime file outside the repo). Never blocks.
         if ver_rec and out["verification_written"] and verify_type in AL.AUTO_TYPES and (real_sink or allowlist_path):
             try:
-                item = vault_item or _default_vault_item(client, row["directory"])
-                out["allowlist"] = AL.auto_add(row["directory"], verify_type, client, item, row_id, day, path=allowlist_path)
-                out["allowlist"]["vault_item_defaulted"] = not vault_item
+                item = vault_item or _resolve_vault_item(row["directory"], vault_items_lookup)
+                if item:
+                    out["allowlist"] = AL.auto_add(row["directory"], verify_type, client, item, row_id, day, path=allowlist_path)
+                    out["allowlist"]["vault_item_resolved"] = not vault_item
+                else:
+                    out["errors"].append("allowlist: vault item unresolved, pass --vault-item")
             except Exception as e:
                 out["errors"].append("allowlist: %s" % type(e).__name__)
         # 3c t_79c39f75: client-facing id-check parks get a one-time sign-in Send. Flag-gated (CE_SIGNIN_SEND_WRITE=1), fails closed, never blocks the writes above.
@@ -596,7 +604,7 @@ def main(argv=None):
     a.add_argument("--observed-at", default=None, help="Your turn gate: YYYY-MM-DD the step was opened (this cycle: 7 days)")
     a.add_argument("--observed-url", default=None, help="Your turn gate: https URL of the verify step")
     a.add_argument("--final-url", default=None, help="Your turn gate: URL after redirects (a different domain = dead/redirect)")
-    a.add_argument("--vault-item", default=None, help="sms/phone-call park: the Citations vault item name the build run signed in with (Verify Now allowlist entry); default '<CLIENT> - <directory>'")
+    a.add_argument("--vault-item", default=None, help="sms/phone-call park: the Citations vault item name the build run signed in with (Verify Now allowlist entry); omitted: resolved with vault_item.resolve_for_domain, and no item = no auto-add")
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)

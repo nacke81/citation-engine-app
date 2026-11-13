@@ -75,11 +75,14 @@ def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=
     have_ch = set((repo or {}).get("channels") or []) | set((loc or {}).get("channels") or [])
     have_vi = set(((repo or {}).get("vault_items") or {}).keys()) | set(((loc or {}).get("vault_items") or {}).keys())
     need_ch, need_vi = verify_type not in have_ch, tenant not in have_vi
-    if not need_ch and not need_vi: return {"added": False, "reason": "already listed", "path": p, "kind": None}
+    # a LOCAL auto entry's wrong item is replaced by a later explicit/resolved one; a repo value is never replaced
+    fix_vi = (not need_vi and tenant not in ((repo or {}).get("vault_items") or {}) and loc is not None and loc.get("added_by") == "auto"
+              and (loc.get("vault_items") or {}).get(tenant) not in (None, vault_item))
+    if not need_ch and not need_vi and not fix_vi: return {"added": False, "reason": "already listed", "path": p, "kind": None}
     if repo and repo["send"] != "agent": return {"added": False, "reason": "repo entry is send=%s; extending it needs a PR" % repo["send"], "path": p, "kind": None}
     if loc is not None:
         if need_ch: loc["channels"] = list(loc.get("channels") or []) + [verify_type]
-        if need_vi: loc["vault_items"] = dict(loc.get("vault_items") or {}, **{tenant: vault_item})
+        if need_vi or fix_vi: loc["vault_items"] = dict(loc.get("vault_items") or {}, **{tenant: vault_item})
         _write_rows(p, rows)
         return {"added": True, "reason": "merged", "path": p, "kind": "merged"}
     entry = {"domain": repo["domain"] if repo else dom, "aliases": [], "channels": [verify_type] if need_ch else [], "send": "agent",

@@ -64,7 +64,7 @@ check("1c the verification row was written in the same transition", r["verificat
 
 # 2 second park on the same directory (new row, same Directory) adds nothing
 p2, rid2, d2 = fresh(0)
-r2 = T.record_transition("SCC", rid2, "needs-human", "https://a.example/listing/1", "n", queue_path=p2, today=DAY, portal=FP(d2), verify_type="sms", observation=YO.obs("sms", DAY), allowlist_path=LOCAL, vault_item="other")
+r2 = T.record_transition("SCC", rid2, "needs-human", "https://a.example/listing/1", "n", queue_path=p2, today=DAY, portal=FP(d2), verify_type="sms", observation=YO.obs("sms", DAY), allowlist_path=LOCAL, vault_item="SCC - a.example login")
 check("2 second park on the same directory is idempotent", r2["allowlist"]["added"] is False and len(local_rows()) == 1 and local_rows()[0]["vault_items"] == {"SCC": "SCC - a.example login"}, r2["allowlist"])
 
 # 3 postcard park adds nothing; nor do other types at the helper
@@ -78,9 +78,34 @@ check("3b helper refuses postcard, id-check, client-email, document-upload", not
 r4, _, d4, _ = park(1, "phone-call", vault_item="SCC - b item")
 check("4 phone-call park adds a phone-call entry", r4["allowlist"]["added"] and [x for x in local_rows() if x["domain"] == d4][0]["channels"] == ["phone-call"])
 
-# 5 no vault item passed: convention default, flagged
-r5, _, d5, _ = park(2, "sms")
-check("5 no --vault-item: convention default and flagged as defaulted", r5["allowlist"]["added"] and r5["allowlist"]["vault_item_defaulted"] is True and [x for x in local_rows() if x["domain"] == d5][0]["vault_items"] == {"SCC": "SCC - " + d5})
+# 5 no --vault-item: the build run's own resolver decides; no convention guess (t_f31e2490 round 3)
+import vault_item as VI
+d5i = "5i.example"
+r5, _, d5, _ = park(2, "sms", vault_items_lookup=[{"id": "1", "name": "SCC - " + VI.registrable(fresh(2)[2]) + ".com", "login": {"uris": []}}])
+row5 = [x for x in local_rows() if x["domain"] == d5]
+check("5a resolver hit: the entry carries the resolved item name", r5["allowlist"]["added"] and r5["allowlist"]["vault_item_resolved"] is True and row5 and list(row5[0]["vault_items"].values())[0].startswith("SCC - ") and list(row5[0]["vault_items"].values())[0].endswith(".com"), row5)
+check("5b cylex shape: directory cylex.us resolves to SCC - cylex.us.com, never SCC - cylex.us", T._resolve_vault_item("cylex.us", [{"id": "9", "name": "SCC - cylex.us.com", "login": {"uris": []}}]) == "SCC - cylex.us.com")
+nb = len(local_rows())
+r5m, _, d5m, _ = park(3, "sms", vault_items_lookup=[])
+check("5c resolver miss: nothing written, error line, park still wrote the verification row", r5m["allowlist"] is None if "allowlist" in r5m else True)
+check("5c2 miss detail", "allowlist: vault item unresolved, pass --vault-item" in r5m["errors"] and len(local_rows()) == nb and d5m not in [x["domain"] for x in local_rows()] and r5m["verification_written"] is True, r5m["errors"])
+amb = [{"id": "1", "name": "SCC - " + VI.registrable(fresh(4)[2]) + " a", "login": {"uris": []}}, {"id": "2", "name": "SCC - " + VI.registrable(fresh(4)[2]) + " b", "login": {"uris": []}}]
+r5e, _, d5e, _ = park(4, "sms", vault_items_lookup=amb)
+check("5d resolver error (ambiguous items): nothing written, park succeeds", "allowlist: vault item unresolved, pass --vault-item" in r5e["errors"] and d5e not in [x["domain"] for x in local_rows()] and r5e["verification_written"] is True, r5e["errors"])
+check("5e the convention default is gone", not hasattr(T, "_default_vault_item"))
+# 5f a wrong item on a LOCAL auto entry is corrected by a later explicit/resolved item; the repeat adds nothing
+LOC5 = os.path.join(TMP, "outside5", "local.json")
+w1 = AL.auto_add("fix5.example", "sms", "SCC", "SCC - fix5", "r1", DAY, path=LOC5)
+w2 = AL.auto_add("fix5.example", "sms", "SCC", "SCC - fix5.example.com", "r2", DAY, path=LOC5)
+w3 = AL.auto_add("fix5.example", "sms", "SCC", "SCC - fix5.example.com", "r3", DAY, path=LOC5)
+rows5 = json.load(open(LOC5, encoding="utf-8"))["directories"]
+check("5f wrong local item corrected once; repeat adds nothing; one entry", w1["added"] and w2["added"] and w2["kind"] == "merged" and not w3["added"] and len(rows5) == 1 and rows5[0]["vault_items"] == {"SCC": "SCC - fix5.example.com"}, [w2, w3, rows5])
+# 5g a repo item is never replaced, and the repo file stays byte-identical
+before5 = sha(os.environ["CE_VERIFY_DIRECTORIES"]); LOC5b = os.path.join(TMP, "outside5", "local-b.json")
+rep = [e for e in B.load_directories() if e["vault_items"]][0]
+tn, itm = list(rep["vault_items"].items())[0]
+g = AL.auto_add(rep["domain"], rep["channels"][0], tn, itm + " DIFFERENT", "rg", DAY, path=LOC5b)
+check("5g repo item never replaced: nothing written, file identical", g["added"] is False and not os.path.exists(LOC5b) and sha(os.environ["CE_VERIFY_DIRECTORIES"]) == before5, g)
 
 # 6 dry run adds nothing; the plan shows the request
 pd, ridd, dd = fresh(3)
@@ -168,7 +193,7 @@ v_pc = B.fence(F.request(client=SCC, channel="phone-call"), F.StrictPortal(reque
 v_sms = B.fence(F.request(client=SCC, channel="sms"), F.StrictPortal(requests=[F.request(client=SCC)], verifications=[F.verification(client=SCC, directory=dX)]))[0]
 check("13c bridge accepts a phone-call request (and still sms) for the supplemented Directory", v_pc == "ok" and v_sms == "ok", [v_pc, v_sms])
 # 13d repeating the park adds nothing
-rr, _, _, _ = park(1, "phone-call", vault_item="other", allowlist_path=LOCAL2)
+rr, _, _, _ = park(1, "phone-call", vault_item="SCC - X item", allowlist_path=LOCAL2)
 check("13d repeating the park adds nothing", rr["allowlist"]["added"] is False and len(local2()) == 1 and local2()[0]["vault_items"] == {"SCC": "SCC - X item"}, rr["allowlist"])
 # 13e a repo-listed channel + tenant adds nothing
 os.unlink(LOCAL2)
@@ -188,7 +213,7 @@ scc_v = B.fence(F.request(client=SCC), F.StrictPortal(requests=[F.request(client
 ent = B.directory_entry(NEWD, "sms")
 check("13h both tenants' requests pass the fence and both have a vault item", nm_v == "ok" and scc_v == "ok" and ent["vault_items"].get("NM") and ent["vault_items"].get("SCC"), [nm_v, scc_v])
 snap = open(LOCAL2, "rb").read()
-b1 = AL.auto_add(NEWD, "sms", "NM", "z", "r", DAY, path=LOCAL2); b2 = AL.auto_add(NEWD, "sms", "SCC", "z", "r", DAY, path=LOCAL2)
+b1 = AL.auto_add(NEWD, "sms", "NM", "NM - newdir", "r", DAY, path=LOCAL2); b2 = AL.auto_add(NEWD, "sms", "SCC", "SCC - newdir", "r", DAY, path=LOCAL2)
 check("13i repeating either park adds nothing (file unchanged)", not b1["added"] and not b2["added"] and open(LOCAL2, "rb").read() == snap)
 # 13j a later phone-call park on the new local entry adds the channel
 a3 = AL.auto_add(NEWD, "phone-call", "SCC", "z", "r", DAY, path=LOCAL2)
