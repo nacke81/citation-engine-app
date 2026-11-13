@@ -83,12 +83,19 @@ check("2 docstring says 4 h idle cap and never 'forever'", "4 h idle cap" in src
 # ---- 3 pidfile + --stop ------------------------------------------------------------------------------------------------------------------------------
 NETSTAT = "  TCP    127.0.0.1:9333         0.0.0.0:0              LISTENING       22460\r\n"
 class Runner:
-    def __init__(s, procs=(), listening=True): s.cmds, s.procs, s.listening = [], list(procs), listening
+    def __init__(s, procs=(), listening=True, fail=()): s.cmds, s.procs, s.listening, s.fail = [], list(procs), listening, set(fail)
     def __call__(s, cmd, **k):
         s.cmds.append(cmd)
         if cmd[0] == "netstat": return types.SimpleNamespace(stdout=NETSTAT if s.listening else "", returncode=0)
         if cmd[0] == "taskkill":
             if cmd[2] == "22460": s.listening = False
+            if int(cmd[2]) in s.fail: return types.SimpleNamespace(stdout="ERROR", returncode=1)   # the tree stays in the process list
+            dead, todo = {int(cmd[2])}, [int(cmd[2])]
+            while todo:
+                c = todo.pop()
+                for p in s.procs:
+                    if p["ppid"] == c and p["pid"] not in dead: dead.add(p["pid"]); todo.append(p["pid"])
+            s.procs = [p for p in s.procs if p["pid"] not in dead]
             return types.SimpleNamespace(stdout="SUCCESS", returncode=0)
         if cmd[0] == "powershell": return types.SimpleNamespace(stdout=json.dumps(s.procs), returncode=0)
         raise AssertionError("unexpected command %r" % (cmd,))
@@ -172,6 +179,36 @@ mine = [proc(me, 900, "python job/build_chrome.py --reap", 500), proc(900, 1, 'b
 rn, lines = Runner(procs=mine), []
 B.reap(0, runner=rn, out=lines.append, procs=mine, now=lambda: NOW, lease_path=LP, pidfile=pf)
 check("4 --reap never targets itself or its own wrapper", rn.killed() == [])
+# t_fb7ae698: two lanes. Both trees are over 60 min and idle; only the one whose Chrome is gone may die.
+T9333 = [proc(70, 1, "python job/build_chrome.py --seconds 0", 300), proc(71, 70, "python job/build_chrome.py --seconds 0", 300)]   # chrome gone
+T9444 = [proc(80, 1, "python job/build_chrome.py --seconds 0 --port 9444 --profile nm-chrome-profile", 300),
+         proc(81, 80, "chrome.exe --remote-debugging-port=9444 --user-data-dir=nm-chrome-profile", 299)]                              # chrome alive
+TWO = T9333 + T9444
+rn, lines = Runner(procs=TWO), []
+rc = B.reap(60, runner=rn, out=lines.append, procs=TWO, now=lambda: NOW, lease_path=LP, pidfile=pf)
+check("8 two old trees, 9333 Chrome gone + 9444 Chrome alive: reap kills only the 9333 tree", rn.killed() == [70], str(rn.killed()))
+check("8 it prints `skip tree 80: chrome alive on 9444`, exit 1 (one left)", "skip tree 80: chrome alive on 9444" in lines and lines[-1] == "reaped=1 left=1" and rc == 1, str(lines))
+rn, lines = Runner(procs=TWO), []
+B.reap(60, runner=rn, out=lines.append, procs=TWO, now=lambda: NOW, lease_path=LP, pidfile=pf, port_alive=lambda p: p == 9444)
+check("8 same with the chrome process not in the list but the port answering CDP", rn.killed() == [70], str(rn.killed()))
+rn, lines = Runner(procs=TWO), []
+B.reap(60, runner=rn, out=lines.append, procs=TWO, now=lambda: NOW, lease_path=LP, pidfile=pf, port_alive=lambda p: True)
+check("8 a chrome-less tree whose port still answers is skipped too (never killed on a live port)", rn.killed() == [], str(rn.killed()))
+# the 4 h idle cap still ends a forgotten live batch: that is hold()'s own exit, reap leaves the tree to it
+check("8 hold() idle cap untouched", "idle_cap_reached=1" in open(os.path.join(JOB, "build_chrome.py"), encoding="utf-8").read())
+# kill that fails: root still listed -> left, rc 1, not counted reaped
+rn, lines = Runner(procs=T9333, fail={70}), []
+rc = B.reap(60, runner=rn, out=lines.append, procs=T9333, now=lambda: NOW, lease_path=LP, pidfile=pf)
+check("9 a taskkill that fails leaves the tree: reaped=0 left=1, rc 1", rc == 1 and lines[-1] == "reaped=0 left=1" and any("still running" in l for l in lines), str(lines))
+rn, lines = Runner(procs=T9333 + [proc(50, 1, "python other.py", 900)]), []   # a real process list is never empty
+check("9 a taskkill that works: root gone on re-list -> reaped=1 left=0, rc 0", B.reap(60, runner=rn, out=lines.append, procs=T9333, now=lambda: NOW, lease_path=LP, pidfile=pf) == 0 and lines[-1] == "reaped=1 left=0", str(lines))
+# --stop on 9333 reaps only 9333 trees, even young ones
+YOUNG9444 = [proc(90, 1, "python job/build_chrome.py --port 9444", 2)]
+YOUNG9333 = [proc(91, 1, "python job/build_chrome.py --seconds 0", 2)]
+pl = YOUNG9444 + YOUNG9333
+rn, lines = Runner(procs=pl, listening=False), []
+rc = B.stop(9333, rn, lines.append, pidfile=pf, procs=pl, lease_path=LP, port_alive=lambda p: False)
+check("10 --stop --port 9333 reaps the young 9333 tree and leaves the 9444 tree alone", rn.killed() == [91], str(rn.killed()))
 # --stop's reap: only when Chrome is gone
 rn, lines = Runner(procs=PROCS, listening=True), []
 rc = B.stop(9333, rn, lines.append, pidfile=pf, procs=PROCS, lease_path=LP)

@@ -21,7 +21,7 @@ PROFILE = os.environ.get("CE_BUILD_PROFILE") or os.path.expandvars("%LOCALAPPDAT
 PORT = 9333
 LOCAL = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
 MAX_SECONDS_DEFAULT = 14400
-GONE_AFTER_MISSES = 2     # consecutive failed CDP checks before the Chrome counts as gone
+GONE_AFTER_MISSES = 2     # consecutive checks where our owned Chrome process/job is gone before the Chrome counts as gone
 CHECK_EVERY = 5           # seconds between Chrome-alive checks
 
 
@@ -97,10 +97,12 @@ def listener_pids(port, runner=None):
 
 def _tk(pid, run, out):
     r = run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, text=True, timeout=60)
-    out("taskkill /PID %d /T /F -> exit %s" % (pid, getattr(r, "returncode", "?")))
+    rc = getattr(r, "returncode", "?")
+    out("taskkill /PID %d /T /F -> exit %s" % (pid, rc))
+    return rc
 
 
-def stop(port=PORT, runner=None, out=print, pidfile=None, procs=None, lease_path=None):
+def stop(port=PORT, runner=None, out=print, pidfile=None, procs=None, lease_path=None, port_alive=None):
     """--stop (t_89f4aebf, t_15f7ec86): kill the process tree of whatever listens on the CDP port (`taskkill /PID n /T /F`), then the build_chrome.py python recorded in
     the pidfile (its whole tree), remove the pidfile, and reap any build_chrome.py python whose Chrome is gone. Returns 0 when nothing is left listening, 1 when a
     listener survived, 2 when nothing was listening."""
@@ -121,7 +123,7 @@ def stop(port=PORT, runner=None, out=print, pidfile=None, procs=None, lease_path
             else: out("pidfile stale (pid %d is not build_chrome.py)" % rp)
     pidfile_remove(pf)
     if not left:
-        reap(0, runner=runner, out=out, procs=plist, lease_path=lease_path, pidfile=pf, only_chrome_gone=port, quiet_none=True)
+        reap(0, runner=runner, out=out, procs=plist, lease_path=lease_path, pidfile=pf, only_chrome_gone=port, quiet_none=True, only_port=port, port_alive=port_alive)
     return 1 if left else (0 if pids else 2)
 
 
@@ -158,10 +160,28 @@ def pidfile_pid_is_build(rec, plist):
     return False
 
 
-def reap(older_than_minutes=60, runner=None, out=print, procs=None, now=time.time, lease_path=None, pidfile=None, only_chrome_gone=None, quiet_none=False, alive=None):
+def tree_port(t, by_pid):
+    """The --port of a tree's build_chrome.py command line(s); 9333 when none says."""
+    import re
+    for pid in sorted(t):
+        c = by_pid[pid]["cmd"] or ""
+        if _is_build_cmd(c):
+            m = re.search(r"--port[= ](\d+)", c)
+            if m: return int(m.group(1))
+    return PORT
+
+
+def chrome_in_tree(t, by_pid, port):
+    """True when a process in the tree is a Chrome with --remote-debugging-port=<port> (the Chrome this build_chrome.py owns)."""
+    return any(("--remote-debugging-port=%d" % port) in (by_pid[pid]["cmd"] or "") and not _is_build_cmd(by_pid[pid]["cmd"]) for pid in t)
+
+
+def reap(older_than_minutes=60, runner=None, out=print, procs=None, now=time.time, lease_path=None, pidfile=None, only_chrome_gone=None, quiet_none=False, alive=None, only_port=None, port_alive=None):
     """--reap (t_15f7ec86): kill (taskkill /PID n /T /F) every tree whose root is a `job/build_chrome.py` process older than N minutes. A command line with --stop or
     --reap is never a target. A tree holding the process that owns a FRESH card lease (lease pid, and the pidfile python while a lease is fresh) is left alone.
-    only_chrome_gone=<port>: only trees whose Chrome no longer answers on that port. Returns 0 when none are left, 1 when one survived or was skipped."""
+    only_chrome_gone=<port>: only trees whose Chrome no longer answers on that port. Returns 0 when none are left, 1 when one survived or was skipped.
+    t_fb7ae698: a tree whose own Chrome is alive (a process in the tree with --remote-debugging-port=<its --port>, or the port answers CDP) is never killed, however old.
+    only_port=<port>: only trees whose --port is that port. A tree counts as reaped only when its root is gone after the kill (re-listed)."""
     import subprocess
     run = runner or subprocess.run
     plist = procs if procs is not None else list_procs(runner)
@@ -188,16 +208,24 @@ def reap(older_than_minutes=60, runner=None, out=print, procs=None, now=time.tim
     gone = True
     if only_chrome_gone is not None:
         gone = not (alive() if alive else KA.cdp_alive(only_chrome_gone))
+    port_alive = port_alive or KA.cdp_alive
     reaped = left = 0
     for root in sorted(roots):
         p = by_pid[root]
         age_min = (now() - p["started"]) / 60.0 if p["started"] else 1e9
         if age_min < older_than_minutes or not gone: continue
         t = tree(root)
+        tport = tree_port(t, by_pid)
+        if only_port is not None and tport != int(only_port): continue
+        if chrome_in_tree(t, by_pid, tport) or port_alive(tport):
+            out("skip tree %d: chrome alive on %d" % (root, tport)); left += 1; continue
         if t & guard:
             out("skip tree %d (%d procs): owns a fresh card lease" % (root, len(t))); left += 1; continue
         out("reap tree %d (%d procs, %.0f min old): %s" % (root, len(t), min(age_min, 99999), (p["cmd"] or "")[:100]))
-        _tk(root, run, out); reaped += 1
+        _tk(root, run, out)
+        after = list_procs(runner)
+        if after and not any(q["pid"] == root for q in after): reaped += 1
+        else: out("tree %d still running after taskkill" % root); left += 1
     if reaped or left or not quiet_none: out("reaped=%d left=%d" % (reaped, left))
     return 0 if left == 0 else 1
 
