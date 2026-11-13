@@ -3,7 +3,7 @@ not-found. This module picks the ONE item in the SCC org Citations collection wh
 
 resolve_item(domain, items) is pure: items = [{"id", "name", "uris": [...]}] (no secrets ever pass through here). list_items(...) asks
 job/vault_resolve.cjs (reads names / ids / uris through the vault helper; never a password) via an injectable runner.
-Ranking: exact name 'SCC - <domain>' > name contains the domain > name contains the brand label > a URI on the domain. Two items at the best rank = ambiguous (refuse;
+Ranking (tenant SCC default, NM reads 'NM - <domain>'; items of the other tenant are dropped first): exact name 'SCC - <domain>' > name contains the domain > name contains the brand label > a URI on the domain. Two items at the best rank = ambiguous (refuse;
 pass --item-id). None = not-found.
 """
 import json, os, re, subprocess
@@ -12,6 +12,9 @@ from urllib.parse import urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESOLVE_JS = os.path.join(HERE, "vault_resolve.cjs")
 SECOND_LEVEL = {"co", "com", "org", "net", "gov", "edu", "ac"}
+# t_413687a7: the tenant decides the item name prefix and the vault organization. An NM lookup can never see an SCC item and the reverse.
+TENANT_PREFIX = {"SCC": "scc - ", "NM": "nm - "}
+TENANT_ORG = {"SCC": "Senior Care Consulting", "NM": "Na" + "cke Media"}
 
 
 class VaultItemError(Exception):
@@ -40,15 +43,23 @@ def _uri_domains(item):
     return out
 
 
-def resolve_item(domain, items):
-    """-> the one matching item dict. VaultItemError('not-found' / 'item-not-unique') otherwise."""
+def _tenant_items(tenant, items):
+    """The tenant lock: drop every item named with ANOTHER tenant's prefix before any ranking (so a looser name, URI or brand match cannot reach it)."""
+    if tenant not in TENANT_PREFIX: raise VaultItemError("refused: unknown tenant %r" % (tenant,))
+    others = [p for t, p in TENANT_PREFIX.items() if t != tenant]
+    return [it for it in items or [] if not any((it.get("name") or "").lower().startswith(p) for p in others)]
+
+
+def resolve_item(domain, items, tenant="SCC"):
+    """-> the one matching item dict for this tenant. VaultItemError('not-found' / 'item-not-unique') otherwise."""
+    items = _tenant_items(tenant, items)
     dom = registrable(domain)
     if not dom: raise VaultItemError("not-found: no domain")
     b = brand(dom)
     ranked = {1: [], 2: [], 3: [], 4: []}
-    for it in items or []:
+    for it in items:
         name = (it.get("name") or "").lower()
-        if name == ("scc - " + dom): ranked[1].append(it)
+        if name == (TENANT_PREFIX[tenant] + dom): ranked[1].append(it)
         elif re.search(r"(?<![a-z0-9])" + re.escape(dom) + r"(?![a-z0-9])", name): ranked[2].append(it)   # bounded: 'notevil.com' is not 'evil.com'
         elif dom in _uri_domains(it): ranked[3].append(it)
         elif b and len(b) >= 4 and re.search(r"(?<![a-z0-9])" + re.escape(b) + r"(?![a-z0-9])", name): ranked[4].append(it)
@@ -59,10 +70,11 @@ def resolve_item(domain, items):
     raise VaultItemError("not-found: no item in the Citations collection names or links %s" % dom)
 
 
-def list_items(runner=None, node="node", script=None, timeout=180):
-    """Item ids / names / uris of the SCC org Citations collection via vault_resolve.cjs. No passwords. Raises VaultItemError on a vault problem."""
+def list_items(runner=None, node="node", script=None, timeout=180, tenant="SCC"):
+    """Item ids / names / uris of the tenant's org Citations collection via vault_resolve.cjs. No passwords. Raises VaultItemError on a vault problem."""
     import build_runner as B
-    cmd = [node, script or RESOLVE_JS, "--organization", B.ORG, "--collection", B.COLLECTION, "--fill-js", B.FILL_JS]
+    if tenant not in TENANT_ORG: raise VaultItemError("refused: unknown tenant %r" % (tenant,))
+    cmd = [node, script or RESOLVE_JS, "--organization", TENANT_ORG[tenant], "--collection", B.COLLECTION, "--fill-js", B.FILL_JS]
     r = (runner or subprocess.run)(cmd, capture_output=True, text=True, timeout=timeout)
     out = ((getattr(r, "stdout", "") or "")).strip()
     if getattr(r, "returncode", 1) != 0:
@@ -73,9 +85,9 @@ def list_items(runner=None, node="node", script=None, timeout=180):
     return [{"id": x.get("id"), "name": x.get("name"), "uris": x.get("uris") or []} for x in data.get("items", [])]
 
 
-def resolve_for_domain(domain, runner=None, items=None):
+def resolve_for_domain(domain, runner=None, items=None, tenant="SCC"):
     """-> (item_id, item_name). Name only is safe to print."""
-    it = resolve_item(domain, items if items is not None else list_items(runner))
+    it = resolve_item(domain, items if items is not None else list_items(runner, tenant=tenant), tenant)
     return it["id"], it["name"]
 
 
@@ -104,6 +116,7 @@ def main(argv=None, runner=None, items=None, out=print, err=None, stdin=None):
     import argparse, sys
     a = argparse.ArgumentParser(description="Print the name of the one Citations vault item for a Directory domain (never the secret)")
     a.add_argument("--domain", required=True)
+    a.add_argument("--tenant", choices=sorted(TENANT_PREFIX), default="SCC", help="NM resolves 'NM - <domain>' in the NM vault organization; SCC (default) 'SCC - <domain>'")
     a.add_argument("--print", dest="what", choices=("name", "id"), default="name")
     a.add_argument("--set-password-from-stdin", action="store_true", help="read a NEW password from stdin and write it into the ONE existing item for --domain (never creates an item; t_2d15878c)")
     n = a.parse_args(argv)
@@ -116,7 +129,7 @@ def main(argv=None, runner=None, items=None, out=print, err=None, stdin=None):
         out("password updated in the existing item: %s" % name)
         return 0
     try:
-        it = resolve_item(n.domain, items if items is not None else list_items(runner))
+        it = resolve_item(n.domain, items if items is not None else list_items(runner, tenant=n.tenant), n.tenant)
     except VaultItemError as e:
         err("REFUSED: %s" % e); return 1
     out(it["name"] if n.what == "name" else it["id"])

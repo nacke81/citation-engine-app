@@ -75,11 +75,13 @@ check("1f queue row stays needs-human with a verify_type history entry; old hist
 # 2 resolved vault item (no --vault-item): resolve_for_domain result is used; unresolved = error, no entry
 import vault_item as V
 orig = V.resolve_for_domain
-V.resolve_for_domain = lambda d, items=None: (None, "NM - %s resolved" % d)
+SEEN_TENANT = []
+V.resolve_for_domain = lambda d, items=None, tenant="SCC": (SEEN_TENANT.append(tenant), None, "NM - %s resolved" % d)[1:]   # t_413687a7: the park passes ITS tenant
 try: r2, fp2 = nm_park(nm_queue(), vault_item=None, allowlist_path=os.path.join(TMP, "outside", "l2.json"))
 finally: V.resolve_for_domain = orig
 l2 = json.load(open(os.path.join(TMP, "outside", "l2.json")))["directories"]
 check("2 allowlist uses vault_item.resolve_for_domain when no --vault-item", r2["allowlist"]["added"] and l2[0]["vault_items"] == {"NM": "NM - mapquest.com resolved"} and r2["allowlist"]["vault_item_resolved"] is True, r2["allowlist"])
+check("2 the NM park resolves the vault item as tenant NM (never the SCC default)", SEEN_TENANT == ["NM"], SEEN_TENANT)
 
 # 3 sms park on a second NM row; postcard adds no allowlist; row without a verify step unaffected
 p3 = nm_queue(); r3, fp3 = nm_park(p3, rid="nm-fix-bbb", vt="sms", vault_item="NM - bbb.org login", fp=FP("bbb.org"))

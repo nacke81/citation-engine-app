@@ -1,0 +1,17 @@
+{
+  "domain": "thumbtack.com",
+  "task": "verify",
+  "send_is_signup": true,
+  "source": "t_2928948c nm-verify-now-batch-2026-11-13 run 2 (send screen reached, not clicked); seeded by t_413687a7",
+  "last_proven_at": null,
+  "steps": [
+    {"text": "Open the pro signup page for the Marketing occupation.", "url": "https://www.thumbtack.com/pro/occupation/59?category_pk=136256193386480124&zipcode=37066"},
+    {"text": "If a service list shows, keep the Marketing selection and click Next. When the modal 'New customers are waiting' shows, click 'Sign up with email'."},
+    {"text": "Fill the email field with {login_email}.", "selector": "#signup-form__email"},
+    {"text": "Fill the phone field with {phone}.", "selector": "#signup-form__phone"},
+    {"text": "Fill the password field with the password from vault item {vault_item} (vault fill helper only; never type or print it).", "selector": "#signup-form__password"},
+    {"text": "Leave BOTH SMS opt-in boxes UNCHECKED. They default to checked: uncheck each, then confirm both read unchecked.", "selector": "input[name=signup-form__enable-sms-notifications-checkbox], input[name=signup-form__marketing-notifications-checkbox]"},
+    {"text": "Click 'Sign up'. This creates the account for {business_name} and is the send."},
+    {"text": "When the page says \"We'll text you a verification code\", run the helper `sent` command now. Then wait for the client's code with `code` and enter it."}
+  ]
+}

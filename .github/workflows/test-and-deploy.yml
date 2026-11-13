@@ -125,6 +125,8 @@ jobs:
         run: python tests/recheck_promote_test.py
       - name: Park works for any tenant, NM first; tenant lock; --create-row (t_cb7bad04)
         run: python tests/park_any_tenant_test.py
+      - name: Directory playbooks, signup-is-the-send carve-out, tenant-aware vault resolver, mutations (t_413687a7)
+        run: python tests/playbook_test.py
       - name: Recheck phone reading (uuid, masked, structured, real-page fixtures)
         run: python tests/recheck_phone_test.py
       - name: Recheck reads signed out (fresh context, never the signed-in profile)
