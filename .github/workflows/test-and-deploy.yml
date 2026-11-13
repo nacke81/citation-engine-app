@@ -201,6 +201,10 @@ jobs:
         run: python tests/register_verify_bridge_test.py
       - name: Verify Now Cylex send step dry run (fake page)
         run: python tests/verify_send_dry_run.py
+      - name: Verify Now scoreboard (stage stamps, one row per request, summary medians, step trace + promotion, no code)
+        run: python tests/verify_scoreboard_test.py
+      - name: Verify Now scoreboard mutations (one per timestamp, every one must be killed)
+        run: python tests/verify_scoreboard_test.py --mutations
       - name: Leak check with planted control
         run: python tests/leak_check.py
 

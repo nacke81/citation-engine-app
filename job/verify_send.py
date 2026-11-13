@@ -32,6 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import portal as P
 import verify_bridge as B
+import verify_scoreboard as SB
 
 DOMAIN = "cylex.us"
 SIGNIN_URL = "https://www.cylex.us.com/signin/"
@@ -216,6 +217,8 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username):
         "Directory page: %(url)s\nRow steps:\n%(steps)s\nMasked phone on file: %(masked)s\nLogin (vault item username): %(user)s\n\n"
         "Steps:\n"
         "1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n"
+        "   Speed log (do not skip, it is how this step becomes a script): after each page action from sign-in to the send click, run: %(helper)s trace --request-id %(rid)s --action <goto, click, fill or press> --url <page url> --selector \"<css selector>\"\n"
+        "   (no values, never what you typed). When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. If either exits nonzero, carry on.\n"
         "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
         "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code.\n"
         "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
@@ -391,6 +394,7 @@ def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
     if not item:
         log("no vault item named for %s on this Directory" % biz); return end("failed", "signin_failed")
     tenant = (biz, org, item, entry["signin_url"])
+    SB.stamp(request_id, None, tenant=biz, domain=entry["domain"], channel=req.get("channel"), send_mode=entry["send"])
     since = now_dt or datetime.datetime.now(datetime.timezone.utc)
     if biz == "NM" and not relay_window_open(since):   # Nate stop 3: the mailed access code comes from the relay cron, 08:00-19:58 CT only
         log("NM send outside the mail relay window (08:00-19:58 CT); no Directory touched"); return end("failed", "timeout")
@@ -410,7 +414,9 @@ def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
     try:
         with rt.browser(tenant) as (page, cdp):
             d = CylexDriver(page, rt, tenant, cdp)
+            SB.stamp(request_id, "agent_start_at")   # script mode: the browser is open and the driver starts
             d.sign_in(email, since)
+            SB.stamp(request_id, "signed_in_at")
             modal = d.open_phone_verify()
             m = PHONE_RE.search(modal or "")
             masked = B.mask_phone("".join(m.groups())) if m else None
@@ -419,9 +425,11 @@ def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
             if not B.request_row(portal, request_id, status="starting"):   # last look: still claimed (the sweeper may have ended it)
                 log("claim lost before send for %s" % request_id); return "claim_lost"
             d.click_send()
+            SB.stamp(request_id, "send_clicked_at")
             try: rpc.mark_sent(request_id, masked)
             except B.BridgeError as e:
                 log(str(e)); raise DriverError("other") from None
+            SB.stamp(request_id, "code_sent_at")
             deadline = rt.now() + POLL_MAX_S
             misses = 0
             while True:
@@ -441,8 +449,10 @@ def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
                 if code: break
                 if rt.now() >= deadline: raise DriverError("code_expired")
                 rt.sleep(POLL_EVERY_S)
+            SB.stamp(request_id, "code_submitted_at")
             try: result = d.enter_code(code)
             finally: code = None
+            SB.stamp(request_id, "code_entered_at")
         if result == "rejected": return end("failed", "code_rejected")
         if not set_live(portal, row, req["client_id"]):
             log("row could not be set live after an accepted code"); return end("failed", "other")
@@ -470,6 +480,7 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
     try:
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username)
         agent = rt.launch_agent(rt.write_prompt(request_id, prompt))
+        SB.stamp(request_id, "agent_start_at")
     except Exception as e:
         log("agent did not start: %s" % type(e).__name__); return end("failed", "send_failed")
     t0 = rt.now(); sent_at = closed_at = None; capped = False

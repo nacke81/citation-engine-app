@@ -213,7 +213,7 @@ m = re.match(r'^"([^"]+)" "([^"]+)"$', hc)
 check("helper_command is the interpreter and the helper, both quoted absolute paths that exist", bool(m) and os.path.isabs(m.group(1)) and os.path.isabs(m.group(2)) and os.path.exists(m.group(1)) and os.path.exists(m.group(2)) and os.path.basename(m.group(2)) == "verify_step.py", hc)
 check("helper_command is the running interpreter (sys.executable) and has no backslashes", m and os.path.normcase(os.path.abspath(m.group(1))) == os.path.normcase(os.path.abspath(sys.executable)) and "\\" not in hc)
 pr = S.build_prompt(F.RID, F.request(), F.verification(), B.directory_entry("cylex.us", "sms"), ("NM", "o", "i", "u"), MASK, "x")
-check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 3, pr.count(hc))
+check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 5, pr.count(hc))   # sent, code, result + the scoreboard's trace and stage
 check("prompt: code step says terminal timeout 600, exit 6 means run again, 3 and 4 mean stop", "timeout set to 600" in pr and "Exit 6" in pr and "run the same command again" in pr and "Exit 3" in pr and "exit 4" in pr)
 
 # ---- 8 an empty status read is a miss, not 'superseded' (Nate stop 5) -----------------------------------------------------------------
