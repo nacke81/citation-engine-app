@@ -182,18 +182,18 @@ with contextlib.redirect_stdout(io.StringIO()):
 res = R.recheck(q, IDENT, plain=plain_of(GOOD), chrome=None, record=real_record, db=FakeDB(), queue_path=QP, today="2026-10-27", use_chrome=False, only={"create-nh"}, any_state=True)
 after = json.load(open(QP))["create_rows"][0]
 check("5 the any-state read gives a verdict and writes nothing (state, history, url untouched)", res[0]["verdict"] == "match" and after["state"] == "needs-human" and not after["history"] and "recheck_due" not in after, str((res[0]["verdict"], res[0]["after"], after)))
-for kw in ({"write": True}, {"backoff_only": True}, {"proof_live": True}):
+for kw in ({"backoff_only": True}, {"proof_live": True}):   # t_dca17786: --write is allowed now (promotes a NAMED needs-human row on a match; tests/recheck_promote_test.py)
     try: R.recheck(q, IDENT, plain=plain_of(GOOD), chrome=None, record=real_record, db=FakeDB(), queue_path=QP, use_chrome=False, only={"create-nh"}, any_state=True, **kw); e = None
     except Q.QueueError as ex: e = str(ex)
-    check("5 any_state + %s is refused" % list(kw)[0], e and "dry-run" in e, str(e))
+    check("5 any_state + %s is refused" % list(kw)[0], e and "never combines" in e, str(e))
 try: R.recheck(q, IDENT, plain=plain_of(GOOD), chrome=None, record=real_record, db=FakeDB(), queue_path=QP, use_chrome=False, any_state=True); e = None
 except Q.QueueError as ex: e = str(ex)
 check("5 any_state needs --row", e and "--row" in e)
 errb = io.StringIO()
 with contextlib.redirect_stderr(errb):
-    rc = R.main(["--queue", QP, "--any-state", "--write", "--row", "create-nh"])
+    rc = R.main(["--queue", QP, "--any-state", "--backoff-only", "--row", "create-nh"])
     rc2 = R.main(["--queue", QP, "--any-state"])
-check("5 the CLI refuses --any-state with --write and without --row (exit 1, nothing read)", rc == 1 and rc2 == 1 and "REFUSED" in errb.getvalue())
+check("5 the CLI refuses --any-state with --backoff-only and without --row (exit 1, nothing read)", rc == 1 and rc2 == 1 and "REFUSED" in errb.getvalue())
 
 # ---- 6 build_chrome --stop -------------------------------------------------------------------------------------------------------------------------
 NETSTAT = ("Active Connections\r\n\r\n  Proto  Local Address          Foreign Address        State           PID\r\n"

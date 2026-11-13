@@ -121,6 +121,8 @@ jobs:
         run: python tests/proof_nap_city_test.py
       - name: Recheck dry run predicts the 3/3 no-URL park (t_bee96b30)
         run: python tests/recheck_dryrun_park_test.py
+      - name: recheck --any-state --write promotes a NAMED needs-human row on a match only (t_dca17786)
+        run: python tests/recheck_promote_test.py
       - name: Recheck phone reading (uuid, masked, structured, real-page fixtures)
         run: python tests/recheck_phone_test.py
       - name: Recheck reads signed out (fresh context, never the signed-in profile)
