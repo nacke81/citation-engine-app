@@ -10,7 +10,7 @@ no Directory database, never the SCC queue. Refused before any write: a queue fi
 not exist, a client other than NM, a missing note, a move the matrix refuses. `approval` and `mike_approval` are never touched.
 buildqueue.submit_row(live=True) calls record_transition("NM", ...) here by default for an NM row.
 """
-import argparse, copy, datetime, json, os, shutil, sys
+import argparse, copy, datetime, json, os, re, shutil, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -80,6 +80,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         return out
     out["backup"] = backup_before_write(path, day)
     T._write_atomic(path, q)
+    prune_backups(path, keep_path=out["backup"])
     return out
 
 
@@ -104,6 +105,31 @@ def backup_before_write(path, day):
         with fh:
             fh.write(data)
         return backup
+
+
+NM_BACKUP_KEEP = 50   # t_13adf93c: per-write backups kept per queue file
+
+
+def prune_backups(path, keep_path=None, keep=None):
+    """Call AFTER a successful atomic write. Keeps the newest NM_BACKUP_KEEP per-write backups of `path` and deletes older ones.
+    Only names matching exactly `<queue>.bak-nm-YYYYMMDD-HHMMSS[-n]` are candidates: never the daily `.bak-nm-<day>`, a `.bak-t_*` card
+    backup or any other file. Never deletes `keep_path` (the backup this call reported). Any error goes to stderr and never fails the write."""
+    keep = NM_BACKUP_KEEP if keep is None else keep
+    try:
+        d, base = os.path.split(path)
+        pat = re.compile(r"^" + re.escape(base) + r"\.bak-nm-(\d{8})-(\d{6})(?:-(\d+))?$")
+        found = []
+        for name in os.listdir(d or "."):
+            m = pat.match(name)
+            if m: found.append(((m.group(1), m.group(2), int(m.group(3) or 0)), os.path.join(d, name)))
+        found.sort()
+        victims = found[:-keep] if keep > 0 else found
+        for _k, f in victims:
+            if keep_path and os.path.abspath(f) == os.path.abspath(keep_path): continue
+            try: os.remove(f)
+            except OSError as e: print("backup prune: could not remove %s: %s" % (f, e), file=sys.stderr)
+    except Exception as e:
+        print("backup prune failed (write kept): %s" % e, file=sys.stderr)
 
 
 def main(argv=None):

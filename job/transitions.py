@@ -570,12 +570,11 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         for i, r in enumerate(rows):
             if r.get("id") == row_id: rows[i] = new_row
     out["proof_mirrored"] = mirror_proof_quiet(q, directories)   # t_78dc54b5: fill live rows whose DB Proof is complete but whose queue row has none
-    if tenant["queue_name"]:   # NM: first write of the day keeps a backup, as nm_transitions does
-        import shutil
-        bak = "%s.bak-nm-%s" % (path, day)
-        if not os.path.exists(bak): shutil.copyfile(path, bak)
-        out["backup"] = bak
+    if tenant["queue_name"]:   # NM: a per-write backup this call creates (t_13adf93c; shared with nm_transitions), never an earlier one
+        import nm_transitions as NMT
+        out["backup"] = NMT.backup_before_write(path, day)
     _write_atomic(path, q)
+    if tenant["queue_name"]: NMT.prune_backups(path, keep_path=out["backup"])
     out["queue_written"] = path
 
     # 2 portal snapshot (SCC only; the NM queue has none)
@@ -672,12 +671,11 @@ def create_row(client, domain, kind, *, queue_path=None, today=None, dry_run=Fal
         try: out["directory_row_added"] = D.ensure_directory(directories or D.DirDB(), domain, day, dry_run=dry_run)
         except Exception as e: raise TransitionRefused("%s is not in ce_directories and could not be added (%s: %s); nothing written" % (domain, type(e).__name__, e))
     if dry_run: return out
-    import shutil
-    bak = "%s.bak-nm-%s" % (path, day)
-    if not os.path.exists(bak): shutil.copyfile(path, bak)
-    out["backup"] = bak
+    import nm_transitions as NMT   # t_13adf93c: shared per-write backup, reported only when this call created it
+    out["backup"] = NMT.backup_before_write(path, day)
     q.setdefault("fix_queue", []).append(row)
     _write_atomic(path, q)
+    NMT.prune_backups(path, keep_path=out["backup"])
     return out
 
 
