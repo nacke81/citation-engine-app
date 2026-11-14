@@ -6,7 +6,10 @@
   P1 park NM twice in one day: two distinct reported backups, each byte-identical to the queue right before its write, each created by that call
   P2 create_row twice: same; dry run keeps backup None and creates nothing
   M1 mutation: transitions.py `if not exists` daily reuse FAILS the P checks
-  M2 mutation: prune without the regex anchor (prunes the daily file / card backups) FAILS the R1 check
+  M2 mutations of the SHIPPED nm_transitions source (regex `$` dropped; `^` dropped + match->search; keep_path skip removed) each FAIL a check
+  R1b planted look-alike files (`.keep` suffix, `-pre-t_abc` suffix, another queue's backup), older than every real stamp, survive byte-identical
+  R4 50 future-stamped backups + one write: the reported (oldest) backup survives with the pre-write bytes
+  W1 transitions.py NM park and create_row each prune to exactly 50 (55 planted); daily + .bak-t_x + look-alikes untouched
 """
 import datetime as _dt, json, os, re, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +26,9 @@ def check(n, c, d=""):
     ok.append(bool(c)); print(("PASS " if c else "FAIL ") + n + ((" [%s]" % d) if d else ""), flush=True)
 
 DAY = "2026-11-14"
+# only the regex anchors protect these; all older than any real stamp so a loose regex prunes them first
+LOOKALIKES = [("@Q.bak-nm-20200101-000000.keep", b"keep"), ("@Q.bak-nm-20200101-000000-pre-t_abc", b"pre"), ("other-@Q.bak-nm-20200101-000000", b"other")]
+def look_path(p, suf): return os.path.join(os.path.dirname(p), suf.replace("@Q", os.path.basename(p)))
 def row(rid, state="queued"):
     return {"id": rid, "directory": rid.split("nm-fix-")[-1] + ".example", "kind": "fix", "state": state, "cost": "free", "mike_approval": None, "history": [], "vaultwarden_item": "x"}
 def write_q(rows):
@@ -39,19 +45,21 @@ class Clock(_dt.datetime):   # every call is one second later: stamps sort in wr
         cls.t += _dt.timedelta(seconds=1); return cls(cls.t.year, cls.t.month, cls.t.day, cls.t.hour, cls.t.minute, cls.t.second)
 real_dt = NM.datetime.datetime
 
-def fifty_five(prune=None):
+def fifty_five(prune=None, mod=None):
+    mod = mod or NM
     """55 NM writes (flip one row between two states); returns (queue path, list of reported backups, planted bytes)."""
     Clock.t = _dt.datetime(2026, 11, 14, 9, 0, 0)
     p = write_q([row("nm-fix-a")])
     daily = p + ".bak-nm-" + DAY; card = p + ".bak-t_x"
     open(daily, "wb").write(b"daily"); open(card, "wb").write(b"card")
+    for suf, body in LOOKALIKES: open(look_path(p, suf), "wb").write(body)
     outs = []
     if prune: NM.prune_backups_real, NM.prune_backups = NM.prune_backups, prune
     NM.datetime.datetime = Clock
     try:
         for i in range(55):
             q = json.load(open(p)); q["fix_queue"][0]["state"] = "queued"; q["fix_queue"][0]["history"] = []; json.dump(q, open(p, "w"))
-            outs.append(NM.record_transition("NM", "nm-fix-a", "skipped", None, "n%d" % i, queue_path=p, today=DAY)["backup"])
+            outs.append(mod.record_transition("NM", "nm-fix-a", "skipped", None, "n%d" % i, queue_path=p, today=DAY)["backup"])
     finally:
         NM.datetime.datetime = real_dt
         if prune: NM.prune_backups = NM.prune_backups_real
@@ -64,23 +72,48 @@ def r1_checks(p, outs):
             ("R1 they are the newest 50 reported backups", left == sorted(os.path.basename(o) for o in outs[-50:])),
             ("R1 daily .bak-nm-<day> untouched", os.path.exists(daily) and raw(daily) == b"daily"),
             ("R1 planted .bak-t_x untouched", os.path.exists(card) and raw(card) == b"card"),
+            *[("R1b look-alike %s untouched" % suf.split("bak-nm-")[1], os.path.exists(look_path(p, suf)) and raw(look_path(p, suf)) == body) for suf, body in LOOKALIKES],
             ("R3 the last reported backup still exists", os.path.exists(outs[-1]))]
 
 p, outs = fifty_five()
 for n, c, *d in r1_checks(p, outs): check(n, c, *(str(x) for x in d))
 
-# M2 mutation: anchor removed -> the daily file matches and gets pruned
-def unanchored(path, keep_path=None, keep=None):
-    keep = 50 if keep is None else keep
-    d, base = os.path.split(path)
-    pat = re.compile(re.escape(base) + r"\.bak-nm-")   # no ^...$ anchor, no stamp shape
-    found = sorted(os.path.join(d, n) for n in os.listdir(d) if pat.search(n))
-    for f in found[:-keep]:
-        if keep_path and os.path.abspath(f) == os.path.abspath(keep_path): continue
-        os.remove(f)
-mp, mouts = fifty_five(prune=unanchored)
-check("M2 mutant without the regex anchor fails at least one R1 check", not all(c for _, c, *_d in r1_checks(mp, mouts)),
-      [n for n, c, *_d in r1_checks(mp, mouts) if not c])
+# M2 real source mutations: compile the shipped nm_transitions.py with edits into a fresh module; the scenarios must catch each
+import types
+NM_PATH = os.path.join(HERE, "..", "job", "nm_transitions.py")
+NM_SRC = open(NM_PATH, encoding="utf-8").read()
+def mutated(*edits):
+    src = NM_SRC
+    for old, new in edits:
+        assert src.count(old) == 1, "mutation target not found exactly once: " + old
+        src = src.replace(old, new)
+    m = types.ModuleType("nm_transitions_mut"); m.__file__ = NM_PATH
+    exec(compile(src, NM_PATH, "exec"), m.__dict__); return m
+RX_END = r'(?:-(\d+))?$")'
+RX_START = 'r"^" + re.escape(base)'
+KEEP_SKIP = "if keep_path and os.path.abspath(f) == os.path.abspath(keep_path): continue"
+check("M2 control: unmutated recompiled source passes every R1 check", all(c for _, c, *_d in r1_checks(*fifty_five(mod=mutated()))))
+for label, edits in [("M2a regex `$` dropped", [(RX_END, RX_END.replace("$", ""))]),
+                     ("M2b regex `^` dropped and match->search", [(RX_START, "re.escape(base)"), ("m = pat.match(name)", "m = pat.search(name)")])]:
+    mp, mouts = fifty_five(mod=mutated(*edits))
+    bad = [n for n, c, *_d in r1_checks(mp, mouts) if not c]
+    check(label + " (shipped source) fails an R1/R1b check", bool(bad), bad)
+
+# R4 never prune the reported backup: 50 future-stamped backups, so this call's own backup sorts oldest
+def r4(mod):
+    Clock.t = _dt.datetime(2026, 11, 14, 9, 0, 0)
+    p = write_q([row("nm-fix-a")])
+    for i in range(50): shutil.copyfile(p, "%s.bak-nm-20991231-0000%02d" % (p, i))
+    pre = raw(p); NM.datetime.datetime = Clock
+    try: out = mod.record_transition("NM", "nm-fix-a", "skipped", None, "n", queue_path=p, today=DAY)
+    finally: NM.datetime.datetime = real_dt
+    b = out["backup"]
+    return [("R4 reported backup is the oldest stamp (scenario valid)", b and os.path.basename(b) < os.path.basename(p) + ".bak-nm-20991231"),
+            ("R4 reported backup still exists", bool(b) and os.path.exists(b)),
+            ("R4 reported backup holds the pre-write bytes", bool(b) and os.path.exists(b) and raw(b) == pre)]
+for n, c in r4(NM): check(n, c)
+bad = [n for n, c in r4(mutated((KEEP_SKIP, "pass"))) if not c]
+check("M2c keep_path skip removed (shipped source) fails an R4 check", bool(bad), bad)
 
 # R2 a prune that raises does not fail the write
 real_prune = NM.prune_backups
@@ -149,6 +182,23 @@ check("P2 create_row dry run: backup None, nothing created, queue unchanged", cd
 pp = write_q([row("nm-fix-a")]); hp = raw(pp)
 rd = T.record_transition("NM", "nm-fix-a", "needs-human", None, "n", queue_path=pp, today=DAY, portal=FP(), verify_type="phone-call", observation=YO.obs("phone-call", DAY), allowlist_path=LOCAL, vault_item="x", dry_run=True)
 check("P2 park dry run: backup None (or absent), nothing created", rd.get("backup") is None and perwrite(pp) == [] and raw(pp) == hp)
+
+# W1 transitions.py writers are bounded: 55 planted per-write backups, then ONE real park / ONE real create_row -> exactly 50 remain
+def w1(action):
+    p = write_q([row("nm-fix-a")])
+    planted = ["%s.bak-nm-20200101-%06d" % (p, i) for i in range(55)]
+    for f in planted: open(f, "wb").write(b"old")
+    card = p + ".bak-t_x"; open(card, "wb").write(b"card")
+    for suf, body in LOOKALIKES: open(look_path(p, suf), "wb").write(body)
+    pre = raw(p); out = action(p)
+    left = perwrite(p); b = out.get("backup")
+    return [("W1 exactly 50 per-write backups remain (55 planted + 1 new)", len(left) == 50, len(left)),
+            ("W1 the reported backup is kept and holds the pre-write bytes", bool(b) and os.path.exists(b) and raw(b) == pre),
+            ("W1 the 6 oldest planted files are the ones pruned", not any(os.path.exists(f) for f in planted[:6]) and all(os.path.exists(f) for f in planted[6:])),
+            ("W1 daily .bak-nm-<day> exists (created by the call) and .bak-t_x untouched", os.path.exists(p + ".bak-nm-" + DAY) and os.path.exists(card) and raw(card) == b"card"),
+            ("W1 look-alikes untouched", all(os.path.exists(look_path(p, s)) and raw(look_path(p, s)) == bd for s, bd in LOOKALIKES))]
+for name, act in [("park", lambda p: park(p, "nm-fix-a")), ("create_row", lambda p: T.create_row("NM", "new.example", "fix", queue_path=p, today=DAY))]:
+    for n, c, *d in w1(act): check(name + " " + n, c, *(str(x) for x in d))
 
 # M1 mutation: the old reuse in transitions.py (shared function replaced by daily copy-if-absent, reported either way)
 def old_reuse(path, day):
