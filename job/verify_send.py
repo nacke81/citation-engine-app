@@ -50,6 +50,18 @@ AGENT_GRACE_S = 60        # a closed request: the agent gets this long to exit o
 AGENT_TICK_S = 5
 LOCK_TRIES, LOCK_WAIT_S = 4, 2   # a bridge probe holds the tenant lock for a blink; do not let that defer a real run (Nate stop 7)
 COLLECTION = "Citations"
+# t_45fe02d4: the ONE record of which browser a tenant's agent run uses (profile dir under %LOCALAPPDATA%/citation-engine, CDP port). NM never gets the SCC profile.
+TENANT_BROWSER = {"NM": ("nm-chrome-profile", 9334), "SCC": ("build-profile", 9333)}
+
+
+class BrowserError(Exception): pass
+
+
+def tenant_browser(biz):
+    """-> (profile dir, port, cdp url) for a tenant code. An unknown tenant raises: no browser, no run."""
+    if biz not in TENANT_BROWSER: raise BrowserError("no browser configured for tenant")
+    name, port = TENANT_BROWSER[biz]
+    return os.path.expandvars("%LOCALAPPDATA%/citation-engine/" + name), port, "http://127.0.0.1:%d" % port
 FILL_JS = os.environ.get("CE_FILL_JS") or os.path.expandvars("%LOCALAPPDATA%/hermes/profiles/citation-submitter/skills/devops/vaultwarden-cli-write/scripts/vaultwarden-cli-fill.js")
 LIVE_STATUSES = ("code_sent", "checking")   # request states in which this run still owns the poll
 POLL_EVERY_S = 10
@@ -204,7 +216,7 @@ def helper_command():
 
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
-SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n")
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser.\n")
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
 
@@ -251,7 +263,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         phone_step = "2. Go to the phone verification step. Before the send step (playbook step %d), check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
     if signup:
-        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n")
+        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser.\n")
         # t_3223ee18: n is the playbook's own send step (computed above), never "the Sign up click"
         phone_step = "2. Before the send step (playbook step %d), check the phone shown in the form against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
@@ -263,7 +275,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
     helper = helper_command()
     step4 = (STEP4_MARKED if n else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
-    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2]}
+    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "cdp": tenant_browser(biz)[2]}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
@@ -428,6 +440,28 @@ class Runtime:
                 pw.stop()
 
 
+    @contextlib.contextmanager
+    def agent_browser(self, tenant):
+        """t_45fe02d4: the tenant's persistent Chrome (profile + port from TENANT_BROWSER) for the agent. Port already listening: its process must carry THIS
+        tenant's --user-data-dir (else BrowserError, nothing started); it is reused and left running. Not listening: OwnedChrome on that profile and port,
+        closed on exit, profile kept."""
+        import build_chrome as BC
+        from owned_chrome import OwnedChrome
+        prof, port, url = tenant_browser(tenant[0])
+        pids = BC.listener_pids(port)
+        if pids:
+            procs = {q["pid"]: q["cmd"] for q in BC.list_procs()}
+            want = os.path.normcase(os.path.normpath(prof))
+            def has_profile(cmd):
+                m = re.search(r'--user-data-dir=(?:"([^"]+)"|(\S+))', cmd or "")
+                return bool(m) and os.path.normcase(os.path.normpath(m.group(1) or m.group(2))) == want
+            if not all(has_profile(procs.get(pid)) for pid in pids):
+                raise BrowserError("port %d is held by a process with another profile" % port)
+            yield url
+            return
+        with OwnedChrome(profile=prof, port=port) as oc:
+            yield oc.cdp_url
+
     def write_back(self, request_id, domain, note=None):
         """t_eae8e59f: the bridge (this process holds the Directory DB access, the agent has none) proves the verify playbook after an accepted code."""
         import directories as D, playbook_proven as PP
@@ -573,6 +607,15 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
             PB.send_step_number(playbook["steps"], bool(playbook.get("send_is_signup")))   # t_3223ee18 / t_8b8c2650: no marked send step (signup or sign-in) = no agent
         except PB.PlaybookError as e:   # a playbook that cannot be filled never reaches the agent
             log("playbook not usable: %s" % e); return end("failed", "send_failed")
+    with contextlib.ExitStack() as stack:   # t_45fe02d4: the tenant's Chrome is up BEFORE the agent starts and closed after it (profile kept)
+        try:
+            if hasattr(rt, "agent_browser"): stack.enter_context(rt.agent_browser(tenant))
+        except (BrowserError, OSError, RuntimeError) as e:
+            log("agent browser not available: %s" % (e if isinstance(e, BrowserError) else type(e).__name__)); return end("failed", "send_failed")
+        return _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook)
+
+
+def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook):
     try:
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
         agent = rt.launch_agent(rt.write_prompt(request_id, prompt))
