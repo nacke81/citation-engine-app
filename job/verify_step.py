@@ -5,6 +5,7 @@ process reads it from the portal env pointer, the agent only sees stdout and the
   python job/verify_step.py code   --request-id X [--wait-s 540]               waits up to --wait-s (max 540) per call, prints the code ONLY on stdout
   python job/verify_step.py result --request-id X --outcome accepted|rejected  the Directory accepted or rejected the typed code
   python job/verify_step.py stage  --request-id X --name signed_in             scoreboard: the sign-in just finished (before the send)
+  python job/verify_step.py note   --request-id X --text "..."                     one line: what in the playbook was wrong (no values; max 400 chars)
   python job/verify_step.py trace  --request-id X --action goto|click|fill|press --url U [--selector S]   one step before the send (promotion trace)
 
 Exit codes: 0 done | 2 bad arguments | 3 superseded (the client asked for a new code or the portal closed the request: stop, do not finish) |
@@ -162,6 +163,30 @@ def step_stage(request_id, name, portal, now_dt=None):
     return OK
 
 
+NOTE_STATES = ("starting", "code_sent", "checking")
+
+
+def clean_note_text(text):
+    """-> the one-line note, or None when it is empty, over NOTE_MAX, or carries a value (6+ digit run, email, phone, code/password assignment)."""
+    import playbook as PB
+    if not isinstance(text, str): return None
+    t = re.sub(r"\s+", " ", text).strip()
+    if not t or len(t) > SB.NOTE_MAX: return None
+    try: PB._check_text("note", t)
+    except PB.PlaybookError: return None
+    return t
+
+
+def step_note(request_id, text, portal):
+    """t_eae8e59f: the agent's note on the stored playbook, kept in the request's stage file. The bridge writes it into the playbook only after an
+    accepted result. The text is never logged or echoed; a refused note stores nothing."""
+    req, _row = _claimed(portal, request_id, NOTE_STATES)
+    if not req: return REFUSED
+    t = clean_note_text(text)
+    if t is None: log("note refused (empty, over %d chars, or it carries a value)" % SB.NOTE_MAX); return REFUSED
+    return OK if SB.set_note(request_id, t) else REFUSED
+
+
 def clean_url(url):
     """http(s) only, query and fragment dropped (a code or token can ride there)."""
     p = urlsplit(str(url or "").strip())
@@ -222,11 +247,12 @@ def _closed_by_portal(portal, request_id):
 def main(argv=None, portal=None, rpc=None, out=None):
     a = argparse.ArgumentParser(description="Verify Now agent helper")
     sub = a.add_subparsers(dest="cmd", required=True)
-    for name in ("sent", "code", "result", "stage", "trace"):
+    for name in ("sent", "code", "result", "stage", "trace", "note"):
         s = sub.add_parser(name); s.add_argument("--request-id", required=True)
         if name == "stage": s.add_argument("--name", required=True, choices=tuple(STAGE_NAMES))
         if name == "trace":
             s.add_argument("--action", required=True, choices=TRACE_ACTIONS); s.add_argument("--url", required=True); s.add_argument("--selector", default="")
+        if name == "note": s.add_argument("--text", required=True)
         if name == "sent": s.add_argument("--masked", required=True)
         if name == "code": s.add_argument("--wait-s", type=int, default=WAIT_DEFAULT_S)
         if name == "result": s.add_argument("--outcome", required=True, choices=("accepted", "rejected"))
@@ -242,6 +268,7 @@ def main(argv=None, portal=None, rpc=None, out=None):
     rpc = rpc or B.VerifyRpc(portal)
     if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc)
     if n.cmd == "stage": return step_stage(n.request_id, n.name, portal)
+    if n.cmd == "note": return step_note(n.request_id, n.text, portal)
     if n.cmd == "trace": return step_trace(n.request_id, n.action, n.url, n.selector, portal)
     if n.cmd == "code": return step_code(n.request_id, portal, rpc, out, wait_s=n.wait_s)
     return step_result(n.request_id, n.outcome, portal, rpc)

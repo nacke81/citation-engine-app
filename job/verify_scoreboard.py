@@ -81,6 +81,42 @@ def stamp(rid, stage, at=None, **meta):
         _log("stamp skipped: %s" % type(e).__name__); return False
 
 
+NOTE_MAX = 400
+
+
+def set_note(rid, text):
+    """t_eae8e59f: the agent's one-line playbook note, kept in the request's stage file (last write wins). The caller validates the text. -> bool."""
+    try:
+        rid = _clean_rid(rid)
+        if not rid or not isinstance(text, str): return False
+        f = _stage_file(rid)
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        cur = {}
+        if os.path.exists(f):
+            with open(f, encoding="utf-8") as h: cur = json.load(h)
+        cur["playbook_note"] = text[:NOTE_MAX]
+        tmp = f + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as h: json.dump(cur, h)
+        os.replace(tmp, f)
+        return True
+    except Exception as e:
+        _log("note skipped: %s" % type(e).__name__); return False
+
+
+def take_note(rid):
+    """Read the note once and drop what is left of the stage file (a finalized `verified` run leaves only the note). -> text or None."""
+    try:
+        rid = _clean_rid(rid)
+        f = _stage_file(rid) if rid else None
+        if not f or not os.path.exists(f): return None
+        with open(f, encoding="utf-8") as h: cur = json.load(h)
+        note = cur.get("playbook_note")
+        if set(cur) <= {"playbook_note"}: os.remove(f)
+        return note if isinstance(note, str) and note else None
+    except Exception as e:
+        _log("take_note skipped: %s" % type(e).__name__); return None
+
+
 def finalize(rid, outcome, at=None):
     """Append the one row for `rid` (outcome = verified | failed:<code> | could_not_start:<code> | superseded). No stage file = nothing to report."""
     try:
@@ -98,7 +134,11 @@ def finalize(rid, outcome, at=None):
         p = path()
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "a", encoding="utf-8") as h: h.write(json.dumps(row, separators=(",", ":")) + "\n")
-        os.remove(f)
+        note = cur.get("playbook_note")
+        if note and str(outcome) == "verified":   # the bridge's proven write-back runs after this; it reads the note once with take_note()
+            with open(f, "w", encoding="utf-8") as h: json.dump({"playbook_note": note}, h)
+        else:
+            os.remove(f)
         return True
     except Exception as e:
         _log("finalize skipped: %s" % type(e).__name__); return False

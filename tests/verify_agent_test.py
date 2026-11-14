@@ -213,7 +213,7 @@ m = re.match(r'^"([^"]+)" "([^"]+)"$', hc)
 check("helper_command is the interpreter and the helper, both quoted absolute paths that exist", bool(m) and os.path.isabs(m.group(1)) and os.path.isabs(m.group(2)) and os.path.exists(m.group(1)) and os.path.exists(m.group(2)) and os.path.basename(m.group(2)) == "verify_step.py", hc)
 check("helper_command is the running interpreter (sys.executable) and has no backslashes", m and os.path.normcase(os.path.abspath(m.group(1))) == os.path.normcase(os.path.abspath(sys.executable)) and "\\" not in hc)
 pr = S.build_prompt(F.RID, F.request(), F.verification(), B.directory_entry("cylex.us", "sms"), ("NM", "o", "i", "u"), MASK, "x")
-check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 6, pr.count(hc))   # sent, code, result + the scoreboard's trace, stage signed_in and stage ready
+check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 7, pr.count(hc))   # sent, code, result + the scoreboard's trace, stage signed_in, stage ready and the playbook note
 check("prompt: code step says terminal timeout 600, exit 6 means run again, 3 and 4 mean stop", "timeout set to 600" in pr and "Exit 6" in pr and "run the same command again" in pr and "Exit 3" in pr and "exit 4" in pr)
 
 # ---- 8 an empty status read is a miss, not 'superseded' (Nate stop 5) -----------------------------------------------------------------
@@ -334,7 +334,7 @@ rtr = S.Runtime(popen=FakeProc, runner=lambda argv, **kw: seen.setdefault("kill"
 h = rtr.launch_agent("C:/x/prompt.txt")
 exe = seen["argv"][0]
 check("oneshot argv is `hermes -p citation-submitter chat --query-file <file> --oneshot`", os.path.basename(exe).lower().startswith("hermes") and seen["argv"][1:] == ["-p", "citation-submitter", "chat", "--query-file", "C:/x/prompt.txt", "--oneshot"], seen["argv"])
-check("the oneshot's env has no service-role variable and its output is not kept", all("SERVICE_ROLE" not in k.upper() for k in seen["kw"]["env"]) and seen["kw"]["stdout"] == subprocess.DEVNULL and seen["kw"]["stderr"] == subprocess.DEVNULL)
+check("the oneshot's env has no service-role variable and its stdout and stderr are dropped (no pipe, no reader thread: t_eae8e59f round 2)", all("SERVICE_ROLE" not in k.upper() for k in seen["kw"]["env"]) and seen["kw"]["stdout"] == subprocess.DEVNULL and seen["kw"]["stderr"] == subprocess.DEVNULL and not hasattr(h, "note"))
 check("the oneshot is launched with cwd = the repo root (the app clone) and TERMINAL_CWD set to it", os.path.normcase(seen["kw"]["cwd"]) == os.path.normcase(S.REPO_ROOT) and os.path.exists(os.path.join(seen["kw"]["cwd"], "job", "verify_step.py")) and seen["kw"]["env"].get("TERMINAL_CWD") == S.REPO_ROOT, seen["kw"].get("cwd"))
 h.kill(); h.kill()
 check("kill ends the whole tree (taskkill /T on Windows, kill elsewhere) and is idempotent", (seen.get("kill", [None])[:3] == ["taskkill", "/F", "/T"]) if os.name == "nt" else (h.proc.killed >= 1 and h.poll() == -9))

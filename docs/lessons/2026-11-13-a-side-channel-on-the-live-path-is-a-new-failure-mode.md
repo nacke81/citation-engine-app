@@ -1,0 +1,3 @@
+# Lesson 2026-11-13: a side channel on the live path is a new failure mode
+
+I read the agent's stdout on a daemon thread to catch one note line. Review caught it: if the reader stops, or the parent exits first, the agent's writes block or break, on the run Mike clicks live. Evidence should leave the agent through the channel it already has (the validated helper, one stage file the bridge reads after the gate), never through a new pipe on the send path. Rule: when adding evidence capture to a live run, extend the existing narrow command, keep process plumbing (stdout/stderr/stdin) unchanged, and add a mutation that proves the validator is what refuses a value.

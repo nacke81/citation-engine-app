@@ -212,8 +212,9 @@ PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there 
 # writes the playbook itself: the trace it logged is the evidence, and `playbook.py from-trace --proven` (run by the owner after an accepted result)
 # turns it into the verify playbook. last_proven_at is set only by that accepted run.
 WRITE_BACK_STEP = ("8. Playbook note (last thing you do, then end the session): the stored steps for this site are one shared record. You cannot write it. "
-                   "If a step above was wrong, missing or out of order, end your final message with one line `PLAYBOOK-NOTE: <what changed>` (no values, no codes). "
-                   "If every step worked as written, end with `PLAYBOOK-NOTE: ok`. The trace you logged is turned into the verify playbook only when the result is accepted.\n")
+                   "If a step above was wrong, missing or out of order, run once: %(helper)s note --request-id %(rid)s --text \"<what changed>\" "
+                   "(one line, max 400 chars, no values, no codes; a note with a long number, an email or a phone is refused). Never print the note instead. "
+                   "Skip it if every step worked as written. The trace you logged is turned into the verify playbook only when the result is accepted.\n")
 
 
 def playbook_block(playbook):
@@ -280,7 +281,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "- If you are unsure at any step, stop. The run turns an unfinished request into a safe failure.\n"
         % {"rid": request_id, "biz": biz, "dom": entry["domain"], "ch": ch, "how": how, "url": row.get("directory_url") or entry["signin_url"],
            "sign_in": sign_in % fmt, "phone_step": phone_step, "step4": step4, "rules": rules % fmt, "pb": pb_txt, "item": tenant[2],
-           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper, "wb": WRITE_BACK_STEP})
+           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper, "wb": WRITE_BACK_STEP % {"helper": helper, "rid": request_id}})
 
 
 # ---- runtime (everything with a side effect outside the page) ----------------------------------------------------------------------
@@ -415,6 +416,12 @@ class Runtime:
                 yield page, oc.cdp_url
             finally:
                 pw.stop()
+
+
+    def write_back(self, request_id, domain, note=None):
+        """t_eae8e59f: the bridge (this process holds the Directory DB access, the agent has none) proves the verify playbook after an accepted code."""
+        import directories as D, playbook_proven as PP
+        return PP.write_proven(D.DirDB(), request_id, domain, os.path.join(SB._dir(), "verify-traces"), note, log=log)
 
 
 def set_live(portal, row, client_id, now=None):
@@ -579,7 +586,11 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
         agent.kill()   # idempotent; every way out of this function leaves no oneshot (or its children) behind
     st = _status(portal, request_id)
     if st == "verified":
-        log("done %s verified (finished by the helper)" % request_id); return "verified"
+        log("done %s verified (finished by the helper)" % request_id)
+        if hasattr(rt, "write_back"):   # accepted only: rejected, failed, superseded and unknown never reach this line
+            try: log("playbook write-back: %s" % rt.write_back(request_id, entry["domain"], SB.take_note(request_id)))
+            except Exception as e: log("playbook write-back failed: %s" % type(e).__name__)   # never changes the run's result
+        return "verified"
     if st in ("failed", "could_not_start"):
         log("done %s closed by the helper or the portal" % request_id); return "closed"
     if st in ("starting", "requested"):
