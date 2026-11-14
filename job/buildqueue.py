@@ -19,6 +19,9 @@ for _s in PORTAL_STATES:
     QUEUE_TO_PORTAL[_s] = _s
 
 
+SKIPPED = "skipped"   # terminal, NM rows only (t_5ddb67a4): ruled not worth building. Not a portal state; every batch reader leaves it alone.
+
+
 class QueueError(Exception):
     pass
 
@@ -33,7 +36,7 @@ def parse_rows(q):
     if len(set(ids)) != len(ids) or not all(ids):
         raise QueueError("queue row ids missing or duplicated")
     for r in rows:
-        if r.get("state") not in QUEUE_TO_PORTAL:
+        if r.get("state") not in QUEUE_TO_PORTAL and not (r.get("state") == SKIPPED and is_nm_row(r)):   # skipped: NM rows only (t_5ddb67a4)
             raise QueueError("row %s has invalid state %r" % (r["id"], r.get("state")))
         if not r.get("directory"):
             raise QueueError("row %s has no directory" % r["id"])

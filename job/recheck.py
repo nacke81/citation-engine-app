@@ -936,6 +936,7 @@ def candidates(q, include_live=False, only=None, today=None, any_state=False):
     states = WAITING + (("live",) if include_live else ())
     for _key, kind, rows in T._row_lists(q):
         for r in rows:
+            if r.get("state") == Q.SKIPPED: continue   # t_5ddb67a4: terminal, never read, not even by --any-state
             if (any_state or r.get("state") in states) and r.get("directory") and (not only or r["id"] in only):
                 if W.is_stopped(r):  # hard-block cap (t_fccbb7ef): a STOPPED row is not touched until Mike resets it
                     print("SKIP %s (%s): hard-block STOPPED, waiting on Mike" % (r.get("directory"), r.get("id"))); continue

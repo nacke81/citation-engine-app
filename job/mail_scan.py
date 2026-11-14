@@ -390,7 +390,7 @@ def select_rows(all_rows, wanted, today, historical=False):
     """Pure selection; historical is explicitly scoped and ignores due dates without changing any row."""
     candidates = [r for r in all_rows if r.get("directory") in wanted]
     if historical:
-        selected = [r for r in candidates if r.get("state") not in ("live", "rejected")]
+        selected = [r for r in candidates if r.get("state") not in ("live", "rejected", Q.SKIPPED)]
     else:
         selected = [r for r in candidates if r.get("state") in ("submitted", "pending-verify", "found", "created-unlisted") and not Q.not_due(r, today)]
     return selected, len(candidates) - len(selected)

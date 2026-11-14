@@ -1,5 +1,7 @@
 """NM queue state writer (kanban t_00a75d04 r2). The ONE writer for NM queue HISTORY from a build run (no portal). A park (needs-human + --verify-type: Your turn row + Verify Now allowlist) goes through `transitions.py --client NM` (t_cb7bad04), never here, so nothing writes twice.
 
+  python job/nm_transitions.py --row nm-fix-bbb --to skipped --note "ruling: why" [--clear-recheck]   (t_5ddb67a4: `skipped` is terminal, NM only, from needs-human / pending-verify / queued; clears recheck_due; no batch tool reads it again.)
+  --clear-recheck drops the old recheck_due on a park with no new date (explicit flag, never implicit); refused with --recheck-due.
   python job/nm_transitions.py --row nm-fix-bbb --to submitted --note "submitted via build queue" [--evidence URL] [--listing-url URL] [--queue PATH] [--dry-run]
 
 Same state matrix as transitions.check_transition (queued -> submitted, submitted -> pending-verify/live, ... ), a history entry with a note on every move,
@@ -19,12 +21,15 @@ NM_QUEUE_NAME = "nm-fix-queue.json"
 DEFAULT_NM_QUEUE = os.environ.get("CE_NM_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/queue/" + NM_QUEUE_NAME)
 
 
+SKIP_FROM = ("needs-human", "pending-verify", "queued")   # NM "pending" = pending-verify, NM "new" = queued
+
+
 class NMTransitionRefused(T.TransitionRefused):
     pass
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, dry_run=False,
-                      listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, **unsupported):
+                      listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, clear_recheck=False, **unsupported):
     """Same call shape as transitions.record_transition for the arguments a build records. Returns {"dry_run", "row_id", "from", "to", "history_entry", "backup"}."""
     if client != "NM":
         raise NMTransitionRefused("this writer is NM only, got %r (SCC rows go through transitions.py)" % (client,))
@@ -42,7 +47,17 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     Q.parse_rows(q)
     row = T._find(q, row_id)
     old = row["state"]
-    T.check_transition(old, new_state, note, reason, refresh_url)
+    if clear_recheck and recheck_due:
+        raise NMTransitionRefused("--clear-recheck and --recheck-due together: pick one")
+    if new_state == Q.SKIPPED:   # t_5ddb67a4: terminal, NM only. T.STATES stays closed, so the SCC writer still refuses it; a skipped row has no way out (old not in STATES)
+        if old not in SKIP_FROM:
+            raise NMTransitionRefused("transition %s -> skipped is not allowed (from %s only)" % (old, ", ".join(SKIP_FROM)))
+        if reason or refresh_url:
+            raise NMTransitionRefused("--reason / --refresh-url do not apply to skipped")
+        if recheck_due:
+            raise NMTransitionRefused("a skipped row has no recheck date")
+    else:
+        T.check_transition(old, new_state, note, reason, refresh_url)
     evidence_url = T.check_evidence(evidence_url, new_state)
     listing_url = T.check_evidence(listing_url, "submitted") if listing_url else None
     guard = (copy.deepcopy(row.get("approval")), copy.deepcopy(row.get("mike_approval")))
@@ -51,7 +66,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if evidence_url: new_row["evidence_url"] = evidence_url
     if listing_url: new_row["listing_url"] = listing_url
     if listing_id: new_row["listing_id"] = str(listing_id)
-    if old != new_state: new_row.pop("recheck_due", None)
+    if old != new_state or clear_recheck or new_state == Q.SKIPPED: new_row.pop("recheck_due", None)   # --clear-recheck: a dateless park drops the old date
     if recheck_due:
         import re
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(recheck_due)): raise NMTransitionRefused("recheck_due must be YYYY-MM-DD")
@@ -80,12 +95,13 @@ def main(argv=None):
     ap.add_argument("--listing-url")
     ap.add_argument("--listing-id")
     ap.add_argument("--recheck-due")
+    ap.add_argument("--clear-recheck", action="store_true", help="drop the row's old recheck_due (a park with no new date); refused with --recheck-due")
     ap.add_argument("--queue", default=DEFAULT_NM_QUEUE)
     ap.add_argument("--dry-run", action="store_true")
     n = ap.parse_args(argv)
     try:
         res = record_transition("NM", n.row, n.to, n.evidence, n.note, queue_path=n.queue, dry_run=n.dry_run,
-                                listing_url=n.listing_url, listing_id=n.listing_id, recheck_due=n.recheck_due)
+                                listing_url=n.listing_url, listing_id=n.listing_id, recheck_due=n.recheck_due, clear_recheck=n.clear_recheck)
     except (T.TransitionRefused, Q.QueueError) as e:
         print("REFUSED: %s" % e); return 2
     print(json.dumps(res, indent=2)); return 0
