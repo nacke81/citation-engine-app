@@ -5,7 +5,7 @@
   python job/nm_transitions.py --row nm-fix-bbb --to submitted --note "submitted via build queue" [--evidence URL] [--listing-url URL] [--queue PATH] [--dry-run]
 
 Same state matrix as transitions.check_transition (queued -> submitted, submitted -> pending-verify/live, ... ), a history entry with a note on every move,
-a .bak-nm-<day> backup of the file (first write of the day) and an atomic write. It writes the NM queue file ONLY: no portal, no Activities, no Local SEO,
+a per-write .bak-nm-<YYYYMMDD-HHMMSS>[-n] backup of the file (plus the daily .bak-nm-<day> if absent) and an atomic write. It writes the NM queue file ONLY: no portal, no Activities, no Local SEO,
 no Directory database, never the SCC queue. Refused before any write: a queue file that is not nm-fix-queue.json, a row id that is not an `nm-` row or does
 not exist, a client other than NM, a missing note, a move the matrix refuses. `approval` and `mike_approval` are never touched.
 buildqueue.submit_row(live=True) calls record_transition("NM", ...) here by default for an NM row.
@@ -78,12 +78,32 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out = {"dry_run": bool(dry_run), "row_id": row_id, "from": old, "to": new_state, "history_entry": entry, "backup": None}
     if dry_run:
         return out
-    backup = "%s.bak-nm-%s" % (path, day)
-    if not os.path.exists(backup):
-        shutil.copyfile(path, backup)
-    out["backup"] = backup
+    out["backup"] = backup_before_write(path, day)
     T._write_atomic(path, q)
     return out
+
+
+def backup_before_write(path, day):
+    """Per-write pre-write backup (t_9cc92bf1). Copies the queue as it is RIGHT NOW to `<path>.bak-nm-<YYYYMMDD-HHMMSS>[-n]`, created exclusively
+    so an earlier backup is never reused or clobbered, and returns that path (always a file this call created). The daily
+    `<path>.bak-nm-<day>` (other tools and tests look for it) is still kept: created if absent, never reported."""
+    daily = "%s.bak-nm-%s" % (path, day)
+    if not os.path.exists(daily):
+        shutil.copyfile(path, daily)
+    with open(path, "rb") as f:
+        data = f.read()
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    n = 0
+    while True:
+        backup = "%s.bak-nm-%s%s" % (path, stamp, "" if n == 0 else "-%d" % n)
+        try:
+            fh = open(backup, "xb")
+        except FileExistsError:
+            n += 1
+            continue
+        with fh:
+            fh.write(data)
+        return backup
 
 
 def main(argv=None):
