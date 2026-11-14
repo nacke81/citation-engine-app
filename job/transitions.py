@@ -454,7 +454,7 @@ def set_verification_live(portal, verification_id, client_id, now=None):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None, vault_items_lookup=None, signin_url=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None, vault_items_lookup=None, signin_url=None, clear_recheck=False):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -511,7 +511,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     new_row["state"] = new_state
     if proof: new_row["proof"] = dict(proof)
     if evidence_url: new_row["evidence_url"] = evidence_url
-    if old != new_state: new_row.pop("recheck_due", None)   # t_d2f75685: a retry-later marker belongs to the state it was set in
+    if clear_recheck and recheck_due: raise TransitionRefused("--clear-recheck and --recheck-due together: pick one")
+    if old != new_state or clear_recheck: new_row.pop("recheck_due", None)   # t_5ddb67a4 --clear-recheck: a dateless park drops the old date. t_d2f75685: a retry-later marker belongs to the state it was set in
     listing_url = check_evidence(listing_url, "submitted") if listing_url else None   # t_3ac43137: the URL the Directory showed at submit (permalink, owner view or confirmation); plain http(s) only
     if listing_url: new_row["listing_url"] = listing_url
     if recheck_due:   # t_6b1e01ff: the earliest day recheck reads this row (foursquare: 2 days after the edit is sent)
@@ -704,6 +705,7 @@ def main(argv=None):
     a.add_argument("--today", default=None)
     a.add_argument("--reason", default=None, help="rejected -> queued only: why a re-create can succeed this time (10+ characters; logged in the row history)")
     a.add_argument("--recheck-due", default=None, help="YYYY-MM-DD: batch tools skip this row until that day (retry later, e.g. a Directory sender limit)")
+    a.add_argument("--clear-recheck", action="store_true", dest="clear_recheck", help="drop the row's old recheck_due (a park with no new date); refused with --recheck-due")
     a.add_argument("--park-reason", default=None, choices=PARK_REASONS, help="needs-human only: why the row is parked by a cap (no-public-permalink: 3 backoffs and still no listing URL)")
     a.add_argument("--refresh-url", action="store_true", help="live -> live only: store --evidence as both evidence_url and listing_url (the Directory moved the listing; needs --note)")
     a.add_argument("--reason-code", default=None, help="needs-human only: the badge the page shows for this row (paid, captcha, cloudflare, bot_wall, site_down, signup_form, nap, ...; job/directories.py REASON_CODES)")
@@ -729,7 +731,7 @@ def main(argv=None):
     if n.write: a.error("--write only applies to --mirror-proof")
     if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code, vault_item=n.vault_item, signin_url=n.signin_url,
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, clear_recheck=n.clear_recheck, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code, vault_item=n.vault_item, signin_url=n.signin_url,
                                 observation=({"observed_type": n.observed_type, "screenshot": n.screenshot, "price_seen": n.price_seen, "observed_at": n.observed_at, "url": n.observed_url, "final_url": n.final_url} if n.verify_type else None))
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)

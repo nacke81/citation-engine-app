@@ -118,7 +118,7 @@ def classify(q, today):
     for r in rows:
         st = r.get("state") or "?"
         counts[st] = counts.get(st, 0) + 1
-        if st in ("live", "rejected"): continue
+        if st in ("live", "rejected", Q.SKIPPED): continue   # t_5ddb67a4: skipped is counted above, never worked
         item = {"row": r["id"], "directory": r.get("directory"), "state": st, "recheck_due": str(r["recheck_due"]) if r.get("recheck_due") else None, "why": None, "opens": None}
         h = human_reason(r)
         if h:
