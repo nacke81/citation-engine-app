@@ -40,16 +40,40 @@ function select(id, label, opts, val) {
   return `<label class="fl"><span>${esc(label)}</span><select data-filter="${id}" data-testid="filter-${id}">${Object.entries(opts).map(([k, v]) => `<option value="${esc(k)}"${k === val ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`;
 }
 
-function listRow(d, open) {
+// Playbooks (t_2cb780c2): the ce_directory_playbooks rows for one Directory, one block per task, in the order we work a site.
+export const PLAYBOOK_TASKS = [['check', 'Check for a listing'], ['create', 'Create'], ['claim', 'Claim'], ['fix', 'Fix'], ['verify', 'Verify']];
+const day = (t) => (t ? String(t).slice(0, 10) : '');
+
+function stepHtml(s) {
+  const u = safeUrl(s && s.url);
+  return `<li>${esc(s && s.text)}${u ? ` <a href="${esc(u)}" rel="noopener noreferrer" target="_blank">${esc(u)}</a>` : ''}${s && s.selector ? ` <code>${esc(s.selector)}</code>` : ''}</li>`;
+}
+
+export function playbookHtml(domain, task, title, pb) {
+  const head = `<h4>${esc(title)}</h4>`;
+  if (!pb || !Array.isArray(pb.steps) || !pb.steps.length) return `<div class="pb" data-testid="pb-${esc(domain)}-${task}">${head}<div class="pbnone">No playbook yet</div></div>`;
+  const proven = pb.last_proven_at ? 'Last proven ' + esc(day(pb.last_proven_at)) : 'Never proven by a run';
+  return `<div class="pb${pb.stale ? ' stale' : ''}" data-testid="pb-${esc(domain)}-${task}">${head}
+    <div class="pbmeta"><span data-testid="pb-proven-${esc(domain)}-${task}">${proven}</span>${pb.stale ? ' <span class="chip stale" data-testid="pb-stale-' + esc(domain) + '-' + task + '">Stale: check before trusting</span>' : ''}${pb.source ? ' <span>Source: ' + esc(pb.source) + '</span>' : ''}${pb.version ? ' <span>v' + esc(pb.version) + '</span>' : ''}${pb.send_is_signup ? ' <span>Send is the signup</span>' : ''}</div>
+    <ol>${pb.steps.map(stepHtml).join('')}</ol></div>`;
+}
+
+export function playbooksHtml(domain, pbs) {
+  const by = {};
+  for (const p of Array.isArray(pbs) ? pbs : []) if (p && p.domain === domain) by[p.task] = p;
+  return `<div class="playbooks" data-testid="playbooks-${esc(domain)}"><h3>Playbooks</h3>${PLAYBOOK_TASKS.map(([t, title]) => playbookHtml(domain, t, title, by[t])).join('')}</div>`;
+}
+
+function listRow(d, open, pbs) {
   return `<div class="row dir${open ? ' open' : ''}" data-testid="dir-${esc(d.domain)}"><button type="button" class="dirhead" data-open="${esc(d.domain)}" aria-expanded="${open}">
       <span class="dn">${esc(d.name)}</span><span class="dd">${esc(d.domain)}</span>
-      <span class="chips">${chip('rt', ROUTE[d.build_route] || d.build_route)}${chip('ac-' + d.agent_access, ACCESS[d.agent_access] || d.agent_access)}${chip('cs', COST[d.cost] || d.cost)}${d.checked_weekly ? chip('wk', 'Weekly') : ''}</span></button>${open ? detailHtml(d) : ''}</div>`;
+      <span class="chips">${chip('rt', ROUTE[d.build_route] || d.build_route)}${chip('ac-' + d.agent_access, ACCESS[d.agent_access] || d.agent_access)}${chip('cs', COST[d.cost] || d.cost)}${d.checked_weekly ? chip('wk', 'Weekly') : ''}</span></button>${open ? detailHtml(d, pbs) : ''}</div>`;
 }
 
 const kv = (k, v) => (v === null || v === undefined || v === '' ? '' : `<div class="kv"><span>${esc(k)}</span><b>${v}</b></div>`);
 const link = (u) => { const s = safeUrl(u); return s ? `<a href="${esc(s)}" rel="noopener noreferrer" target="_blank">${esc(s)}</a>` : ''; };
 
-export function detailHtml(d) {
+export function detailHtml(d, pbs = []) {
   const vm = Array.isArray(d.verification_methods) ? d.verification_methods.join(', ') : '';
   // Client data lives on the company page. This tab links there and shows no status.
   const bizLinks = Object.keys(BIZ).map((b) => `<a class="seescc" data-testid="see-${esc(d.domain)}-${b}" href="#${b}/${esc(d.domain)}">See ${b} status</a>`).join(' ');
@@ -66,10 +90,11 @@ export function detailHtml(d) {
     ${kv('Build route', esc(ROUTE[d.build_route] || d.build_route) + (d.build_route_note ? '. ' + esc(d.build_route_note) : ''))}
     ${kv('Agent access', esc(ACCESS[d.agent_access] || d.agent_access) + (d.agent_blocker ? ': ' + esc(d.agent_blocker) : '') + (d.agent_blocker_seen_on ? ' (last seen ' + esc(d.agent_blocker_seen_on) + ')' : ''))}
     ${kv('Notes', d.notes ? esc(d.notes) : '')}${kv('Last verified', d.last_verified ? esc(d.last_verified) : '')}
-    <div class="kv"><span>Company pages</span><b>${bizLinks}</b></div></div>`;
+    <div class="kv"><span>Company pages</span><b>${bizLinks}</b></div>
+    ${playbooksHtml(d.domain, pbs)}</div>`;
 }
 
-export function directoriesHtml(dirs, _rows, f = DEFAULT_FILTERS, openDomain = '') {
+export function directoriesHtml(dirs, _rows, f = DEFAULT_FILTERS, openDomain = '', playbooks = []) {
   if (!dirs || !dirs.length) return '<div class="card" data-testid="dirs-empty"><b>No Directory data yet.</b> Apply db/002_directories.sql.</div>';
   const shown = sortDirs(filterDirs(dirs, f), f.sort);
   const blocked = dirs.filter((d) => d.agent_access === 'blocked').length;
@@ -80,7 +105,7 @@ export function directoriesHtml(dirs, _rows, f = DEFAULT_FILTERS, openDomain = '
     ${select('sort', 'Sort by', SORTS, f.sort)}</div>`;
   return `<h2>Directories <span class="n" data-testid="dir-count">${shown.length} of ${dirs.length}</span></h2>
     <div class="note">${blocked} blocked for the agent. Tap a Directory for everything we know.</div>${controls}
-    ${shown.length ? shown.map((d) => listRow(d, d.domain === openDomain)).join('') : '<div class="note" data-testid="dirs-none">No Directory matches these filters.</div>'}`;
+    ${shown.length ? shown.map((d) => listRow(d, d.domain === openDomain, playbooks)).join('') : '<div class="note" data-testid="dirs-none">No Directory matches these filters.</div>'}`;
 }
 
 export function tabsHtml(active, runs) {

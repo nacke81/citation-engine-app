@@ -20,15 +20,17 @@ async function load() {
     sb.from('ce_checks').select('*').order('checked_on', { ascending: false }).limit(200).then(must),
   ]);
   // The Directory database is additive: if the migration is not applied yet, the check pages still load.
-  const [dirs, dirStatus] = await Promise.all([
+  const [dirs, dirStatus, playbooks] = await Promise.all([
     sb.from('ce_directories').select('*').order('priority').then(must).catch(() => []),
     sb.from('ce_directory_biz').select('*').then(must).catch(() => []),
+    // t_2cb780c2: playbooks (migration 017). Same client and RLS as ce_directories; additive, no table or no rows -> "No playbook yet".
+    sb.from('ce_directory_playbooks').select('*').order('domain').then(must).catch(() => []),
   ]);
   // Stat cards read the newest footprint_snapshot per client (source citation_engine). Additive: no snapshot access -> the old scan cards show.
   const snapshots = await sb.from('footprint_snapshot').select('client_id,captured_day,payload').eq('source', 'citation_engine').order('captured_day', { ascending: false }).limit(8).then(must).catch(() => []);
   // t_43e88fb7: weekly snapshots for the progress chart. Additive: before migration 012 is applied the chart just says there is no history yet.
   const weekly = await sb.from('ce_weekly_metrics').select('biz,run_id,week_index,captured_on,metrics').order('week_index').limit(500).then(must).catch(() => []);
-  data = { runs, checks, dirs, dirStatus, snapshots: tagSnapshots(snapshots), weekly };
+  data = { runs, checks, dirs, dirStatus, playbooks, snapshots: tagSnapshots(snapshots), weekly };
 }
 
 function home() {
@@ -67,7 +69,7 @@ function bizView(b, target) {
 let dirFilters = { ...DEFAULT_FILTERS }, dirOpen = '';
 function dirView(keepScroll) {
   const y = window.scrollY;
-  app.innerHTML = tabsHtml('directories', data.runs) + directoriesHtml(data.dirs, data.dirStatus, dirFilters, dirOpen);
+  app.innerHTML = tabsHtml('directories', data.runs) + directoriesHtml(data.dirs, data.dirStatus, dirFilters, dirOpen, data.playbooks);
   app.querySelectorAll('[data-filter]').forEach((el) => {
     el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => {
       dirFilters = { ...dirFilters, [el.dataset.filter]: el.value };

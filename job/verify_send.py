@@ -208,6 +208,14 @@ SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwar
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
 
 
+# t_2cb780c2: every directory run ends by saying whether the Directory playbook was right. The agent has no DB access (no service key), so it never
+# writes the playbook itself: the trace it logged is the evidence, and `playbook.py from-trace --proven` (run by the owner after an accepted result)
+# turns it into the verify playbook. last_proven_at is set only by that accepted run.
+WRITE_BACK_STEP = ("8. Playbook note (last thing you do, then end the session): the stored steps for this site are one shared record. You cannot write it. "
+                   "If a step above was wrong, missing or out of order, end your final message with one line `PLAYBOOK-NOTE: <what changed>` (no values, no codes). "
+                   "If every step worked as written, end with `PLAYBOOK-NOTE: ok`. The trace you logged is turned into the verify playbook only when the result is accepted.\n")
+
+
 def playbook_block(playbook):
     """The numbered Directory playbook (already rendered: placeholders filled, no secrets) as prompt lines."""
     lines = []
@@ -262,7 +270,8 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "   Each call waits up to 9 minutes. Exit 0 means the code is on its stdout. Exit 6 means no code yet: run the same command again, as many times as needed (the 30 minute limit does not restart).\n"
         "   Exit 3 means superseded and exit 4 means expired: stop at once. Any other nonzero exit: stop.\n"
         "6. Type the code into the Directory field and nowhere else. Read the page for accepted or rejected.\n"
-        "7. Run: %(helper)s result --request-id %(rid)s --outcome accepted   (or rejected). Then end the session.\n\n"
+        "7. Run: %(helper)s result --request-id %(rid)s --outcome accepted   (or rejected).\n"
+        "%(wb)s\n"
         "Hard rules:\n"
         "- One Directory session through sitegate for this run. Never open a second one and never retry a send.\n"
         "- Never type the code anywhere except the Directory. Never print, log, write, quote or summarize the code.\n"
@@ -271,7 +280,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "- If you are unsure at any step, stop. The run turns an unfinished request into a safe failure.\n"
         % {"rid": request_id, "biz": biz, "dom": entry["domain"], "ch": ch, "how": how, "url": row.get("directory_url") or entry["signin_url"],
            "sign_in": sign_in % fmt, "phone_step": phone_step, "step4": step4, "rules": rules % fmt, "pb": pb_txt, "item": tenant[2],
-           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper})
+           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper, "wb": WRITE_BACK_STEP})
 
 
 # ---- runtime (everything with a side effect outside the page) ----------------------------------------------------------------------

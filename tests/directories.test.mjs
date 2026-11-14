@@ -71,3 +71,51 @@ test("no client name, street or phone in the served Directory view", () => {
   const h = directoriesHtml(SEED, [], DEFAULT_FILTERS, "yelp.com") + SEED.map((d) => detailHtml(d, [])).join("");
   assert.ok(!/\b\d{3}[\s.\-)]*\d{3}[\s.\-]*\d{4}\b/.test(h.replace(/\d{4}-\d{2}-\d{2}/g, "")), "no phone-shaped number");
 });
+
+// ---- Playbooks section (t_2cb780c2) ----
+import { playbooksHtml, PLAYBOOK_TASKS } from "../site/directories.js";
+const TT = { domain: "thumbtack.com", task: "verify", version: 1, send_is_signup: true, source: "run t_9de1c978", last_proven_at: "2026-11-13T18:00:00Z", stale: false,
+  steps: [{ text: "Open the pro signup", url: "https://www.thumbtack.com/pro/signup?category_pk=136256193386480124&zipcode=37066", selector: "#email" }, { text: "Click Continue", selector: "button[type=submit]" }] };
+test("a task with steps shows numbered steps, url link, selector code, proven date, source and version", () => {
+  const h = directoriesHtml([by["yelp.com"], { ...by["yelp.com"], domain: "thumbtack.com", name: "Thumbtack" }], [], DEFAULT_FILTERS, "thumbtack.com", [TT]);
+  assert.match(h, /data-testid="playbooks-thumbtack.com"/);
+  const blk = h.match(/data-testid="pb-thumbtack.com-verify"[\s\S]*?<\/ol>/)[0];
+  assert.equal((blk.match(/<li>/g) || []).length, 2);
+  assert.match(blk, /<ol>/);
+  assert.match(blk, /<a href="https:\/\/www\.thumbtack\.com\/pro\/signup\?category_pk=136256193386480124&amp;zipcode=37066"[^>]*>/);
+  assert.match(blk, /<code>#email<\/code>/);
+  assert.match(blk, /Last proven 2026-11-13/);
+  assert.match(blk, /Source: run t_9de1c978/);
+  assert.match(blk, /v1/);
+  assert.match(blk, /Send is the signup/);
+  assert.ok(!/Stale/.test(blk));
+});
+test("a missing task says No playbook yet, and all five task blocks render in order", () => {
+  const h = playbooksHtml("thumbtack.com", [TT]);
+  const order = [...h.matchAll(/data-testid="pb-thumbtack.com-(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ["check", "create", "claim", "fix", "verify"]);
+  assert.deepEqual(PLAYBOOK_TASKS.map((t) => t[0]), order);
+  assert.equal((h.match(/No playbook yet/g) || []).length, 4);
+  assert.match(h, /Check for a listing/);
+  assert.match(playbooksHtml("x.test", []), /No playbook yet/);
+  assert.equal((playbooksHtml("x.test", undefined).match(/No playbook yet/g) || []).length, 5);
+  // another Directory's row never shows here
+  assert.equal((playbooksHtml("yelp.com", [TT]).match(/No playbook yet/g) || []).length, 5);
+});
+test("step text, selector, source and url are escaped; a javascript: url is no link; a stale row is flagged and says never proven", () => {
+  const evil = { domain: "x.test", task: "claim", version: 2, stale: true, last_proven_at: null, source: "<b>src</b>",
+    steps: [{ text: "<script>alert(1)</script> & \"q\"", url: "javascript:alert(2)", selector: "<img src=x onerror=3>" }, { text: "ok", url: "https://a.example/?a=1&b=<x>" }] };
+  const h = playbooksHtml("x.test", [evil]);
+  assert.ok(!h.includes("<script>") && !h.includes("<img src=x") && !h.includes("<b>src"));
+  assert.ok(!h.includes("javascript:"));
+  assert.match(h, /&lt;script&gt;alert\(1\)&lt;\/script&gt; &amp; &quot;q&quot;/);
+  assert.match(h, /&lt;img src=x onerror=3&gt;/);
+  assert.match(h, /href="https:\/\/a\.example\/\?a=1&amp;b=&lt;x&gt;"/);
+  assert.match(h, /data-testid="pb-stale-x.test-claim"/);
+  assert.match(h, /Never proven by a run/);
+  assert.ok(!/Last proven/.test(h));
+});
+test("Directories render without playbook data (table not applied yet)", () => {
+  const h = directoriesHtml(SEED, [], DEFAULT_FILTERS, "yelp.com");
+  assert.equal((h.match(/No playbook yet/g) || []).length, 5);
+});

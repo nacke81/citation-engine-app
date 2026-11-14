@@ -1,9 +1,11 @@
 """Apply db/schema.sql to the hosted project via the Supabase Management API (idempotent).
-Usage: python db/apply.py <project_ref>   (SUPABASE_ACCESS_TOKEN from the environment; never printed)"""
+Usage: python db/apply.py <project_ref> [migration.sql in db/]   (SUPABASE_ACCESS_TOKEN from the environment; never printed)"""
 import json, os, sys, urllib.request
 
 ref = sys.argv[1]
-sql = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql"), encoding="utf-8").read()
+# Optional 2nd argument: one migration file inside db/ (e.g. 018_playbook_stale.sql). Default stays schema.sql.
+name = os.path.basename(sys.argv[2]) if len(sys.argv) > 2 else "schema.sql"
+sql = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), name), encoding="utf-8").read()
 req = urllib.request.Request(f"https://api.supabase.com/v1/projects/{ref}/database/query", method="POST",
                              data=json.dumps({"query": sql}).encode(),
                              headers={"Authorization": "Bearer " + os.environ["SUPABASE_ACCESS_TOKEN"],
