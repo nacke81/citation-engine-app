@@ -77,6 +77,9 @@ def is_approval(subject, body):
 _OPEN_DOMAINS = False   # set by --mailbox nm-relay only; SCC (listings) keeps the fixed SCAN_DIRECTORIES list
 
 
+NM_ALIASES = {"designrush.com": ("designrush.co",), "goodfirms.co": ("goodfirms.email",)}   # explicit per-directory alias hosts (nm-relay only)
+
+
 def _domain_of(directory):
     """t_5b3b4a3f: the domain a Directory's mail carries. SCC: only SCAN_DIRECTORIES. nm-relay: an unlisted dotted name is its own domain (matched by From domain and link host)."""
     d = SCAN_DIRECTORIES.get(directory)
@@ -95,8 +98,9 @@ def mail_is_from(msg, domain):
     cat = CD.domains()   # None = Catalog unreadable: fail closed, a same-brand From on another host is rejected
     other_site = bool(fh) and not own(fh, domain) and (any(own(fh, d) for d in cat if d != domain) if cat is not None else b in fh.split("."))
     if _OPEN_DOMAINS:   # nm-relay: the From ADDRESS host decides; a display name or lookalike host (notn49.com, n49.com.evil.io) never counts
-        lab = fh.split(".")
-        from_ok = bool(fh) and (own(fh, domain) or (len(lab) >= 2 and lab[-2] == b))   # domain/subdomain, or registrable label is the brand (designrush.co, goodfirms.email)
+        ph = from_domain(msg.get("from") or "").lower().rstrip(".")   # parseaddr addr-spec host only; "-" = none
+        mixed = {h.rstrip(".") for h in re.findall(r"@([a-z0-9.-]+)", frm)} != {ph}   # a second @host anywhere in the From (display-name spoof) rejects it
+        from_ok = ph != "-" and not mixed and any(own(ph, d) for d in (domain, *NM_ALIASES.get(domain, ())))   # domain, subdomain, or explicit alias host; no brand/TLD logic
         return from_ok or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
     return (b in frm and not other_site) or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
 

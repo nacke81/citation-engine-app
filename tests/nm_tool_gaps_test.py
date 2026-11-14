@@ -121,6 +121,13 @@ try:
     for d, frm in (("designrush.com", "DesignRush <no-reply@designrush.co>"), ("goodfirms.co", "GoodFirms <hello@goodfirms.email>")):
         ms = _relay_msgs([_msg(frm)])
         check("G5 real alias %s still matches" % d, M.presence(d, ms)[0] == 1, str(M.presence(d, ms)))
+    for d, frm in (("n49.com", "N49 <reset@n49.xyz>"), ("n49.com", "N49 <reset@n49.email>"), ("brownbook.net", "x <x@brownbook.top>"), ("techbehemoths.com", "x <x@techbehemoths.io>"),
+                   ("n49.com", '"n49.com" <x@evil.io>'), ("n49.com", "noreply@n49.com <x@evil.io>"), ("designrush.com", "x <x@designrush.xyz>"), ("n49.com", "N49 <noreply@designrush.co>")):
+        ms = _relay_msgs([_msg(frm)])
+        check("G8 spoof %s from %s: no presence, no code" % (d, frm), M.presence(d, ms)[0] == 0 and not M.find_reset(d, ms))
+    for d, frm in (("n49.com", "N49 <a@n49.com>"), ("n49.com", "N49 <a@mail.n49.com>"), ("designrush.com", "D <a@mail.designrush.co>")):
+        check("G8 real %s from %s matches" % (d, frm), M.presence(d, _relay_msgs([_msg(frm)]))[0] == 1)
+    check("G8 no brand-label logic left in mail_scan", "lab[-2]" not in open(M.__file__, encoding="utf-8").read())
     check("G6 _domain_of: bare host accepted", M._domain_of("n49.com") == "n49.com")
     check("G6 _domain_of: parenthesised/spaced string opens nothing", M._domain_of("yahoo.com (local.yahoo.com)") is None and M._domain_of("a b.com") is None and M._domain_of("x.com/path") is None)
     ms = _relay_msgs([_msg("Pal <someone@yahoo.com>")])
