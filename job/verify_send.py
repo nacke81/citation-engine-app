@@ -154,38 +154,11 @@ class CylexDriver:
 
 
 # ---- agent path --------------------------------------------------------------------------------------------------------------------
-class NoteReader:
-    """Reads the oneshot's stdout on a thread and keeps ONLY the last `PLAYBOOK-NOTE:` line (t_eae8e59f). Every other line is dropped as it is read:
-    the agent's output is never stored, logged or written, so a code that passed through its context cannot land anywhere."""
-    TAG = b"PLAYBOOK-NOTE:"
-
-    def __init__(self, proc):
-        import threading
-        self.note, self._out = None, getattr(proc, "stdout", None)
-        self._t = threading.Thread(target=self._run, daemon=True); self._t.start()
-
-    def _run(self):
-        try:
-            for line in self._out:
-                i = line.find(self.TAG)
-                if i >= 0: self.note = line[i + len(self.TAG):].decode("utf-8", "replace").strip()[:400]
-        except Exception:
-            pass
-
-    def join(self, timeout=5): self._t.join(timeout)
-
-
 class AgentProc:
     """The running oneshot. kill() ends the WHOLE process tree (on Windows `taskkill /T`): killing only the parent leaves the model's child
     processes running (lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent."""
     def __init__(self, proc, runner=None):
         self.proc, self._run = proc, runner or subprocess.run
-        self._reader = NoteReader(proc) if getattr(proc, "stdout", None) is not None else None
-
-    @property
-    def note(self):
-        if self._reader: self._reader.join(2)
-        return self._reader.note if self._reader else None
 
     def poll(self):
         return self.proc.poll()
@@ -239,8 +212,9 @@ PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there 
 # writes the playbook itself: the trace it logged is the evidence, and `playbook.py from-trace --proven` (run by the owner after an accepted result)
 # turns it into the verify playbook. last_proven_at is set only by that accepted run.
 WRITE_BACK_STEP = ("8. Playbook note (last thing you do, then end the session): the stored steps for this site are one shared record. You cannot write it. "
-                   "If a step above was wrong, missing or out of order, end your final message with one line `PLAYBOOK-NOTE: <what changed>` (no values, no codes). "
-                   "If every step worked as written, end with `PLAYBOOK-NOTE: ok`. The trace you logged is turned into the verify playbook only when the result is accepted.\n")
+                   "If a step above was wrong, missing or out of order, run once: %(helper)s note --request-id %(rid)s --text \"<what changed>\" "
+                   "(one line, max 400 chars, no values, no codes; a note with a long number, an email or a phone is refused). Never print the note instead. "
+                   "Skip it if every step worked as written. The trace you logged is turned into the verify playbook only when the result is accepted.\n")
 
 
 def playbook_block(playbook):
@@ -307,7 +281,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "- If you are unsure at any step, stop. The run turns an unfinished request into a safe failure.\n"
         % {"rid": request_id, "biz": biz, "dom": entry["domain"], "ch": ch, "how": how, "url": row.get("directory_url") or entry["signin_url"],
            "sign_in": sign_in % fmt, "phone_step": phone_step, "step4": step4, "rules": rules % fmt, "pb": pb_txt, "item": tenant[2],
-           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper, "wb": WRITE_BACK_STEP})
+           "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper, "wb": WRITE_BACK_STEP % {"helper": helper, "rid": request_id}})
 
 
 # ---- runtime (everything with a side effect outside the page) ----------------------------------------------------------------------
@@ -388,7 +362,7 @@ class Runtime:
         argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
         env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
         env["TERMINAL_CWD"] = REPO_ROOT   # the agent's terminal starts in the app clone, whatever cwd the bridge had
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)   # stdout only feeds NoteReader (one line kept)
+        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)
         return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
 
     def messages(self, tenant):
@@ -614,7 +588,7 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
     if st == "verified":
         log("done %s verified (finished by the helper)" % request_id)
         if hasattr(rt, "write_back"):   # accepted only: rejected, failed, superseded and unknown never reach this line
-            try: log("playbook write-back: %s" % rt.write_back(request_id, entry["domain"], getattr(agent, "note", None)))
+            try: log("playbook write-back: %s" % rt.write_back(request_id, entry["domain"], SB.take_note(request_id)))
             except Exception as e: log("playbook write-back failed: %s" % type(e).__name__)   # never changes the run's result
         return "verified"
     if st in ("failed", "could_not_start"):

@@ -103,13 +103,6 @@ check("1 a shorter trace over an UNPROVEN playbook replaces it (nothing proven t
 d = trace_dir(); db = FakeDB()
 check("1 no trace and no playbook: nothing is written", PP.write_proven(db, RID, AGENT_DIR, d) == "no_trace" and not db.writes())
 
-# note reader keeps one line
-class P_:
-    def __init__(self, lines): self.stdout = io.BytesIO(("\n".join(lines) + "\n").encode())
-    def poll(self): return 0
-rd = S.NoteReader(P_(["working", "the code is 906417", "PLAYBOOK-NOTE: ok", "bye 123456"])); rd.join()
-check("1 the note reader keeps only the PLAYBOOK-NOTE line, nothing else", rd.note == "ok" and "906417" not in repr(rd.__dict__) and "123456" not in repr(rd.__dict__), rd.__dict__)
-
 # ---- 2 through the real run (S.run with a fake oneshot) ----------------------------------------------------------------------------
 CODE = "906417"
 def agent_portal(**kw):
@@ -117,13 +110,12 @@ def agent_portal(**kw):
 
 class WBRt(F.FakeRuntime):
     def __init__(self, *a, db=None, tdir=None, note=None, **kw):
-        super().__init__(*a, **kw); self.db, self.tdir, self.note, self.wb_calls = db, tdir, note, 0
+        super().__init__(*a, **kw); self.db, self.tdir, self.wb_calls = db, tdir, 0
     def write_back(self, request_id, domain, note=None):
         self.wb_calls += 1
         return PP.write_proven(self.db, request_id, domain, self.tdir, note)
 
-class NoteAgent(F.FakeAgent):
-    note = None
+NoteAgent = F.FakeAgent
 
 def run_once(outcome, trace_steps=GOOD, note="ok", db=None, tdir=None):
     p = agent_portal(); rpc = B.VerifyRpc(p); out = io.StringIO(); db = db or FakeDB(); tdir = tdir or trace_dir()
@@ -131,8 +123,9 @@ def run_once(outcome, trace_steps=GOOD, note="ok", db=None, tdir=None):
     def factory(rt):
         ag = NoteAgent([lambda: ST.step_sent(RID, MASK, p, rpc, F.NOW),
                         lambda: ST.step_code(RID, p, rpc, out, rt.sleep, rt.now, wall=rt.wall),
+                        lambda: ST.step_note(RID, note, p),
                         lambda: ST.step_result(RID, outcome, p, rpc, F.NOW)])
-        ag.note = note; return ag
+        return ag
     rt = WBRt(F.FakePage(), agent_factory=factory, db=db, tdir=tdir)
     r, text = quiet(S.run, RID, p, rpc, rt, F.NOW)
     return r, rt, db, p, text
@@ -169,6 +162,47 @@ r, rt, db, p, text = run_once("accepted", trace_steps=GOOD + [{"action": "fill",
 check("2 accepted run whose trace holds a code-like value: run still verified, playbook NOT written", r == "verified" and not db.writes(), (r, db.rows))
 check("2 the real Runtime has the bridge-side write_back (agent has no DB access)", hasattr(S.Runtime, "write_back") and "SERVICE_ROLE" not in S.AgentProc.__init__.__doc__ if S.AgentProc.__init__.__doc__ else hasattr(S.Runtime, "write_back"))
 
+# ---- 2b the note helper: `verify_step.py note` (stage file), validator, states, prompt, stdout --------------------------------------------
+import verify_scoreboard as SB
+def stage_note(rid):
+    f = SB._stage_file(rid)
+    return json.load(open(f, encoding="utf-8")).get("playbook_note") if os.path.exists(f) else None
+def note_portal(status):
+    return F.StrictPortal(requests=[F.request(status=status, channel="sms", client=F.NM)], verifications=[F.verification(client=F.NM, directory=AGENT_DIR)], queued_code=CODE)
+def note_rc(text, status="starting", rid=RID):
+    p = note_portal(status); lg = io.StringIO()
+    with contextlib.redirect_stderr(lg), contextlib.redirect_stdout(io.StringIO()): rc = ST.step_note(rid, text, p)
+    return rc, lg.getvalue()
+for fn in os.listdir(os.path.join(os.environ["CE_LOGS"], "verify-stages")) if os.path.isdir(os.path.join(os.environ["CE_LOGS"], "verify-stages")) else []:
+    os.remove(os.path.join(os.environ["CE_LOGS"], "verify-stages", fn))
+rc, lg = note_rc("step 3 needs the phone tab first")
+check("2b note in `starting`: stored in the request's stage file", rc == ST.OK and stage_note(RID) == "step 3 needs the phone tab first", (rc, stage_note(RID)))
+for st in ("code_sent", "checking"):
+    rc, _ = note_rc("the signup button moved to the footer", status=st)
+    check("2b note allowed in %s" % st, rc == ST.OK and stage_note(RID) == "the signup button moved to the footer")
+rc, _ = note_rc("later note wins"); check("2b the last note wins", stage_note(RID) == "later note wins")
+before = stage_note(RID)
+for label, txt in (("a 6+ digit run", "the code was 90641" + "7"), ("an email", "login a.b@example.com failed"), ("a phone number", "call (502) 555-0101 first"),
+                   ("a code assignment", "code: abcd"), ("over 400 chars", "x" * 401), ("empty", "   ")):
+    rc, lg = note_rc(txt)
+    check("2b note refused: %s (exit 5, nothing stored, text not logged)" % label, rc == ST.REFUSED and stage_note(RID) == before and (not txt.strip() or txt.strip() not in lg), (rc, lg[-80:]))
+check("2b exactly 400 chars is allowed", note_rc("y" * 400)[0] == ST.OK and len(stage_note(RID)) == 400)
+for st in ("requested", "verified", "failed"):
+    rc, _ = note_rc("too late or too early", status=st)
+    check("2b note refused in state %s" % st, rc == ST.REFUSED and stage_note(RID) == "y" * 400, rc)
+check("2b bad request id exits 2 through the CLI", ST.main(["note", "--request-id", "nope", "--text", "x"]) == ST.BAD_ARGS)
+check("2b the CLI parses `note --request-id R --text T`", ST.main(["note", "--request-id", RID]) == ST.BAD_ARGS)
+# the note survives finalize on verified only, and is read once
+SB.set_note(RID, "keep me"); SB.finalize(RID, "verified")
+check("2b a verified finalize leaves only the note; take_note reads it once and cleans up", SB.take_note(RID) == "keep me" and SB.take_note(RID) is None and not os.path.exists(SB._stage_file(RID)))
+SB.set_note(RID, "drop me"); SB.finalize(RID, "failed:code_rejected")
+check("2b a rejected/failed finalize removes the note with the stage file", SB.take_note(RID) is None and not os.path.exists(SB._stage_file(RID)))
+# prompt + launch
+sp = S.build_prompt(RID, F.request(status="starting", channel="sms", client=F.NM), F.verification(client=F.NM, directory=AGENT_DIR), {"domain": AGENT_DIR, "signin_url": "https://agentdir.example/login"}, F.NM, MASK, "u@example.com")
+check("2b prompt tells the agent to use `verify_step.py note` and never mentions PLAYBOOK-NOTE", "verify_step.py" in sp and " note --request-id %s --text" % RID in sp and "PLAYBOOK-NOTE" not in sp and "Never print the note" in sp)
+src_send = open(os.path.join(HERE, "..", "job", "verify_send.py"), encoding="utf-8").read()
+check("2b verify_send has no stdout reader (no NoteReader, no PIPE)", "NoteReader" not in src_send and "subprocess.PIPE" not in src_send and "stdout=subprocess.DEVNULL" in src_send)
+
 # ---- 3 the unchanged guards still hold ------------------------------------------------------------------------------------------------
 
 # ---- 4 mutations: remove ONE guard, the unsafe thing must then HAPPEN ---------------------------------------------------------------------
@@ -194,5 +228,12 @@ ns = {"__name__": "pp_mut", "__file__": os.path.join(HERE, "..", "job", "playboo
 d = trace_dir(); put_trace(d, [{"action": "goto", "url": "https://agentdir.example/login"}]); mdb = seeded()
 ns["write_proven"](mdb, RID, AGENT_DIR, d)
 check("4 MUTATION no shorter-trace guard: the proven 4-step playbook IS then clobbered by a 1-step trace", len(mdb.rows[(AGENT_DIR, "verify")]["steps"]) == 1)
+
+# MUTATION 4: the note validator removed -> a note holding a 6-digit run IS stored in the stage file
+_c = ST.clean_note_text
+ST.clean_note_text = lambda t: t
+rc, _ = note_rc("the code was 90641" + "7")
+ST.clean_note_text = _c
+check("4 MUTATION no note validator: a note with a 6-digit run IS then stored", rc == ST.OK and "906417" in (stage_note(RID) or ""), stage_note(RID))
 
 sys.exit(0 if all(ok) else 1)
