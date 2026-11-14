@@ -110,7 +110,7 @@ p = agent_portal(); rt = F.FakeRuntime(F.FakePage(), agent_factory=lambda rt: F.
 r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
 check("agent exits at once without a send report: failed/send_failed", r == "failed:send_failed" and p.requests[F.RID]["fail_code"] == "send_failed", r)
 class BoomRt(F.FakeRuntime):
-    def launch_agent(self, path): raise OSError("hermes missing")
+    def launch_agent(self, path, cdp=None): raise OSError("hermes missing")
 p = agent_portal(); rt = BoomRt(F.FakePage())
 r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
 check("the oneshot cannot start: failed/send_failed with no exception text logged", r == "failed:send_failed" and "hermes missing" not in text and not B.tenant_busy(F.NM), r)

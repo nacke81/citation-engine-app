@@ -176,8 +176,8 @@ class FakeRuntime:
     def business_phone_masked(self, tenant): return "(502) ***-0101"
     def write_prompt(self, request_id, text):
         self.prompts.append(text); return "prompt-%s.txt" % request_id
-    def launch_agent(self, path):
-        self.launched.append(path); self.agent = self.agent_factory(self); return self.agent
+    def launch_agent(self, path, cdp=None):
+        self.launch_cdps = getattr(self, "launch_cdps", []) + [cdp]; self.launched.append(path); self.agent = self.agent_factory(self); return self.agent
     def mail_baseline(self, tenant): return set()
     def access_code(self, tenant, baseline): self.access_asked += 1; return self.access
     def guard(self):

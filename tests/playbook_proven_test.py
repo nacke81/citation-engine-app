@@ -200,7 +200,7 @@ check("2b a verified finalize leaves only the note; take_note reads it once and 
 SB.set_note(RID, "drop me"); SB.finalize(RID, "failed:code_rejected")
 check("2b a rejected/failed finalize removes the note with the stage file", SB.take_note(RID) is None and not os.path.exists(SB._stage_file(RID)))
 # prompt + launch
-sp = S.build_prompt(RID, F.request(status="starting", channel="sms", client=F.NM), F.verification(client=F.NM, directory=AGENT_DIR), {"domain": AGENT_DIR, "signin_url": "https://agentdir.example/login"}, F.NM, MASK, "u@example.com")
+sp = S.build_prompt(RID, F.request(status="starting", channel="sms", client=F.NM), F.verification(client=F.NM, directory=AGENT_DIR), {"domain": AGENT_DIR, "signin_url": "https://agentdir.example/login"}, ("NM", "Na" + "cke Media", "NM - " + AGENT_DIR, "https://agentdir.example/login"), MASK, "u@example.com")
 check("2b prompt tells the agent to use `verify_step.py note` and never mentions PLAYBOOK-NOTE", "verify_step.py" in sp and " note --request-id %s --text" % RID in sp and "PLAYBOOK-NOTE" not in sp and "Never print the note" in sp)
 src_send = open(os.path.join(HERE, "..", "job", "verify_send.py"), encoding="utf-8").read()
 check("2b verify_send has no stdout reader (no NoteReader, no PIPE)", "NoteReader" not in src_send and "subprocess.PIPE" not in src_send and "stdout=subprocess.DEVNULL" in src_send)
