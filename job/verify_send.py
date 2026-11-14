@@ -26,7 +26,7 @@ failure path ends in finish_code_request with an allowlisted fail code and logs 
 The live phone-step selectors come from spike 1 (#registerCompanyPhoneModalVerify JS click, consent, 'Send verification code'); the
 Edit-profile navigation and the code-entry field are fail-closed (send_failed) when not found and must be confirmed in the live-run card.
 """
-import argparse, contextlib, datetime, os, re, subprocess, sys, time
+import argparse, contextlib, datetime, os, posixpath, re, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -61,8 +61,39 @@ def tenant_browser(biz):
     """-> (profile dir, port, cdp url) for a tenant code. An unknown tenant raises: no browser, no run."""
     if biz not in TENANT_BROWSER: raise BrowserError("no browser configured for tenant")
     name, port = TENANT_BROWSER[biz]
-    return os.path.expandvars("%LOCALAPPDATA%/citation-engine/" + name), port, "http://127.0.0.1:%d" % port
+    local = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")   # os.path.expandvars("%X%") is a no-op off Windows (t_45fe02d4 round 2)
+    return os.path.join(local, "citation-engine", name), port, "http://127.0.0.1:%d" % port
+
+
+_UDD_RE = re.compile(r'(")?--user-data-dir=(")?')
+
+
+def cmd_user_data_dir(cmd):
+    """The --user-data-dir value of a Chrome command line, or None. Both live Windows shapes: "--user-data-dir=C:/a b/p" (quote BEFORE the flag, the
+    main process) and --user-data-dir="C:\\a b\\p" (quote after the =, renderers); a bare unquoted value ends at whitespace."""
+    m = _UDD_RE.search(cmd or "")
+    if not m: return None
+    rest = (cmd or "")[m.end():]
+    if m.group(1) or m.group(2):
+        end = rest.find('"')
+        val = rest if end < 0 else rest[:end]
+    else:
+        val = rest.split()[0] if rest.split() else ""
+    return val or None
+
+
+def profile_key(path):
+    """One comparable form of a profile path: quotes stripped, \\ -> /, normpath, no trailing slash, lower case. Same answer on every OS."""
+    p = str(path or "").strip().strip("\"'").replace("\\", "/")
+    return posixpath.normpath(p).rstrip("/").lower() if p else ""
+
+
+def same_profile(cmd, prof):
+    got = cmd_user_data_dir(cmd)
+    return bool(got) and profile_key(got) == profile_key(prof)
 FILL_JS = os.environ.get("CE_FILL_JS") or os.path.expandvars("%LOCALAPPDATA%/hermes/profiles/citation-submitter/skills/devops/vaultwarden-cli-write/scripts/vaultwarden-cli-fill.js")
+VERIFY_LEASE = "verify:"   # card prefix of the build-Chrome lease an SCC verify run holds (t_45fe02d4)
+LEASE_BEAT_S = 60
 LIVE_STATUSES = ("code_sent", "checking")   # request states in which this run still owns the poll
 POLL_EVERY_S = 10
 POLL_MAX_S = 1800
@@ -216,7 +247,7 @@ def helper_command():
 
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
-SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser.\n")
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, always pass --cdp %(cdp)s.\n")
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
 
@@ -263,7 +294,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         phone_step = "2. Go to the phone verification step. Before the send step (playbook step %d), check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
     if signup:
-        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser.\n")
+        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, always pass --cdp %(cdp)s.\n")
         # t_3223ee18: n is the playbook's own send step (computed above), never "the Sign up click"
         phone_step = "2. Before the send step (playbook step %d), check the phone shown in the form against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
@@ -377,13 +408,15 @@ class Runtime:
         with open(path, "w", encoding="utf-8", newline="\n") as f: f.write(text)
         return path
 
-    def launch_agent(self, prompt_path):
+    def launch_agent(self, prompt_path, cdp=None):
         """Start the submitter agent oneshot. Its output is NOT kept (the code passes through its context); the helper logs reason words to its own stderr.
         The child env drops any service-role variable. -> a handle with poll() and kill() (kills the whole tree)."""
         import postcard_step as PS
         argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
         env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
         env["TERMINAL_CWD"] = REPO_ROOT   # the agent's terminal starts in the app clone, whatever cwd the bridge had
+        env.pop("BROWSER_CDP_URL", None)
+        if cdp: env["BROWSER_CDP_URL"] = cdp   # t_45fe02d4: hermes browser tools attach to THIS Chrome (the tenant's), never start their own
         kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)
         return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
 
@@ -444,23 +477,44 @@ class Runtime:
     def agent_browser(self, tenant):
         """t_45fe02d4: the tenant's persistent Chrome (profile + port from TENANT_BROWSER) for the agent. Port already listening: its process must carry THIS
         tenant's --user-data-dir (else BrowserError, nothing started); it is reused and left running. Not listening: OwnedChrome on that profile and port,
-        closed on exit, profile kept."""
-        import build_chrome as BC
+        closed on exit, profile kept. The build port (SCC, 9333) is shared with build batches: refused while a build lease is fresh, a verify lease is held
+        and refreshed for the whole run, and a Chrome started for it is detached and left to the keepalive timer (a batch may have started meanwhile)."""
+        import build_chrome as BC, chrome_keepalive as KA
         from owned_chrome import OwnedChrome
         prof, port, url = tenant_browser(tenant[0])
-        pids = BC.listener_pids(port)
-        if pids:
-            procs = {q["pid"]: q["cmd"] for q in BC.list_procs()}
-            want = os.path.normcase(os.path.normpath(prof))
-            def has_profile(cmd):
-                m = re.search(r'--user-data-dir=(?:"([^"]+)"|(\S+))', cmd or "")
-                return bool(m) and os.path.normcase(os.path.normpath(m.group(1) or m.group(2))) == want
-            if not all(has_profile(procs.get(pid)) for pid in pids):
-                raise BrowserError("port %d is held by a process with another profile" % port)
-            yield url
-            return
-        with OwnedChrome(profile=prof, port=port) as oc:
-            yield oc.cdp_url
+        shared = port == KA.PORT
+        lease = stop = beat = None
+        if shared:
+            held = KA.lease_active()
+            if held and not str(held.get("card") or "").startswith(VERIFY_LEASE):
+                log("build Chrome is leased by %s; SCC verify run refused" % (held.get("card") or "?")); raise BrowserError("the build Chrome on port %d is leased by a build batch" % port)
+            lease = KA.Lease("%s%d" % (VERIFY_LEASE, os.getpid())); lease.touch()
+            stop = threading.Event()
+            def keep():
+                while not stop.wait(LEASE_BEAT_S):
+                    cur = KA.lease_read()
+                    if cur and cur.get("card") == lease.card: lease.touch()
+                    else: log("verify lease on the build Chrome was taken over"); return
+            beat = threading.Thread(target=keep, daemon=True); beat.start()
+        try:
+            pids = BC.listener_pids(port)
+            if pids:
+                procs = {q["pid"]: q["cmd"] for q in BC.list_procs()}
+                if not all(same_profile(procs.get(pid), prof) for pid in pids):
+                    raise BrowserError("port %d is held by a process with another profile" % port)
+                yield url
+            elif shared:
+                try: KA.ensure_up(port, prof)   # detached, same build profile: outlives this run, the keepalive timer owns its end
+                except RuntimeError as e: raise BrowserError(str(e)) from e
+                yield url
+            else:
+                with OwnedChrome(profile=prof, port=port) as oc:
+                    yield oc.cdp_url
+        finally:
+            if stop: stop.set()
+            if lease:
+                cur = KA.lease_read()
+                if cur and cur.get("card") == lease.card: KA.lease_release()   # never remove a lease a build batch has taken over
 
     def write_back(self, request_id, domain, note=None):
         """t_eae8e59f: the bridge (this process holds the Directory DB access, the agent has none) proves the verify playbook after an accepted code."""
@@ -618,7 +672,7 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
 def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook):
     try:
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
-        agent = rt.launch_agent(rt.write_prompt(request_id, prompt))
+        agent = rt.launch_agent(rt.write_prompt(request_id, prompt), tenant_browser(tenant[0])[2])
         SB.stamp(request_id, "agent_start_at")
     except Exception as e:
         log("agent did not start: %s" % type(e).__name__); return end("failed", "send_failed")

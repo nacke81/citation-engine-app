@@ -15,7 +15,7 @@ def count(text, needle): return text.count(needle)
 MUTATIONS = [  # (label, file, needle, replacement); every needle is a distinct call site of a new timestamp
     ("requested_at (bridge pickup)", "verify_bridge.py", 'SB.stamp(rid, "requested_at"', 'SB.stamp(rid, "zz_requested_at"'),
     ("bridge_pickup_at", "verify_bridge.py", 'SB.stamp(rid, "bridge_pickup_at"', 'SB.stamp(rid, "zz_bridge_pickup_at"'),
-    ("agent_start_at (agent launch)", "verify_send.py", 'agent = rt.launch_agent(rt.write_prompt(request_id, prompt))\n        SB.stamp(request_id, "agent_start_at")', 'agent = rt.launch_agent(rt.write_prompt(request_id, prompt))\n        SB.stamp(request_id, "zz")'),
+    ("agent_start_at (agent launch)", "verify_send.py", '        SB.stamp(request_id, "agent_start_at")\n    except', '        SB.stamp(request_id, "zz")\n    except'),
     ("agent_start_at (script browser)", "verify_send.py", 'SB.stamp(request_id, "agent_start_at")   # script', 'SB.stamp(request_id, "zz")   # script'),
     ("signed_in_at (script)", "verify_send.py", 'SB.stamp(request_id, "signed_in_at")', 'SB.stamp(request_id, "zz")'),
     ("signed_in_at (agent stage call)", "verify_step.py", 'STAGE_NAMES = {"signed_in": "signed_in_at", "ready": None}', 'STAGE_NAMES = {"signed_in": "zz", "ready": None}'),
