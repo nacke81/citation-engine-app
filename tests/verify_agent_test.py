@@ -334,7 +334,7 @@ rtr = S.Runtime(popen=FakeProc, runner=lambda argv, **kw: seen.setdefault("kill"
 h = rtr.launch_agent("C:/x/prompt.txt")
 exe = seen["argv"][0]
 check("oneshot argv is `hermes -p citation-submitter chat --query-file <file> --oneshot`", os.path.basename(exe).lower().startswith("hermes") and seen["argv"][1:] == ["-p", "citation-submitter", "chat", "--query-file", "C:/x/prompt.txt", "--oneshot"], seen["argv"])
-check("the oneshot's env has no service-role variable and its output is not kept", all("SERVICE_ROLE" not in k.upper() for k in seen["kw"]["env"]) and seen["kw"]["stdout"] == subprocess.DEVNULL and seen["kw"]["stderr"] == subprocess.DEVNULL)
+check("the oneshot's env has no service-role variable and its output is piped only to the one-line note reader (t_eae8e59f), stderr dropped", all("SERVICE_ROLE" not in k.upper() for k in seen["kw"]["env"]) and seen["kw"]["stdout"] == subprocess.PIPE and h.note is None and seen["kw"]["stderr"] == subprocess.DEVNULL)
 check("the oneshot is launched with cwd = the repo root (the app clone) and TERMINAL_CWD set to it", os.path.normcase(seen["kw"]["cwd"]) == os.path.normcase(S.REPO_ROOT) and os.path.exists(os.path.join(seen["kw"]["cwd"], "job", "verify_step.py")) and seen["kw"]["env"].get("TERMINAL_CWD") == S.REPO_ROOT, seen["kw"].get("cwd"))
 h.kill(); h.kill()
 check("kill ends the whole tree (taskkill /T on Windows, kill elsewhere) and is idempotent", (seen.get("kill", [None])[:3] == ["taskkill", "/F", "/T"]) if os.name == "nt" else (h.proc.killed >= 1 and h.poll() == -9))

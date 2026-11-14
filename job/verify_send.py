@@ -154,11 +154,38 @@ class CylexDriver:
 
 
 # ---- agent path --------------------------------------------------------------------------------------------------------------------
+class NoteReader:
+    """Reads the oneshot's stdout on a thread and keeps ONLY the last `PLAYBOOK-NOTE:` line (t_eae8e59f). Every other line is dropped as it is read:
+    the agent's output is never stored, logged or written, so a code that passed through its context cannot land anywhere."""
+    TAG = b"PLAYBOOK-NOTE:"
+
+    def __init__(self, proc):
+        import threading
+        self.note, self._out = None, getattr(proc, "stdout", None)
+        self._t = threading.Thread(target=self._run, daemon=True); self._t.start()
+
+    def _run(self):
+        try:
+            for line in self._out:
+                i = line.find(self.TAG)
+                if i >= 0: self.note = line[i + len(self.TAG):].decode("utf-8", "replace").strip()[:400]
+        except Exception:
+            pass
+
+    def join(self, timeout=5): self._t.join(timeout)
+
+
 class AgentProc:
     """The running oneshot. kill() ends the WHOLE process tree (on Windows `taskkill /T`): killing only the parent leaves the model's child
     processes running (lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent."""
     def __init__(self, proc, runner=None):
         self.proc, self._run = proc, runner or subprocess.run
+        self._reader = NoteReader(proc) if getattr(proc, "stdout", None) is not None else None
+
+    @property
+    def note(self):
+        if self._reader: self._reader.join(2)
+        return self._reader.note if self._reader else None
 
     def poll(self):
         return self.proc.poll()
@@ -361,7 +388,7 @@ class Runtime:
         argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
         env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
         env["TERMINAL_CWD"] = REPO_ROOT   # the agent's terminal starts in the app clone, whatever cwd the bridge had
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)
+        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)   # stdout only feeds NoteReader (one line kept)
         return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
 
     def messages(self, tenant):
@@ -415,6 +442,12 @@ class Runtime:
                 yield page, oc.cdp_url
             finally:
                 pw.stop()
+
+
+    def write_back(self, request_id, domain, note=None):
+        """t_eae8e59f: the bridge (this process holds the Directory DB access, the agent has none) proves the verify playbook after an accepted code."""
+        import directories as D, playbook_proven as PP
+        return PP.write_proven(D.DirDB(), request_id, domain, os.path.join(SB._dir(), "verify-traces"), note, log=log)
 
 
 def set_live(portal, row, client_id, now=None):
@@ -579,7 +612,11 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
         agent.kill()   # idempotent; every way out of this function leaves no oneshot (or its children) behind
     st = _status(portal, request_id)
     if st == "verified":
-        log("done %s verified (finished by the helper)" % request_id); return "verified"
+        log("done %s verified (finished by the helper)" % request_id)
+        if hasattr(rt, "write_back"):   # accepted only: rejected, failed, superseded and unknown never reach this line
+            try: log("playbook write-back: %s" % rt.write_back(request_id, entry["domain"], getattr(agent, "note", None)))
+            except Exception as e: log("playbook write-back failed: %s" % type(e).__name__)   # never changes the run's result
+        return "verified"
     if st in ("failed", "could_not_start"):
         log("done %s closed by the helper or the portal" % request_id); return "closed"
     if st in ("starting", "requested"):
