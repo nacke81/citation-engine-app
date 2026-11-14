@@ -8,7 +8,8 @@ Everything goes through one injectable `db` with call(method, path, body=None, p
 
   python job/playbook.py show --domain thumbtack.com --task verify
   python job/playbook.py set  --domain thumbtack.com --task verify --file config/playbooks/thumbtack.com.verify.json [--dry-run]
-With send_is_signup true, EXACTLY one step must carry "send": true (the click that sends the code); the verify prompt names it by number.
+EVERY verify playbook (send_is_signup or not) must have EXACTLY one step carrying "send": true (the click that sends the code); the verify prompt
+names it by number. Other tasks never carry a mark.
 The file is a JSON list of steps, or an object {steps, send_is_signup?, source?, last_proven_at?}.
 """
 import argparse, datetime, json, os, re, sys
@@ -85,14 +86,11 @@ def check_target(domain, task, send_is_signup=False):
 
 
 def send_step_number(steps, send_is_signup=True):
-    """t_3223ee18: the 1-based number of the step marked `send: true`. When send_is_signup is true EXACTLY one step must be marked (PlaybookError
-    otherwise: the prompt names that step, so none or two would send the agent to the wrong click). When it is false, no step may be marked
-    (-> None): a flag with no signup send is a stray order."""
+    """t_3223ee18 / t_8b8c2650: the 1-based number of the step marked `send: true`. EVERY verify playbook, signup or sign-in, must mark EXACTLY one
+    step (PlaybookError otherwise: the prompt names that step, so none or two would send the agent to a wrong or a second send click).
+    send_is_signup no longer changes this rule; the argument stays so callers keep one signature."""
     marked = [i for i, s in enumerate(steps or [], 1) if isinstance(s, dict) and s.get("send") is True]
-    if not send_is_signup:
-        if marked: raise PlaybookError("step %d is marked send but send_is_signup is not set" % marked[0])
-        return None
-    if len(marked) != 1: raise PlaybookError("send_is_signup needs exactly one step marked \"send\": true (found %d)" % len(marked))
+    if len(marked) != 1: raise PlaybookError("a verify playbook needs exactly one step marked \"send\": true (found %d)" % len(marked))
     return marked[0]
 
 
@@ -107,7 +105,8 @@ def set_playbook(db, domain, task, steps, send_is_signup=False, source=None, las
     domain = (domain or "").strip().lower()
     check_target(domain, task, send_is_signup)
     clean = validate_steps(steps)
-    send_step_number(clean, send_is_signup)
+    if task == "verify": send_step_number(clean, send_is_signup)   # t_8b8c2650: every verify playbook marks exactly one send
+    elif any(isinstance(x, dict) and x.get("send") for x in clean): raise PlaybookError("only a verify playbook has a send step")
     import directories as D   # t_9a722352: a domain new to the Catalog gets a minimal row by rule (the playbook's FK needs it), never a hand insert
     try: D.ensure_directory(db, domain, dry_run=dry_run)
     except D.DirectoriesError as e: raise PlaybookError(str(e))
@@ -153,8 +152,10 @@ def render(pb, values):
     return out
 
 
-def _checked(f):
-    steps = validate_steps(f.get("steps")); send_step_number(steps, bool(f.get("send_is_signup"))); return steps
+def _checked(f, task="verify"):
+    steps = validate_steps(f.get("steps"))
+    if task == "verify": send_step_number(steps, bool(f.get("send_is_signup")))
+    return steps
 
 
 def _load_file(path):
@@ -178,6 +179,7 @@ def main(argv=None, db=None, out=print, err=None):
     p.add_argument("--file", required=True)
     p.add_argument("--proven", action="store_true", help="the run reached its goal (code accepted): stamp last_proven_at now. Without it last_proven_at stays empty")
     p.add_argument("--send-is-signup", action="store_true")
+    p.add_argument("--send-step", type=int, help="1-based number of the trace step that is the send click (a trace cannot name it; a verify playbook needs exactly one)")
     p.add_argument("--dry-run", action="store_true")
     n = a.parse_args(argv)
     err = err or (lambda m: print(m, file=sys.stderr))
@@ -186,6 +188,9 @@ def main(argv=None, db=None, out=print, err=None):
             with open(n.file, encoding="utf-8") as fh: tr = json.load(fh)
             dom = (tr.get("domain") or "") if isinstance(tr, dict) else ""
             steps = steps_from_trace(tr)
+            if n.send_step is not None:
+                if not 1 <= n.send_step <= len(steps): raise PlaybookError("--send-step %d is not a step of this trace (1..%d)" % (n.send_step, len(steps)))
+                steps[n.send_step - 1] = dict(steps[n.send_step - 1], send=True)
             now = datetime.datetime.now(datetime.timezone.utc)
             db = db or _real_db()
             row = set_playbook(db, dom, "verify", steps, n.send_is_signup, "run %s (trace)" % tr.get("request_id", "?"), now.strftime("%Y-%m-%dT%H:%M:%SZ") if n.proven else None, now=now, dry_run=n.dry_run)
@@ -197,7 +202,7 @@ def main(argv=None, db=None, out=print, err=None):
                 if f.get(k) not in (None, v): raise PlaybookError("file %s %r does not match --%s %r" % (k, f.get(k), k, v))
             if n.dry_run and db is None:
                 d = n.domain.strip().lower(); check_target(d, n.task, bool(f.get("send_is_signup")))
-                out(json.dumps({"domain": d, "task": n.task, "steps": _checked(f), "send_is_signup": bool(f.get("send_is_signup")), "dry_run": True}, indent=1))
+                out(json.dumps({"domain": d, "task": n.task, "steps": _checked(f, n.task), "send_is_signup": bool(f.get("send_is_signup")), "dry_run": True}, indent=1))
                 return 0
             db = db or _real_db()
             row = set_playbook(db, n.domain, n.task, f.get("steps"), bool(f.get("send_is_signup")), f.get("source"), f.get("last_proven_at"), dry_run=n.dry_run, stale=bool(f.get("stale")))

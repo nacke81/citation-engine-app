@@ -1,24 +1,26 @@
 {
   "domain": "alignable.com",
   "task": "verify",
-  "send_is_signup": true,
-  "source": "t_9de1c978 from Mike's walkthrough 2026-11-13 (send screen not clicked); seeded by t_9de1c978",
+  "send_is_signup": false,
+  "source": "t_8b8c2650 from run t_05d490a7: signed-in session reached /onboarding/verify with the Verify with SMS/Text button visible, not clicked. Send marked on step 5; CapSolver text dropped (stop on a CAPTCHA, Nate 2026-11-13)",
   "steps": [
     {
-      "text": "Open the Alignable home page.",
-      "url": "https://www.alignable.com/"
+      "text": "Open the Alignable sign-in page. The account for {login_email} already exists: never use 'Get Started Free' or 'Sign Up' (that makes a duplicate signup).",
+      "url": "https://www.alignable.com/biz_users/sign_in"
     },
     {
-      "text": "Type {login_email} in the email box, then mouse-click 'Get Started Free'. A JavaScript click does not work here; use a real mouse click."
+      "text": "If the browser session is already signed in, Alignable redirects straight to /onboarding/verify (seen in the NM Chrome profile): go to the last step."
     },
     {
-      "text": "On /onboarding/welcome, tick the Terms checkbox. Mouse-click the reCAPTCHA checkbox (a plain click passes). Then click 'Sign Up It's Free'."
+      "text": "If signed out: type {login_email} in the email box (#biz_user_email). If a CAPTCHA shows, STOP and report needs-human (session expired). Otherwise click 'Next' (#submit). If the next screen offers the vault item {vault_item}, fill from it with the vault helper; otherwise choose the site's own 'email me a login link' option and open the link from the NM relay mail. Never print the link. Signed-out path past 'Next' not walked yet.",
+      "selector": "#biz_user_email"
     },
     {
-      "text": "On /onboarding/name, enter {contact_name} and click 'Next'."
+      "text": "After sign-in Alignable lands on /onboarding/verify ('Verify your identity by entering your mobile phone number'). If it lands elsewhere, open https://www.alignable.com/onboarding/verify.",
+      "url": "https://www.alignable.com/onboarding/verify"
     },
     {
-      "text": "On /onboarding/verify, type {phone} in the phone_number field and click 'Verify with SMS/Text'. This creates the account for {business_name} and is the send.",
+      "text": "On /onboarding/verify, type {phone} in the phone_number field and click 'Verify with SMS/Text'. The account already exists, so this is only the phone-verify send.",
       "selector": "input[name=phone_number]",
       "send": true
     }

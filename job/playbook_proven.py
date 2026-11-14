@@ -56,9 +56,12 @@ def write_proven(db, request_id, domain, trace_dir, note=None, now=None, log=lam
         except (OSError, ValueError):
             log("trace unreadable"); return "refused"
     cur = PB.get_playbook(db, domain, "verify")
-    if steps and cur and cur.get("send_is_signup"):
+    if steps and not cur:
+        steps = None   # t_8b8c2650: a trace cannot name the send step and every verify playbook needs exactly one, so it cannot create a row
+        log("no stored verify playbook and a trace cannot name the send step: nothing written (set one with playbook.py set)")
+    if steps and cur:
         steps = None   # t_3223ee18: a trace has no send mark, so it cannot replace a signup playbook's steps; the accepted run still proves it (touch below)
-        log("signup playbook keeps its steps (a trace cannot name the send step)")
+        log("stored verify playbook keeps its steps (a trace cannot name the send step)")
     if steps and not (cur and cur.get("last_proven_at") and len(steps) < len(cur.get("steps") or [])):
         PB.set_playbook(db, domain, "verify", steps, bool((cur or {}).get("send_is_signup")), source, ts, now=now)
         return "written"
