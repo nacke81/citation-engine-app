@@ -869,6 +869,11 @@ def _biz_of(row):
     return "NM" if Q.is_nm_row(row) else "SCC"
 
 
+def _bk(row):
+    """Helper kwargs: SCC rows call the resolvers exactly as before (no biz argument); NM rows pass biz=NM."""
+    return {} if _biz_of(row) == "SCC" else {"biz": "NM"}
+
+
 def queue_biz(q):
     """The one client a queue file serves: all rows NM -> NM, no NM rows (or no rows) -> SCC. A mixed queue is refused (one canonical identity per file)."""
     kinds = {_biz_of(r) for r in (q.get("fix_queue") or []) if isinstance(r, dict)}
@@ -1083,9 +1088,9 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
         try:
             url = _permalink(row)
             if url is None and d == "bbb.org":
-                sp, _how = get_page(_bbb_search_url(ident, _biz_of(row)), plain, chrome)
+                sp, _how = get_page(_bbb_search_url(ident, **_bk(row)), plain, chrome)
                 if _limited(sp, guard, rid, res): continue
-                url = resolve_bbb(sp, ident, _biz_of(row))
+                url = resolve_bbb(sp, ident, **_bk(row))
                 if url:
                     note = "weekly recheck: found the BBB profile URL"
                     if write: record(_biz_of(row), rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
@@ -1095,11 +1100,11 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 _backoff(res, row, bw, record, queue_path, day); continue
             searched_ok = False
             if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
-                su = search_url_for(d, ident, _biz_of(row))
+                su = search_url_for(d, ident, **_bk(row))
                 if su:
                     sp, _how = get_page(su, plain, chrome)
                     if _limited(sp, guard, rid, res): continue
-                    url = resolve_by_search(d, sp, ident, _biz_of(row))
+                    url = resolve_by_search(d, sp, ident, **_bk(row))
                     searched_ok = not url and not walled(sp) and not sp.err and (sp.status or 0) < 400   # a readable search page with no card for us: not public
                     res["search"] = search_log(su, sp, _how, url)   # t_bbc32230: what search ran and what it got (no page text)
                     if url:
