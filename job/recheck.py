@@ -864,6 +864,18 @@ def _permalink(row):
     return None
 
 
+def _biz_of(row):
+    """t_5b3b4a3f: which client a queue row belongs to: nm-* ids are NM, everything else SCC."""
+    return "NM" if Q.is_nm_row(row) else "SCC"
+
+
+def queue_biz(q):
+    """The one client a queue file serves: all rows NM -> NM, no NM rows (or no rows) -> SCC. A mixed queue is refused (one canonical identity per file)."""
+    kinds = {_biz_of(r) for r in (q.get("fix_queue") or []) if isinstance(r, dict)}
+    if len(kinds) > 1: raise Q.QueueError("queue mixes NM and SCC rows; refusing to recheck")
+    return kinds.pop() if kinds else "SCC"
+
+
 def _bbb_search_url(ident, biz="SCC"):
     x = ident["BIZ"][biz]
     return "https://www.bbb.org/search?find_text=%s&find_loc=%s" % (quote(x["name"]), quote("%s, %s" % (x["city"], x["st"])))
@@ -963,7 +975,7 @@ def recheck(q, ident, *, plain=None, chrome=None, record=None, db=None, queue_pa
     canonical = q.get("canonical")
     if not canonical or not all(canonical.get(k) for k in ("name", "address", "phone")):
         raise Q.QueueError("queue has no canonical name/address/phone")
-    ident_phone = _digits(ident["BIZ"]["SCC"]["phones"][0])[-10:]
+    ident_phone = _digits(ident["BIZ"][queue_biz(q)]["phones"][0])[-10:]   # t_5b3b4a3f: the queue's own client (NM = R1 identity), not always SCC
     if _digits(canonical["phone"])[-10:] != ident_phone:
         raise Q.QueueError("queue canonical phone differs from the approved identity; refusing to recheck")
     if record is None:
@@ -1041,13 +1053,13 @@ def _backoff(res, row, write, record, queue_path, day, note=None, no_url=False):
         res["after"] = "needs-human"; res["recheck_due"] = None
         if not write: res["would_park"] = "no-public-permalink"; return
         n = "no public permalink after %d backoffs (public search, mail scan); parked for a human: find the listing by hand or reject" % T.MAX_NO_URL_BACKOFFS
-        record("SCC", row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink", reason_code="no_search")
+        record(_biz_of(row), row["id"], "needs-human", None, n, queue_path=queue_path, today=day, park_reason="no-public-permalink", reason_code="no_search")
         res["parked"] = "no-public-permalink"
         return
     if not write: return   # t_bee96b30: a plain backoff writes nothing on a dry run
     n = ((note or res.get("note") or "public read: not public")[:160]) + " (recheck due %s)" % due
     kw = {"backoff": "no-permalink"} if no_url else {}
-    record("SCC", row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due, **kw)
+    record(_biz_of(row), row["id"], row["state"], None, n, queue_path=queue_path, today=day, recheck_due=due, **kw)
     res["written"] = _written(queue_path, row["id"], due) if queue_path else None
 
 
@@ -1071,28 +1083,28 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
         try:
             url = _permalink(row)
             if url is None and d == "bbb.org":
-                sp, _how = get_page(_bbb_search_url(ident), plain, chrome)
+                sp, _how = get_page(_bbb_search_url(ident, _biz_of(row)), plain, chrome)
                 if _limited(sp, guard, rid, res): continue
-                url = resolve_bbb(sp, ident)
+                url = resolve_bbb(sp, ident, _biz_of(row))
                 if url:
                     note = "weekly recheck: found the BBB profile URL"
-                    if write: record("SCC", rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
+                    if write: record(_biz_of(row), rid, before, url, note, queue_path=queue_path, today=day) if before in ("submitted", "pending-verify", "found") else None
                     res["note"] = note
             if d in UNREADABLE_PUBLIC:   # t_bbc32230: no public source exists: never fetched, never counted live, never retried
                 res["url"] = url; res["verdict"] = "unreadable-public"; res["note"] = UNREADABLE_PUBLIC[d]
                 _backoff(res, row, bw, record, queue_path, day); continue
             searched_ok = False
             if url is None and d != "bbb.org":   # t_d7a907d5: payment / submission evidence and no listing_url -> look the business up by name + city
-                su = search_url_for(d, ident)
+                su = search_url_for(d, ident, _biz_of(row))
                 if su:
                     sp, _how = get_page(su, plain, chrome)
                     if _limited(sp, guard, rid, res): continue
-                    url = resolve_by_search(d, sp, ident)
+                    url = resolve_by_search(d, sp, ident, _biz_of(row))
                     searched_ok = not url and not walled(sp) and not sp.err and (sp.status or 0) < 400   # a readable search page with no card for us: not public
                     res["search"] = search_log(su, sp, _how, url)   # t_bbc32230: what search ran and what it got (no page text)
                     if url:
                         res["note"] = "recheck: found the listing URL by name + city search"
-                        if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, url, res["note"], queue_path=queue_path, today=day)
+                        if write and before in ("submitted", "pending-verify", "found"): record(_biz_of(row), rid, before, url, res["note"], queue_path=queue_path, today=day)
             if url is None and mail is not None and d in MS.SCAN_DIRECTORIES:   # t_6b1e01ff: moderated, no account, no permalink: the approval mail carries the listing URL
                 hit = mail.find(d)
                 if hit:
@@ -1100,7 +1112,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                     res["note"] = "recheck: listing URL from the approval mail at listings@ (%s)" % hit["date"]
                     res["mail"] = hit
                     # t_bbc32230: the mail URL passed the permalink gate in find_approval; transitions stores it as listing_url (not evidence), so the next recheck reads it
-                    if write and before in ("submitted", "pending-verify", "found"): record("SCC", rid, before, None, res["note"], queue_path=queue_path, today=day, listing_url=url)
+                    if write and before in ("submitted", "pending-verify", "found"): record(_biz_of(row), rid, before, None, res["note"], queue_path=queue_path, today=day, listing_url=url)
             if url is None:
                 res["verdict"] = "not-public" if searched_ok else "no-permalink"
                 if searched_ok: res["note"] = "name + city search on the Directory shows no listing for this business (%s)" % res.get("search", "")
@@ -1123,7 +1135,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 if before == "live":   # already live: report only, unless --proof-live names the row (t_1c503c7f): Proof only, state stays live
                     if final != url:
                         res["note"] = "listing URL moved: %s -> %s" % (url, final)
-                        if write: record("SCC", rid, "live", final, "weekly recheck: the Directory redirected the listing to a new URL", queue_path=queue_path, today=day, refresh_url=True)
+                        if write: record(_biz_of(row), rid, "live", final, "weekly recheck: the Directory redirected the listing to a new URL", queue_path=queue_path, today=day, refresh_url=True)
                     if proof_live and write and only:
                         _proof_only(row, kind, final, cmp_["nap"], day, db, queue_path)
                         res["note"] = "proof written (row stays live)"
@@ -1142,7 +1154,7 @@ def _recheck_rows(q, ident, canonical, plain, chrome, record, db, queue_path, da
                 if cmp_["verdict"] == "not-public":   # t_962161f4: a hidden / paused banner: back off 2 days (the same one note write carries the date)
                     _backoff(res, row, bw and note != _last_note(row), record, queue_path, day, note=note)
                 elif write and note != _last_note(row):
-                    record("SCC", rid, before, None, note, queue_path=queue_path, today=day)
+                    record(_biz_of(row), rid, before, None, note, queue_path=queue_path, today=day)
         except Exception as e:
             res["error"] = (str(e)[:200] or type(e).__name__)
     # t_f6267312: every live row that was read gets its NAP result stored on the queue row, whatever the verdict (unread = consistent None + a reason).
@@ -1197,7 +1209,7 @@ def _proof_then_live(row, kind, url, nap, day, db, record, queue_path, note):
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     action = PR.build_action(kind, row, row.get("claim_status"))
     pf = dict(proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action)
-    out = record("SCC", row["id"], "live", url, note, queue_path=queue_path, today=day, listing_url=url, proof=pf)   # t_d660babc: Proof travels with the one live writer
+    out = record(_biz_of(row), row["id"], "live", url, note, queue_path=queue_path, today=day, listing_url=url, proof=pf)   # t_d660babc: Proof travels with the one live writer
     if out.get("errors"): raise RuntimeError("; ".join(out["errors"])[:200])
 
 
@@ -1280,7 +1292,9 @@ def main(argv=None, plain=None, chrome=None):
             print("REFUSED: --proof-backfill takes live rows with incomplete Proof only; not eligible: %s" % ", ".join(bad), file=sys.stderr); return 1
         n.include_live = True; n.proof_live = True
     from cfg import IDENT
-    mail = None if n.replay else MS.MailScanner(name=IDENT["BIZ"]["SCC"]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal. Replay: no mail.
+    try: _qb = queue_biz(json.load(open(n.queue or Q.QUEUE_PATH, encoding="utf-8")))
+    except (OSError, ValueError, Q.QueueError): _qb = "SCC"   # recheck_file reports the real error
+    mail = None if n.replay else MS.MailScanner(name=IDENT["BIZ"][_qb]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal. Replay: no mail.
     store = PageStore(n.replay, replay=True) if n.replay else (PageStore(n.save_pages) if n.save_pages else None)
     kw = {}
     if n.replay:

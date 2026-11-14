@@ -74,6 +74,16 @@ def is_approval(subject, body):
     return not (PENDING_RE.search(s) or (PENDING_RE.search(b) and not APPROVED_RE.search(re.sub(PENDING_RE, " ", b))))
 
 
+_OPEN_DOMAINS = False   # set by --mailbox nm-relay only; SCC (listings) keeps the fixed SCAN_DIRECTORIES list
+
+
+def _domain_of(directory):
+    """t_5b3b4a3f: the domain a Directory's mail carries. SCC: only SCAN_DIRECTORIES. nm-relay: an unlisted dotted name is its own domain (matched by From domain and link host)."""
+    d = SCAN_DIRECTORIES.get(directory)
+    if d or not _OPEN_DOMAINS: return d
+    return directory.lower() if "." in (directory or "") else None
+
+
 def mail_is_from(msg, domain):
     b = _brand(domain)
     frm = (msg.get("from") or "").lower()
@@ -89,7 +99,7 @@ def mail_is_from(msg, domain):
 def find_approval(directory, messages, name=None):
     """-> {"uid", "date", "subject", "url"} for the NEWEST approval mail of `directory` that carries a listing URL on its domain, else None. Pure.
     messages: dicts with uid, from, subject, body (text or html, unescaped), date (iso, optional). The URL with the most business-name words wins, then the first."""
-    domain = SCAN_DIRECTORIES.get(directory)
+    domain = _domain_of(directory)
     if not domain: return None
     mine = [m for m in messages if mail_is_from(m, domain) and is_approval(m.get("subject"), m.get("body"))]
     for m in sorted(mine, key=lambda x: (x.get("date") or "", x.get("uid") or 0), reverse=True):
@@ -120,7 +130,7 @@ def reset_urls(text, domain):
 def find_reset(directory, messages):
     """-> {"uid","date","subject","url","code"} for the NEWEST password-reset mail from `directory` (a link on its own domain, and/or a numeric code), else None. Pure.
     bbb says it sends a CODE; businessyab says instructions: either is returned. The caller prints it; nothing here stores it."""
-    domain = SCAN_DIRECTORIES.get(directory)
+    domain = _domain_of(directory)
     if not domain: return None
     for m in sorted([x for x in messages if mail_is_from(x, domain)], key=lambda x: (x.get("date") or "", x.get("uid") or 0), reverse=True):
         subj, body = m.get("subject") or "", m.get("body") or ""
@@ -134,7 +144,7 @@ def find_reset(directory, messages):
 
 def presence(directory, messages):
     """-> (mail_count, hit, folders): mails from the Directory's domain, the newest reset hit (or None), and the folders it was found in. Pure."""
-    domain = SCAN_DIRECTORIES.get(directory)
+    domain = _domain_of(directory)
     mine = [x for x in messages if domain and mail_is_from(x, domain)]
     return len(mine), find_reset(directory, mine), sorted({x.get("folder") or "INBOX" for x in mine})
 
@@ -166,7 +176,7 @@ def from_domain(frm):
 
 def header_rows(directory, messages):
     """-> [{folder, date, from_domain, to, subject}] for every mail that belongs to `directory` (newest first). HEADERS ONLY: never the body, a code or a link. Pure."""
-    domain = SCAN_DIRECTORIES.get(directory)
+    domain = _domain_of(directory)
     if not domain: return []
     mine = [m for m in messages if mail_is_from(m, domain)]
     return [{"folder": m.get("folder") or "INBOX", "date": m.get("date") or "-", "from_domain": from_domain(m.get("from")),
@@ -397,6 +407,13 @@ def select_rows(all_rows, wanted, today, historical=False):
 
 
 def main(argv=None):
+    try: return _main(argv)
+    finally:
+        global _OPEN_DOMAINS
+        _OPEN_DOMAINS = False   # t_5b3b4a3f: the nm-relay opening never outlives the run
+
+
+def _main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Read listings@ for approval / now-live mails of the moderated, account-less Directories (read-only)")
     a.add_argument("--days", type=int, default=30)
@@ -410,8 +427,9 @@ def main(argv=None):
     a.add_argument("--verify-link", action="store_true", help="print the newest email-verification link / code per --directory (terminal only; never stored)")
     a.add_argument("--mailbox", choices=("listings", "nm-relay"), default="listings", help="nm-relay = the file nm_listings_relay.py fills from mail to the NM listings alias (no IMAP)")
     n = a.parse_args(argv)
+    global read_messages, _OPEN_DOMAINS   # noqa
+    _OPEN_DOMAINS = n.mailbox == "nm-relay"   # reset every call: only the NM relay opens the directory list
     if n.mailbox == "nm-relay":
-        global read_messages
         read_messages = read_relay_messages   # every mode below reads the relay file instead of IMAP
     if n.headers and not n.presence: a.error("--headers goes with --presence")
     if n.historical and (not n.directory or n.reset_link or n.presence or n.folders == "inbox"):
