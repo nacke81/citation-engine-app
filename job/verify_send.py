@@ -228,7 +228,8 @@ def playbook_block(playbook):
 
 
 STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
-STEP4_SIGNUP = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+STEP3_MARKED = "3. Do the send step (playbook step %d) once. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
+STEP4_MARKED = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
 
 
 def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=None):
@@ -239,17 +240,21 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     'no account creation' rule stands. Payment and client contact are never allowed either way. CapSolver (cap 3 per request, NM) only with the carve-out."""
     biz = tenant[0]
     signup = bool(playbook and playbook.get("send_is_signup"))
+    # t_8b8c2650: EVERY stored verify playbook names its one marked send step (PlaybookError when 0 or 2+: no prompt, fail closed). No playbook: generic steps.
+    n = PB.send_step_number(playbook.get("steps"), signup) if playbook else 0
     pb_txt = playbook_block(playbook) if playbook else ""
     sign_in = SIGN_IN_STEP
     phone_step = PHONE_STEP
     step3 = STEP3_SIGNIN
-    n = 0
     rules = NO_ACCOUNT_RULE
+    if n:   # t_8b8c2650: the marked step IS the send on the sign-in path too: one order, no generic second click
+        phone_step = "2. Go to the phone verification step. Before the send step (playbook step %d), check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
+        step3 = STEP3_MARKED % n
     if signup:
         sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use the one browser session this run reserved.\n")
-        n = PB.send_step_number(playbook.get("steps"), True)   # t_3223ee18: the playbook's own send step, never "the Sign up click"
+        # t_3223ee18: n is the playbook's own send step (computed above), never "the Sign up click"
         phone_step = "2. Before the send step (playbook step %d), check the phone shown in the form against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
-        step3 = "3. Do the send step (playbook step %d). Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n" % n
+        step3 = STEP3_MARKED % n
         rules = ("- No payment, no client contact. You may create ONE account, only the one the playbook describes, only for %(dom)s, only with the vault item's login. No other account anywhere.\n"
                  + ("- CapSolver is allowed only for a CAPTCHA on this signup page, at most 3 solves for this request: python job/capsolver_solve.py --row verify-%(rid)s --kind <kind> --url <page url> --sitekey <key>. A fourth try is never allowed.\n" if biz == "NM" else "- No CapSolver.\n"))
     steps = row.get("steps")
@@ -257,7 +262,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     ch = req.get("channel")
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
     helper = helper_command()
-    step4 = (STEP4_SIGNUP if signup else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
+    step4 = (STEP4_MARKED if n else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
     fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2]}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
@@ -565,7 +570,7 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
     if raw:
         try:
             playbook = dict(raw, steps=PB.render(raw, rt.tenant_values(tenant, username)))
-            if playbook.get("send_is_signup"): PB.send_step_number(playbook["steps"], True)   # t_3223ee18: no usable send step = no agent
+            PB.send_step_number(playbook["steps"], bool(playbook.get("send_is_signup")))   # t_3223ee18 / t_8b8c2650: no marked send step (signup or sign-in) = no agent
         except PB.PlaybookError as e:   # a playbook that cannot be filled never reaches the agent
             log("playbook not usable: %s" % e); return end("failed", "send_failed")
     try:

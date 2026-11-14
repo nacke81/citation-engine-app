@@ -52,7 +52,7 @@ def raises(fn, exc=Exception):
     try: fn(); return None
     except exc as e: return e
 
-STEPS = [{"text": "Open the sign-in page", "url": "https://www.designrush.com/login"}]
+STEPS = [{"text": "Open the sign-in page", "url": "https://www.designrush.com/login", "send": True}]   # t_8b8c2650: a verify playbook marks its one send step
 ROW = {"id": "nm-create-alignable", "directory": "alignable.com"}
 
 # ---- 1 sink: a park on a domain not in ce_directories ----------------------------------------------------------------------------

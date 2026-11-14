@@ -1,0 +1,26 @@
+{
+  "domain": "alignable.com",
+  "task": "verify",
+  "send_is_signup": true,
+  "source": "t_9de1c978 from Mike's walkthrough 2026-11-13 (send screen not clicked); seeded by t_9de1c978",
+  "steps": [
+    {
+      "text": "Open the Alignable home page.",
+      "url": "https://www.alignable.com/"
+    },
+    {
+      "text": "Type {login_email} in the email box, then mouse-click 'Get Started Free'. A JavaScript click does not work here; use a real mouse click."
+    },
+    {
+      "text": "On /onboarding/welcome, tick the Terms checkbox. Mouse-click the reCAPTCHA checkbox (a plain click passes). Then click 'Sign Up It's Free'."
+    },
+    {
+      "text": "On /onboarding/name, enter {contact_name} and click 'Next'."
+    },
+    {
+      "text": "On /onboarding/verify, type {phone} in the phone_number field and click 'Verify with SMS/Text'. This creates the account for {business_name} and is the send.",
+      "selector": "input[name=phone_number]",
+      "send": true
+    }
+  ]
+}

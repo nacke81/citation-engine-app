@@ -286,9 +286,11 @@ def main(argv=None, db=None, out=print):
         with open(n.report, "w", encoding="utf-8") as h: json.dump({"report": rep, "rows": rows}, h, indent=1)
     if not n.write:
         out("DRY RUN: nothing written. %d rows would be written." % len(rows)); return 0
+    skipped = [r for r in rows if r["task"] == "verify"]   # t_8b8c2650: a note cannot name the send step; a verify row is set by hand (playbook.py set)
+    rows = [r for r in rows if r["task"] != "verify"]
     for r in rows:
         PB.set_playbook(db, r["domain"], r["task"], r["steps"], False, r["source"], None, stale=r["stale"])
-    out("written: %d rows" % len(rows)); return 0
+    out("written: %d rows; %d verify rows skipped (each needs its one marked send step: playbook.py set)" % (len(rows), len(skipped))); return 0
 
 
 if __name__ == "__main__":

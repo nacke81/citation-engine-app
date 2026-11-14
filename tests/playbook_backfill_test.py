@@ -110,7 +110,8 @@ try:
     rc = BF.main(["--vault", vault, "--from-db", "--write"], db=f2, out=lambda m: None)
     posts = [c for c in f2.calls if c[0] == "POST"]
     wrote = [(p[2][0]["domain"], p[2][0]["task"]) for p in posts]
-    check("6 --write upserts every planned row through set_playbook", rc == 0 and len(posts) == len(rows) - 1 and ("good.example", "verify") not in wrote, (len(posts), len(rows)))
+    nv = [r for r in rows if r["task"] != "verify"]; nverify = len(rows) - len(nv)
+    check("6 --write upserts every planned NON-verify row through set_playbook; verify rows are skipped (a note cannot name the send step, t_8b8c2650)", rc == 0 and len(posts) == len([r for r in nv if (r["domain"], r["task"]) != ("good.example", "verify")]) and all(w[1] != "verify" for w in wrote), (len(posts), len(rows), wrote))
     check("6 a written row has no proven stamp, stale flagged where needed", all(p[2][0]["last_proven_at"] is None for p in posts) and any(p[2][0].get("stale") is True for p in posts))
 finally:
     BF.Scrubber = orig_scr
@@ -136,10 +137,12 @@ for bad, label in (({"steps": [{"action": "eval", "url": "https://a.example/"}]}
     check("8 trace refused: " + label, got is not None, got)
 tf = os.path.join(vault, "t.json"); json.dump(trace, open(tf, "w"))
 out = []; f4 = Fake()
-rc = PB.main(["from-trace", "--file", tf], db=f4, out=out.append)
+rc0 = PB.main(["from-trace", "--file", tf], db=Fake(), out=out.append, err=lambda m: out.append(m))
+check("8 from-trace without --send-step is refused (a verify playbook needs its one marked send)", rc0 == 1 and any("exactly one" in str(o) for o in out))
+rc = PB.main(["from-trace", "--file", tf, "--send-step", "3"], db=f4, out=out.append)
 w = [c for c in f4.calls if c[0] == "POST"][0][2][0]
 check("8 from-trace without --proven leaves last_proven_at empty", rc == 0 and w["task"] == "verify" and w["last_proven_at"] is None and w["source"] == "run r1 (trace)")
-f5 = Fake(); PB.main(["from-trace", "--file", tf, "--proven"], db=f5, out=out.append)
+f5 = Fake(); PB.main(["from-trace", "--file", tf, "--proven", "--send-step", "3"], db=f5, out=out.append)
 w5 = [c for c in f5.calls if c[0] == "POST"][0][2][0]
 check("8 from-trace --proven stamps last_proven_at", bool(w5["last_proven_at"]) and "stale" not in w5)
 
