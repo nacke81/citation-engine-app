@@ -18,15 +18,15 @@ SORT, CLUTCH = load("sortlist-verify.relay.json"), load("clutch-verify.relay.jso
 ADMIN = dict(SORT, uid="fx-sortlist-2", subject="You have been added as admin of Acme Agency", date="2026-11-13T22:25", body="https://sortli.st/t56jzn?utm_source=sendgrid.com")
 
 h = M.find_verify("sortlist.com", [SORT, CLUTCH])
-check("1 Sortlist: the verify link is the sortli.st button, not a tracker or footer link", h and h["url"].startswith("https://sortli.st/g42azd"), h)
+check("1 Sortlist: the verify link is the sortli.st button, not a tracker or footer link", h and h["url"].startswith("https://sortli.st/FIXTURE01"), h)
 check("1 Sortlist: unsubscribe-group (/asm/) and /contact links are never chosen", not any("/asm/" in u or "/contact" in u for u in M.verify_urls(SORT["body"], "sortlist.com")))
 h = M.find_verify("clutch.co", [SORT, CLUTCH])
-check("2 Clutch: code 652556 and the HubSpot link are both found", h and h["code"] == "652556" and "hubspotlinks.com" in (h["url"] or ""), h)
+check("2 Clutch: code 123456 and the HubSpot link are both found", h and h["code"] == "123456" and "hubspotlinks.com" in (h["url"] or ""), h)
 check("2 Clutch: the HubSpot link ranks first (the verify button), the placeholder 000000 is not the code", h and h["code"] != "000000")
 check("3 a later non-verify Sortlist mail (admin added) does not hide the verify mail", (M.find_verify("sortlist.com", [SORT, ADMIN]) or {}).get("uid") == "fx-sortlist-1")
 out = []
 rc = M.verify_main(["sortlist.com", "clutch.co"], 30, messages=[SORT, CLUTCH, ADMIN], out=out.append)
-check("4 verify_main prints both, exit 0", rc == 0 and "sortli.st/g42azd" in out[0] and "652556" in out[1], out)
+check("4 verify_main prints both, exit 0", rc == 0 and "sortli.st/FIXTURE01" in out[0] and "123456" in out[1], out)
 check("5 aliases are per Directory: a sortli.st link in Clutch-matched mail is not taken", M.verify_urls("https://sortli.st/zzz", "clutch.co") == [])
 check("5 a sortli.st link in a mail NOT from Sortlist is not matched to Sortlist", M.find_verify("sortlist.com", [dict(SORT, **{"from": "Other <x@other-agency.example>", "body": "https://sortli.st/zzz"})]) is None)
 check("5 the older same-domain behaviour holds: own-domain verify path still found", M.verify_urls("https://www.cylex.us.com/verify?t=abc", "cylex.us.com") == ["https://www.cylex.us.com/verify?t=abc"])
