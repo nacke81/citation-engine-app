@@ -217,6 +217,10 @@ def playbook_block(playbook):
     return "Directory playbook (version %s, from the Directory DB; follow these in order, they win over the row steps):\n%s\n" % (playbook.get("version", "?"), "\n".join(lines))
 
 
+STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+STEP4_SIGNUP = "4. The Sign up click already sent the code. Do NOT click any other send, resend or SMS option. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+
+
 def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=None):
     """The agent's instructions. Request id, tenant, directory, channel, the row's steps and URL, the masked phone, the hard rules. Holds NO code
     and no secret (the username is the login email, not a credential).
@@ -239,6 +243,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     ch = req.get("channel")
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
     helper = helper_command()
+    step4 = (STEP4_SIGNUP if signup else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)"}
     fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2]}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
@@ -250,8 +255,8 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "   Speed log (do not skip, it is how this step becomes a script): after each page action from sign-in to the send click, run: %(helper)s trace --request-id %(rid)s --action <goto, click, fill or press> --url <page url> --selector \"<css selector>\"\n"
         "   (no values, never what you typed). When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. If either exits nonzero, carry on.\n"
         "%(phone_step)s"
-        "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code.\n"
-        "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+        "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
+        "%(step4)s"
         "   (use the masked number you saw on the page when it differs in format). If it exits nonzero, stop.\n"
         "5. Run: %(helper)s code --request-id %(rid)s   (run it with the terminal tool's timeout set to 600, in the foreground)\n"
         "   Each call waits up to 9 minutes. Exit 0 means the code is on its stdout. Exit 6 means no code yet: run the same command again, as many times as needed (the 30 minute limit does not restart).\n"
@@ -265,7 +270,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "%(rules)s"
         "- If you are unsure at any step, stop. The run turns an unfinished request into a safe failure.\n"
         % {"rid": request_id, "biz": biz, "dom": entry["domain"], "ch": ch, "how": how, "url": row.get("directory_url") or entry["signin_url"],
-           "sign_in": sign_in % fmt, "phone_step": phone_step, "rules": rules % fmt, "pb": pb_txt, "item": tenant[2],
+           "sign_in": sign_in % fmt, "phone_step": phone_step, "step4": step4, "rules": rules % fmt, "pb": pb_txt, "item": tenant[2],
            "steps": steps_txt, "masked": masked or "(not on file; read it from the page)", "user": username, "helper": helper})
 
 
@@ -328,6 +333,7 @@ class Runtime:
             d = re.sub(r"\D", "", (b.get("phones") or [""])[0])[-10:]
             if len(d) == 10: vals["phone"] = "(%s) %s-%s" % (d[:3], d[3:6], d[6:])
             vals["website"] = b.get("site")
+            vals["contact_name"] = b.get("contact")   # t_f683311e: from identity.json only. No key (SCC, or NM unset) = no value = render refuses = send_failed before launch
         except Exception:
             pass
         return {k: v for k, v in vals.items() if isinstance(v, str) and v}

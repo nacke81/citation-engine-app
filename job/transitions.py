@@ -454,7 +454,7 @@ def set_verification_live(portal, verification_id, client_id, now=None):
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
                       dry_run=False, activities=None, activities_flag=None, directories=None, verify_type=None, verification=None,
-                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None, vault_items_lookup=None):
+                      verify_deadline_days=POSTCARD_DEADLINE_DAYS, steps=None, directory_url=None, listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, activities_hold_flag=None, backoff=None, park_reason=None, proof=None, observation=None, reason_code=None, vault_item=None, allowlist_path=None, vault_items_lookup=None, signin_url=None):
     """Returns a dict describing what was (or, in dry_run, would be) written. Refusals raise TransitionRefused before any write.
     portal: object with latest_snapshot(client_id)/upsert_snapshot(...) (default: real Portal from the prod env pointer).
     activities: object with call(method, path, body, prefer) (default: the same Portal).
@@ -500,6 +500,10 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         problems = YT.check_your_turn(row["directory"], verify_type, observation, dir_row, day)
         if problems: raise TransitionRefused("Your turn gate refused %s: %s" % (row["directory"], "; ".join(problems)))
     steps, directory_url = check_id_check_fields(verify_type, steps, directory_url)
+    if signin_url is not None:   # t_9de1c978: refused before any write; only a phone/SMS park reaches the allowlist
+        if verify_type not in AL.AUTO_TYPES: raise TransitionRefused("--signin-url only applies to an sms or phone-call park")
+        try: signin_url = AL.check_signin_url(row["directory"], signin_url)
+        except ValueError as e: raise TransitionRefused("--signin-url: %s" % e)
     if verify_type: note = verification_note(verify_type)
 
     approval_before = copy.deepcopy(row.get("mike_approval"))
@@ -614,7 +618,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             try:
                 item = vault_item or _resolve_vault_item(row["directory"], vault_items_lookup, client)
                 if item:
-                    out["allowlist"] = AL.auto_add(row["directory"], verify_type, client, item, row_id, day, path=allowlist_path)
+                    out["allowlist"] = AL.auto_add(row["directory"], verify_type, client, item, row_id, day, path=allowlist_path, signin_url=signin_url)
                     out["allowlist"]["vault_item_resolved"] = not vault_item
                 else:
                     out["errors"].append("allowlist: vault item unresolved, pass --vault-item")
@@ -691,6 +695,7 @@ def main(argv=None):
     a.add_argument("--observed-url", default=None, help="Your turn gate: https URL of the verify step")
     a.add_argument("--final-url", default=None, help="Your turn gate: URL after redirects (a different domain = dead/redirect)")
     a.add_argument("--vault-item", default=None, help="sms/phone-call park: the Citations vault item name the build run signed in with (Verify Now allowlist entry); omitted: resolved with vault_item.resolve_for_domain, and no item = no auto-add")
+    a.add_argument("--signin-url", default=None, dest="signin_url", help="sms/phone-call park: the Directory's real sign-in or signup page (https, on the Directory's own domain) for the Verify Now allowlist entry; omitted: the bare domain root")
     a.add_argument("--queue", default=None)
     a.add_argument("--dry-run", action="store_true", help="no queue write, no network; print the payloads")
     a.add_argument("--today", default=None)
@@ -721,7 +726,7 @@ def main(argv=None):
     if n.write: a.error("--write only applies to --mirror-proof")
     if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
-        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code, vault_item=n.vault_item,
+        res = record_transition(n.client, n.row, n.new_state, n.evidence, n.note, queue_path=n.queue, today=n.today, dry_run=n.dry_run, verify_type=n.verify_type, steps=n.step, directory_url=n.directory_url, reason=n.reason, recheck_due=n.recheck_due, refresh_url=n.refresh_url, park_reason=n.park_reason, reason_code=n.reason_code, vault_item=n.vault_item, signin_url=n.signin_url,
                                 observation=({"observed_type": n.observed_type, "screenshot": n.screenshot, "price_seen": n.price_seen, "observed_at": n.observed_at, "url": n.observed_url, "final_url": n.final_url} if n.verify_type else None))
     except (TransitionRefused, Q.QueueError, P.PortalWriteError) as e:
         print("REFUSED: %s" % e, file=sys.stderr)
