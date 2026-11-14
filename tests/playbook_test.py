@@ -261,25 +261,29 @@ check("8 the Alignable prompt carries the signup carve-out and the filled steps,
 # ---- 9 the send rule is ONE clear order, and contact_name comes from identity.json only (t_f683311e) ---------------------------------
 RULE = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it."
 OLD_RULE = "3. STOP at the send step, do not click send, and end the session if anything looks like a paid upsell, a plan purchase, or marketing consent that is not required for the code."
-def send_rule_problems(pr):
+TAIL = " Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it."
+def rule_up(n): return "3. Do the send step (playbook step %d)." % n + TAIL   # t_3223ee18: the signup path names the playbook's send step
+def send_rule_problems(pr, rule=RULE):
     """[] when the prompt tells the agent to click send and no line forbids clicking send without a condition in front of it."""
     bad = []
     lines = pr.split("\n")
-    if RULE not in lines: bad.append("exact click-send rule line missing")
+    if rule not in lines: bad.append("exact click-send rule line missing")
     for ln in lines:
         low = ln.lower()
         if "stop at the send step" in low: bad.append("old STOP-at-send wording: " + ln[:60])
-        if "do not click" in low and not re.match(r"^3\. Click the send button\. Before you click it, if .*do NOT click;", ln) and not ln.startswith("4. The Sign up click already sent the code. Do NOT click any other send, resend or SMS option."): bad.append("unconditional do-not-click: " + ln[:60])
+        if "do not click" in low and not re.match(r"^3\. (Click the send button|Do the send step \(playbook step \d+\))\. Before you click it, if .*do NOT click;", ln) and not re.match(r"^4\. Playbook step \d+ already sent the code\. Do NOT click any other send, resend or SMS option after it\.", ln): bad.append("unconditional do-not-click: " + ln[:60])
     return bad
 al_pb = dict(al, version=1, steps=rendered)
 paths = {"signup (Thumbtack seed)": p_sign, "signup (Alignable seed)": p_al, "sign-in (playbook without send_is_signup)": p_plain, "sign-in (no playbook)": p_none}
+SEND_N = {"signup (Thumbtack seed)": 7, "signup (Alignable seed)": 5}   # t_3223ee18: the seeded send steps
+RULES = {name: (rule_up(SEND_N[name]) if name in SEND_N else RULE) for name in paths}
 for name, pr in paths.items():
-    check("9 %s prompt: tells the agent to click send, and no line says do not click send without a condition" % name, send_rule_problems(pr) == [], send_rule_problems(pr))
-    check("9 %s prompt: the click-send rule sits after the phone check and before the send-the-code step" % name, pr.index(RULE) < pr.index("\n4. "))
+    check("9 %s prompt: tells the agent to click send, and no line says do not click send without a condition" % name, send_rule_problems(pr, RULES[name]) == [], send_rule_problems(pr, RULES[name]))
+    check("9 %s prompt: the click-send rule sits after the phone check and before the send-the-code step" % name, pr.index(RULES[name]) < pr.index("\n4. "))
 for name, pr in paths.items():
-    m = pr.replace(RULE, OLD_RULE)   # MUTATION: the old ambiguous line is back
-    check("9 MUTATION %s prompt with the old STOP-at-send line is caught by the check" % name, send_rule_problems(m) != [] and any("old STOP" in x or "unconditional" in x for x in send_rule_problems(m)), send_rule_problems(m)[:2])
-check("9 MUTATION a bare 'do not click send' line is caught", send_rule_problems(p_sign + "\n- Do not click send.\n") != [])
+    m = pr.replace(RULES[name], OLD_RULE)   # MUTATION: the old ambiguous line is back
+    check("9 MUTATION %s prompt with the old STOP-at-send line is caught by the check" % name, send_rule_problems(m, RULES[name]) != [] and any("old STOP" in x or "unconditional" in x for x in send_rule_problems(m, RULES[name])), send_rule_problems(m, RULES[name])[:2])
+check("9 MUTATION a bare 'do not click send' line is caught", send_rule_problems(p_sign + "\n- Do not click send.\n", rule_up(7)) != [])
 src = open(os.path.join(HERE, "..", "job", "verify_send.py"), encoding="utf-8").read()
 check("9 verify_send.py has no CONTACT_NAME constant and no hard-coded contact", "CONTACT_NAME" not in src and "STOP at the send step" not in src)
 
@@ -310,26 +314,82 @@ finally: S.Runtime.tenant_values = _orig
 check("9 MUTATION a code fallback for contact_name makes the missing-key run launch (so the fail-closed test above is the guard)", len(rt.launched) == 1 and rt.prompts and "Fallback Name" in rt.prompts[0], (r, text[-100:]))
 
 # ---- 10 signup step 4: the Sign up click already sent the code, no second send (t_f683311e round 3) ------------------------------------
-S4_UP = "4. The Sign up click already sent the code. Do NOT click any other send, resend or SMS option. Immediately run: "
+def s4_up(n): return "4. Playbook step %d already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: " % n
 def step4_problems(pr, signup):
-    lines = pr.split("\n"); i3 = lines.index(RULE) if RULE in lines else -1
+    n = signup if signup else None   # signup = the expected send step number, or False for the sign-in path
+    rule = rule_up(n) if n else RULE
+    lines = pr.split("\n"); i3 = lines.index(rule) if rule in lines else -1
     if i3 < 0: return ["rule 3 missing"]
     after = "\n".join(lines[i3 + 1:]).lower(); bad = []
     if signup:
-        if not any(l.startswith(S4_UP) and " sent --request-id " in l for l in lines): bad.append("signup step 4 line missing")
+        if not any(l.startswith(s4_up(n)) and " sent --request-id " in l for l in lines): bad.append("signup step 4 line missing")
         for w in ("send the code", "choose the sms", "choose the call"):
             if w in after: bad.append("second-send wording after step 3: " + w)
     else:
         if not any(l.startswith("4. Choose the ") and "send the code. Immediately run:" in l for l in lines): bad.append("sign-in step 4 changed")
     return bad
 for name, pr in paths.items():
-    sg = name.startswith("signup")
-    check("10 %s prompt: step 4 is %s" % (name, "'Sign up click already sent the code', no second send" if sg else "the unchanged sign-in step"), step4_problems(pr, sg) == [], step4_problems(pr, sg))
+    sg = SEND_N.get(name, False)
+    check("10 %s prompt: step 4 is %s" % (name, "'Playbook step N already sent the code', no second send" if sg else "the unchanged sign-in step"), step4_problems(pr, sg) == [], str(step4_problems(pr, sg)))
 GENERIC = "4. Choose the sms option and send the code. Immediately run: "
 for name in ("signup (Thumbtack seed)", "signup (Alignable seed)"):
-    m = paths[name].replace(S4_UP, GENERIC)   # MUTATION: generic step 4 back on the signup path
-    check("10 MUTATION %s with the generic step 4 is caught" % name, step4_problems(m, True) != [], step4_problems(m, True))
-check("10 MUTATION a resend order after step 3 is caught", step4_problems(p_sign + "\n- If no code arrives, send the code again.\n", True) != [])
+    m = paths[name].replace(s4_up(SEND_N[name]), GENERIC)   # MUTATION: generic step 4 back on the signup path
+    check("10 MUTATION %s with the generic step 4 is caught" % name, step4_problems(m, SEND_N[name]) != [], str(step4_problems(m, SEND_N[name])))
+check("10 MUTATION a resend order after step 3 is caught", step4_problems(p_sign + "\n- If no code arrives, send the code again.\n", 7) != [])
+
+# ---- 11 the send step is the playbook's marked step, not "the Sign up click" (t_3223ee18) --------------------------------------------
+tt_seed = json.load(open(SEED, encoding="utf-8"))
+def marks(steps): return [i for i, s in enumerate(steps, 1) if s.get("send")]
+check("11 seeds: Thumbtack marks step 7, Alignable marks step 5, exactly one each", marks(tt_seed["steps"]) == [7] and marks(al["steps"]) == [5])
+check("11 send_step_number returns 7 and 5 for the seeds", PB.send_step_number(tt_seed["steps"], True) == 7 and PB.send_step_number(al["steps"], True) == 5)
+def with_marks(steps, idx): return [dict(s, send=True) if i in idx else {k: v for k, v in s.items() if k != "send"} for i, s in enumerate(steps, 1)]
+def send_err(steps, sig=True):
+    try: PB.send_step_number(PB.validate_steps(steps), sig); return None
+    except PB.PlaybookError as e: return str(e)
+check("11 zero marked steps on a signup playbook are refused", "exactly one" in (send_err(with_marks(al["steps"], [])) or ""))
+check("11 two marked steps on a signup playbook are refused", "exactly one" in (send_err(with_marks(al["steps"], [3, 5])) or ""))
+check("11 a mark on a playbook without send_is_signup is refused", "not set" in (send_err(al["steps"], False) or "") and send_err(with_marks(al["steps"], []), False) is None)
+check("11 a non-boolean send value is refused", "true or false" in (refused([{"text": "Click go", "send": "yes"}]) or ""))
+class SDB:
+    def __init__(s): s.calls = []
+    def call(s, m, p, b=None, prefer=None):
+        s.calls.append((m, p)); return [] if m == "GET" else None
+for what, st in (("none marked", with_marks(al["steps"], [])), ("two marked", with_marks(al["steps"], [3, 5]))):
+    try: PB.set_playbook(SDB(), "alignable.com", "verify", st, True, dry_run=True); e = None
+    except PB.PlaybookError as ex: e = str(ex)
+    check("11 playbook.py set refuses a signup playbook with %s" % what, e is not None and "exactly one" in e, e)
+d11 = SDB()
+try: PB.set_playbook(d11, "alignable.com", "verify", al["steps"], True, now=None); ok11 = any(c[0] == "POST" for c in d11.calls)
+except Exception as ex: ok11 = False
+check("11 set accepts a signup playbook with exactly one marked step and writes it", ok11)
+check("11 render keeps the send mark", marks(rendered) == [5] and marks(PB.render(tt_seed, VALUES)) == [7])
+check("11 the Thumbtack prompt names step 7 in steps 2, 3 and 4; the Alignable prompt names step 5", all(("before the send step (playbook step 7)" in p_sign.lower(), "3. Do the send step (playbook step 7)." in p_sign, "4. Playbook step 7 already sent the code." in p_sign)) and all(("before the send step (playbook step 5)" in p_al.lower(), "3. Do the send step (playbook step 5)." in p_al, "4. Playbook step 5 already sent the code." in p_al)))
+check("11 neither signup prompt says 'Sign up click' or 'signup click' (Alignable's send is not that click)", not re.search(r"(?i)sign.?up click", p_al) and not re.search(r"(?i)sign.?up click", p_sign))
+check("11 the Alignable prompt does not forbid its own send step 5 (step 4 says do NOT click any other send AFTER it)", "Do NOT click any other send, resend or SMS option after it" in p_al and "The Sign up click" not in p_al)
+# MUTATIONS
+_snd = PB.send_step_number
+PB.send_step_number = lambda steps, sig=True: (marks(steps) or [None])[0]   # MUTATION: no exactly-one check (accepts zero or two)
+try: m_zero = send_err(with_marks(al["steps"], []))
+finally: PB.send_step_number = _snd
+check("11 MUTATION a validator without the exactly-one count lets a zero-mark playbook through (so the tests above are the guard)", m_zero is None)
+wrong = with_marks(al["steps"], [3])   # MUTATION: the mark on the wrong step (the Sign Up It's Free click)
+p_wrong = S.build_prompt(F.RID, REQ, ROW, {"domain": "alignable.com", "signin_url": "https://www.alignable.com/"}, ("NM", "Na" + "cke Media", "NM - alignable.com", "https://www.alignable.com/"), MASK, VALUES["login_email"], playbook=dict(al, version=1, steps=PB.render(dict(al, steps=wrong), V2)))
+check("11 MUTATION the mark on step 3 makes the prompt name step 3, so the step-5 assertion above fails", "playbook step 3" in p_wrong and "playbook step 5" not in p_wrong)
+check("11 MUTATION a hard-coded 'Sign up click' line is caught by the prompt check", re.search(r"(?i)sign.?up click", p_al.replace("4. Playbook step 5 already sent the code.", "4. The Sign up click already sent the code.")) is not None)
+# the run path: a stored signup row with no mark never reaches the agent
+def run_unmarked():
+    idf = os.path.join(tempfile.mkdtemp(), "identity.json"); json.dump({"BIZ": {"NM": dict(NMB, contact="Pat Sample")}}, open(idf, "w"))
+    old = os.environ.get("CE_IDENTITY"); os.environ["CE_IDENTITY"] = idf
+    try:
+        p = agent_portal(); rt = IdRuntime(F.FakePage(), agent_factory=lambda rt: F.FakeAgent([lambda: None])); rt.pb = dict(al, version=1, domain=AGENT_DIR, steps=with_marks(al["steps"], []))
+        r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+    finally:
+        if old is None: os.environ.pop("CE_IDENTITY", None)
+        else: os.environ["CE_IDENTITY"] = old
+    return rt, p, text
+rt, p, text = run_unmarked()
+check("11 a stored signup playbook with no marked send step: send_failed before launch (no prompt, no agent, no browser)", not rt.launched and not rt.prompts and rt.browsers == 0 and p.requests[F.RID]["status"] == "failed", (p.requests[F.RID]["status"], text[-120:]))
+
 
 if "--print-thumbtack" in sys.argv:
     print("\n==== THUMBTACK PROMPT (dry run, fake tenant values, request id %s) ====\n%s" % (F.RID, p_sign))

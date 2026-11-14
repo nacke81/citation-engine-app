@@ -11,7 +11,7 @@
     {"text": "Fill the phone field with {phone}.", "selector": "#signup-form__phone"},
     {"text": "Fill the password field with the password from vault item {vault_item} (vault fill helper only; never type or print it).", "selector": "#signup-form__password"},
     {"text": "Leave BOTH SMS opt-in boxes UNCHECKED. They default to checked: uncheck each, then confirm both read unchecked.", "selector": "input[name=signup-form__enable-sms-notifications-checkbox], input[name=signup-form__marketing-notifications-checkbox]"},
-    {"text": "Click 'Sign up'. This creates the account for {business_name} and is the send."},
+    {"text": "Click 'Sign up'. This creates the account for {business_name} and is the send.", "send": true},
     {"text": "When the page says \"We'll text you a verification code\", run the helper `sent` command now. Then wait for the client's code with `code` and enter it."}
   ]
 }
