@@ -643,7 +643,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     return out
 
 
-def create_row(client, domain, kind, *, queue_path=None, today=None, dry_run=False, note=None):
+def create_row(client, domain, kind, *, queue_path=None, today=None, dry_run=False, note=None, directories=None):
     """t_cb7bad04: add ONE queued row for a Directory that has no row yet (NM: nm-fix-queue.json, fix_queue). No hand JSON edits.
     Refused: a tenant without create_row, a bad domain/kind, a Directory that already has a row (any list), an id collision. Backup (first write of the day) + atomic write."""
     t = tenant_of(client)
@@ -666,7 +666,10 @@ def create_row(client, domain, kind, *, queue_path=None, today=None, dry_run=Fal
     row = {"id": rid, "group": "C-new-row", "kind": kind, "directory": domain, "state": "queued", "cost": "free", "mike_approval": None,
            "build_note": (note or "row added by transitions.py --create-row (t_cb7bad04); no listing read yet").strip(),
            "history": [{"at": day, "from": None, "to": "queued", "evidence_url": None, "note": "row created (--create-row)"}]}
-    out = {"dry_run": bool(dry_run), "client": client, "queue": path, "row": row, "backup": None}
+    out = {"dry_run": bool(dry_run), "client": client, "queue": path, "row": row, "backup": None, "directory_row_added": False}
+    if directories is not None or D.enabled():   # t_9a722352: the Directory row first (the park's status row has an FK to it); a clear refusal, nothing written, when it cannot be added
+        try: out["directory_row_added"] = D.ensure_directory(directories or D.DirDB(), domain, day, dry_run=dry_run)
+        except Exception as e: raise TransitionRefused("%s is not in ce_directories and could not be added (%s: %s); nothing written" % (domain, type(e).__name__, e))
     if dry_run: return out
     import shutil
     bak = "%s.bak-nm-%s" % (path, day)

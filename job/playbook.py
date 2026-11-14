@@ -91,8 +91,9 @@ def set_playbook(db, domain, task, steps, send_is_signup=False, source=None, las
     domain = (domain or "").strip().lower()
     check_target(domain, task, send_is_signup)
     clean = validate_steps(steps)
-    if not db.call("GET", "ce_directories?domain=eq.%s&select=domain&limit=1" % quote(domain, safe=""), prefer="return=representation"):
-        raise PlaybookError("%s is not in ce_directories (add the Directory first)" % domain)
+    import directories as D   # t_9a722352: a domain new to the Catalog gets a minimal row by rule (the playbook's FK needs it), never a hand insert
+    try: D.ensure_directory(db, domain, dry_run=dry_run)
+    except D.DirectoriesError as e: raise PlaybookError(str(e))
     cur = get_playbook(db, domain, task)
     ts = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
     row = {"domain": domain, "task": task, "steps": clean, "send_is_signup": bool(send_is_signup), "source": source,

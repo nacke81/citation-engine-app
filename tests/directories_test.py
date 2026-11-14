@@ -30,6 +30,8 @@ class FakeDB:
         if method == "POST" and path.startswith("ce_directory_status"):
             for r in body:
                 k = (r["owner"], r["biz"], r["directory"]); self.status.setdefault(k, {}).update(r)
+        elif method == "POST" and path.startswith("ce_directories"):
+            for r in body: self.dirs.setdefault(r["domain"], {k: v for k, v in r.items() if k != "domain"})
         elif method == "GET" and path.startswith("ce_directories"):
             return [dict(domain=d, **v) for d, v in self.dirs.items()]
         elif method == "PATCH":
@@ -189,6 +191,7 @@ def table_cols(name):
 cols_dir, cols_stat = table_cols("ce_directories"), table_cols("ce_directory_status")
 cols_stat |= set(re.findall(r"add column if not exists (\w+)", open(os.path.join(ROOT, "db", "011_reason_code.sql"), encoding="utf-8").read()))   # t_93ae9b6b: 011 adds reason_code
 cols_dir |= set(re.findall(r"add column if not exists (\w+)", sql))
+cols_dir |= set(re.findall(r"add column if not exists (\w+)", open(os.path.join(ROOT, "db", "008_hunt_catalog.sql"), encoding="utf-8").read()))   # t_9a722352: 008 adds ce_directories.source (auto-added rows carry source auto)
 seen_dir, seen_stat = set(), set()
 fdb7 = FakeDB(dirs={"yelp.com": {"agent_access": "unknown"}})
 D.sync_run(checks, DAY, queue=queue, db=fdb7)
@@ -202,6 +205,8 @@ for c in db.calls + db2.calls + fdb7.calls + fdb7t.calls:
         seen_dir |= set(re.search(r"select=([\w,]+)", c[1]).group(1).split(","))
     elif c[0] == "PATCH":
         seen_dir |= set(c[2])
+    elif c[0] == "POST" and c[1].startswith("ce_directories"):   # t_9a722352: auto-added Directory rows must use real ce_directories columns too
+        for r in c[2]: seen_dir |= set(r)
     elif c[0] == "POST":
         for r in c[2]: seen_stat |= set(r)
 check("D7 job reads and PATCHes only ce_directories columns that the migration creates", seen_dir and "agent_blocker_source" in seen_dir and seen_dir <= cols_dir, sorted(seen_dir - cols_dir))
