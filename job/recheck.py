@@ -874,6 +874,11 @@ def _bk(row):
     return {} if _biz_of(row) == "SCC" else {"biz": "NM"}
 
 
+def mail_scanner(biz, ident):
+    """t_5b3b4a3f: the approval-mail source for a queue's client. listings@ is SCC's inbox; an NM queue reads the NM relay file, never listings@."""
+    return MS.MailScanner(name=ident["BIZ"][biz]["name"], reader=(MS.read_relay_messages if biz == "NM" else None))
+
+
 def queue_biz(q):
     """The one client a queue file serves: all rows NM -> NM, no NM rows (or no rows) -> SCC. A mixed queue is refused (one canonical identity per file)."""
     kinds = {_biz_of(r) for r in (q.get("fix_queue") or []) if isinstance(r, dict)}
@@ -1299,7 +1304,7 @@ def main(argv=None, plain=None, chrome=None):
     from cfg import IDENT
     try: _qb = queue_biz(json.load(open(n.queue or Q.QUEUE_PATH, encoding="utf-8")))
     except (OSError, ValueError, Q.QueueError): _qb = "SCC"   # recheck_file reports the real error
-    mail = None if n.replay else MS.MailScanner(name=IDENT["BIZ"][_qb]["name"])   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal. Replay: no mail.
+    mail = None if n.replay else mail_scanner(_qb, IDENT)   # t_d2f75685: lazy; the first no-permalink row reads listings@ (env, else the vault item). An unreadable mailbox is reported, never fatal. Replay: no mail.
     store = PageStore(n.replay, replay=True) if n.replay else (PageStore(n.save_pages) if n.save_pages else None)
     kw = {}
     if n.replay:

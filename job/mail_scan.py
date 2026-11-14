@@ -81,7 +81,8 @@ def _domain_of(directory):
     """t_5b3b4a3f: the domain a Directory's mail carries. SCC: only SCAN_DIRECTORIES. nm-relay: an unlisted dotted name is its own domain (matched by From domain and link host)."""
     d = SCAN_DIRECTORIES.get(directory)
     if d or not _OPEN_DOMAINS: return d
-    return directory.lower() if "." in (directory or "") else None
+    d = (directory or "").strip().lower()
+    return d if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", d) else None   # a bare host token only: 'yahoo.com (local.yahoo.com)' opens nothing
 
 
 def mail_is_from(msg, domain):
@@ -93,6 +94,10 @@ def mail_is_from(msg, domain):
     own = lambda h, d: h == d or h.endswith("." + d)
     cat = CD.domains()   # None = Catalog unreadable: fail closed, a same-brand From on another host is rejected
     other_site = bool(fh) and not own(fh, domain) and (any(own(fh, d) for d in cat if d != domain) if cat is not None else b in fh.split("."))
+    if _OPEN_DOMAINS:   # nm-relay: the From ADDRESS host decides; a display name or lookalike host (notn49.com, n49.com.evil.io) never counts
+        lab = fh.split(".")
+        from_ok = bool(fh) and (own(fh, domain) or (len(lab) >= 2 and lab[-2] == b))   # domain/subdomain, or registrable label is the brand (designrush.co, goodfirms.email)
+        return from_ok or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
     return (b in frm and not other_site) or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
 
 

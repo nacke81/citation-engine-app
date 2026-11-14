@@ -103,5 +103,47 @@ try: go(NM_CANON, scc_rows); refused = False
 except Q.QueueError: refused = True
 check("G4 SCC queue carrying the NM phone is refused", refused)
 
+# ---- round 2 (review): lookalike From, non-host directory, NM recheck never reads listings@
+def _msg(frm, **kw):
+    m = {"id": "x", "from": frm, "subject": "Password Reset", "received": RECENT, "links": [], "codes": ["424242"]}; m.update(kw); return m
+def _relay_msgs(msgs):
+    with tempfile.TemporaryDirectory() as t:
+        pth = os.path.join(t, "r.jsonl"); open(pth, "w", encoding="utf-8").write("\n".join(json.dumps(x) for x in msgs) + "\n")
+        return M.read_relay_messages(path=pth, days=5)
+M._OPEN_DOMAINS = True
+try:
+    for label, frm in (("notn49.com", "N49 <noreply@notn49.com>"), ("n49.com.evil.io", "Support <noreply@n49.com.evil.io>"), ("display-name only", "N49 <noreply@evil.io>")):
+        ms = _relay_msgs([_msg(frm)])
+        check("G5 spoof %s: no presence" % label, M.presence("n49.com", ms)[0] == 0)
+        check("G5 spoof %s: no reset code returned" % label, not M.find_reset("n49.com", ms))
+    ms = _relay_msgs([_msg("N49 <noreply@mail.n49.com>")])
+    check("G5 a subdomain of the directory still matches", M.presence("n49.com", ms)[0] == 1)
+    for d, frm in (("designrush.com", "DesignRush <no-reply@designrush.co>"), ("goodfirms.co", "GoodFirms <hello@goodfirms.email>")):
+        ms = _relay_msgs([_msg(frm)])
+        check("G5 real alias %s still matches" % d, M.presence(d, ms)[0] == 1, str(M.presence(d, ms)))
+    check("G6 _domain_of: bare host accepted", M._domain_of("n49.com") == "n49.com")
+    check("G6 _domain_of: parenthesised/spaced string opens nothing", M._domain_of("yahoo.com (local.yahoo.com)") is None and M._domain_of("a b.com") is None and M._domain_of("x.com/path") is None)
+    ms = _relay_msgs([_msg("Pal <someone@yahoo.com>")])
+    check("G6 a person on yahoo.com is not 'yahoo.com (local.yahoo.com)' mail", M.presence("yahoo.com (local.yahoo.com)", ms)[0] == 0)
+finally:
+    M._OPEN_DOMAINS = False
+
+# G7: an NM queue never reads SCC's listings@ mailbox
+scc_hit = {"uid": 9, "from": "BBB <noreply@bbb.org>", "subject": "Your listing is now live", "date": RECENT, "body": "Approved. https://www.bbb.org/us/ky/exampleton/profile/scc-business/0000-1234 now live"}
+reads = []
+orig_rm = M.read_messages
+M.read_messages = lambda *a, **k: (reads.append(1), [scc_hit])[1]
+with tempfile.TemporaryDirectory() as t:
+    os.environ["NM_RELAY_FILE"] = os.path.join(t, "none.jsonl")
+    try:
+        nm_bbb = [row("nm-bbb", "bbb.org", "submitted")]
+        res, calls = go(NM_CANON, nm_bbb, mail=R.mail_scanner("NM", IDENT))
+        check("G7 NM bbb.org row with no permalink: listings@ reader never called", not reads, str(reads))
+        check("G7 NM row never gets SCC's approval URL", not any("0000-1234" in json.dumps(c, default=str) for c in calls) and not any(r.get("mail") for r in res), str(calls)[:200])
+        res, calls = go(SCC_CANON, [row("e2", "bbb.org", "submitted")], mail=R.mail_scanner("SCC", IDENT))
+        check("G7 SCC queue still reads listings@ (unchanged)", bool(reads))
+    finally:
+        del os.environ["NM_RELAY_FILE"]; M.read_messages = orig_rm
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

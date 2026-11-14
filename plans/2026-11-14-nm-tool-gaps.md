@@ -9,3 +9,9 @@ Scope (job/mail_scan.py, job/recheck.py, tests, CI, lesson):
 2. recheck: `_biz_of(row)` (NM for `nm-` rows, else SCC) and `queue_biz(q)` (all NM -> NM, none -> SCC, mixed -> QueueError). Phone gate compares to that client's identity phones; mismatch still refuses. record(...) calls and bbb/search/resolve helpers take the row's biz. CLI mail scanner name follows the queue's client.
 Tests (offline): relay fixture with n49 + techbehemoths mail -> presence yes; same fixture via default mailbox -> still 0 (SCC unchanged); NM queue with NM identity runs; NM queue with SCC-phone canonical refused; SCC queue unchanged; mixed refused; record gets "NM". Mutation check on both.
 No network, no portal, no prod writes.
+
+## Round 2 (review changes, same card)
+- nm-relay From match: the From address host must be the directory domain or a subdomain, or its registrable label must equal the brand (designrush.co, goodfirms.email). Display name never counts. Link-host match unchanged. SCC path untouched.
+- `_domain_of`: bare host token only (`yahoo.com (local.yahoo.com)` -> None).
+- recheck: `mail_scanner(biz, ident)`; an NM queue reads the NM relay file, never listings@. The earlier "out of scope" note is withdrawn.
+- Tests: G5 (3 spoofs, subdomain, 2 aliases), G6 (non-host directory), G7 (cross-tenant: NM bbb.org row, listings@ reader never called; SCC still reads it). 35/35.
