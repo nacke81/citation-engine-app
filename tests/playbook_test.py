@@ -265,13 +265,13 @@ def send_rule_problems(pr):
     for ln in lines:
         low = ln.lower()
         if "stop at the send step" in low: bad.append("old STOP-at-send wording: " + ln[:60])
-        if "do not click" in low and not re.match(r"^3\. Click the send button\. Before you click it, if .*do NOT click;", ln): bad.append("unconditional do-not-click: " + ln[:60])
+        if "do not click" in low and not re.match(r"^3\. Click the send button\. Before you click it, if .*do NOT click;", ln) and not ln.startswith("4. The Sign up click already sent the code. Do NOT click any other send, resend or SMS option."): bad.append("unconditional do-not-click: " + ln[:60])
     return bad
 al_pb = dict(al, version=1, steps=rendered)
 paths = {"signup (Thumbtack seed)": p_sign, "signup (Alignable seed)": p_al, "sign-in (playbook without send_is_signup)": p_plain, "sign-in (no playbook)": p_none}
 for name, pr in paths.items():
     check("9 %s prompt: tells the agent to click send, and no line says do not click send without a condition" % name, send_rule_problems(pr) == [], send_rule_problems(pr))
-    check("9 %s prompt: the click-send rule sits after the phone check and before the send-the-code step" % name, pr.index(RULE) < pr.index("4. Choose the sms option") if "4. Choose the sms option" in pr else pr.index(RULE) < pr.index("4. Choose the"))
+    check("9 %s prompt: the click-send rule sits after the phone check and before the send-the-code step" % name, pr.index(RULE) < pr.index("\n4. "))
 for name, pr in paths.items():
     m = pr.replace(RULE, OLD_RULE)   # MUTATION: the old ambiguous line is back
     check("9 MUTATION %s prompt with the old STOP-at-send line is caught by the check" % name, send_rule_problems(m) != [] and any("old STOP" in x or "unconditional" in x for x in send_rule_problems(m)), send_rule_problems(m)[:2])
@@ -304,6 +304,28 @@ S.Runtime.tenant_values = _fallback
 try: r, rt, p, text = run_identity(NMB)
 finally: S.Runtime.tenant_values = _orig
 check("9 MUTATION a code fallback for contact_name makes the missing-key run launch (so the fail-closed test above is the guard)", len(rt.launched) == 1 and rt.prompts and "Fallback Name" in rt.prompts[0], (r, text[-100:]))
+
+# ---- 10 signup step 4: the Sign up click already sent the code, no second send (t_f683311e round 3) ------------------------------------
+S4_UP = "4. The Sign up click already sent the code. Do NOT click any other send, resend or SMS option. Immediately run: "
+def step4_problems(pr, signup):
+    lines = pr.split("\n"); i3 = lines.index(RULE) if RULE in lines else -1
+    if i3 < 0: return ["rule 3 missing"]
+    after = "\n".join(lines[i3 + 1:]).lower(); bad = []
+    if signup:
+        if not any(l.startswith(S4_UP) and " sent --request-id " in l for l in lines): bad.append("signup step 4 line missing")
+        for w in ("send the code", "choose the sms", "choose the call"):
+            if w in after: bad.append("second-send wording after step 3: " + w)
+    else:
+        if not any(l.startswith("4. Choose the ") and "send the code. Immediately run:" in l for l in lines): bad.append("sign-in step 4 changed")
+    return bad
+for name, pr in paths.items():
+    sg = name.startswith("signup")
+    check("10 %s prompt: step 4 is %s" % (name, "'Sign up click already sent the code', no second send" if sg else "the unchanged sign-in step"), step4_problems(pr, sg) == [], step4_problems(pr, sg))
+GENERIC = "4. Choose the sms option and send the code. Immediately run: "
+for name in ("signup (Thumbtack seed)", "signup (Alignable seed)"):
+    m = paths[name].replace(S4_UP, GENERIC)   # MUTATION: generic step 4 back on the signup path
+    check("10 MUTATION %s with the generic step 4 is caught" % name, step4_problems(m, True) != [], step4_problems(m, True))
+check("10 MUTATION a resend order after step 3 is caught", step4_problems(p_sign + "\n- If no code arrives, send the code again.\n", True) != [])
 
 if "--print-thumbtack" in sys.argv:
     print("\n==== THUMBTACK PROMPT (dry run, fake tenant values, request id %s) ====\n%s" % (F.RID, p_sign))
