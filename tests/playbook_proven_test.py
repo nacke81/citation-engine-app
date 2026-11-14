@@ -62,8 +62,10 @@ check("1 accepted + trace: a verify playbook is written from the trace steps", r
 check("1 last_proven_at is now and source is the request id; version 1", row and row["last_proven_at"] and row["source"].startswith("request " + RID) and row["version"] == 1, row)
 check("1 the row carries no value: only text/url/selector keys", row and all(set(s) <= {"text", "url", "selector"} for s in row["steps"]))
 db.rows[(AGENT_DIR, "verify")]["send_is_signup"] = True
-put_trace(d, GOOD, rid="r2"); PP.write_proven(db, "r2", AGENT_DIR, d)
-check("1 a second proven run bumps the version and keeps send_is_signup", db.rows[(AGENT_DIR, "verify")]["version"] == 2 and db.rows[(AGENT_DIR, "verify")]["send_is_signup"] is True)
+db.rows[(AGENT_DIR, "verify")]["steps"][-1]["send"] = True   # t_3223ee18: a signup playbook has exactly one marked send step
+put_trace(d, GOOD, rid="r2"); r2 = PP.write_proven(db, "r2", AGENT_DIR, d)
+srow = db.rows[(AGENT_DIR, "verify")]
+check("1 a second proven run on a SIGNUP playbook keeps its marked steps and send_is_signup (a trace cannot name the send step), and only touches proof", r2 == "touched" and srow["version"] == 1 and srow["send_is_signup"] is True and sum(1 for s in srow["steps"] if s.get("send")) == 1, (r2, srow))
 
 # note: stored in source, never as a step
 d = trace_dir(); put_trace(d, GOOD); db = FakeDB()

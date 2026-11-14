@@ -19,7 +19,8 @@
     },
     {
       "text": "On /onboarding/verify, type {phone} in the phone_number field and click 'Verify with SMS/Text'. This creates the account for {business_name} and is the send.",
-      "selector": "input[name=phone_number]"
+      "selector": "input[name=phone_number]",
+      "send": true
     }
   ]
 }
