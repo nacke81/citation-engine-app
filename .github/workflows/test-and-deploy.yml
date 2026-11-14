@@ -73,6 +73,10 @@ jobs:
         run: python tests/weekly_claim_test.py
       - name: Directory database (seed 86, upserts, create-row fix, migration shape)
         run: python tests/directories_test.py
+      - name: New domain gets a Directory row by rule (park, create-row, playbook set; no 409)
+        run: python tests/auto_directory_test.py
+      - name: mail_scan --verify-link reads Sortlist and Clutch verify mail (real-shape fixtures)
+        run: python tests/verify_mail_agency_test.py
       - name: Moz Domain Authority (free plan cap, yearly refresh, snapshot authority, no live API)
         run: python tests/moz_test.py
       - name: Catalog helpers (paid-row cost + period, dead flag) and migration 004

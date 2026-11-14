@@ -57,6 +57,9 @@ class FakeDB:
     def call(self, method, path, body=None, prefer=None):
         self.calls.append((method, path))
         m = re.search(r"domain=eq\.([^&]+)", path)
+        if method == "POST" and path.startswith("ce_directories?on_conflict=domain"):   # t_9a722352: auto-add of a domain new to the Catalog
+            for r in body: self.dirs.add(r["domain"])
+            return None
         if method == "GET" and path.startswith("ce_directories?"): return [{"domain": m.group(1)}] if m.group(1) in self.dirs else []
         if method == "GET" and path.startswith("ce_directory_playbooks?"):
             t = re.search(r"task=eq\.([^&]+)", path).group(1); r = self.rows.get((m.group(1), t)); return [dict(r)] if r else []
@@ -71,7 +74,7 @@ row2 = PB.set_playbook(db, "thumbtack.com", "verify", seed["steps"], True)
 check("2 a second set bumps the version (unique domain+task, upsert)", row2["version"] == 2 and len(db.rows) == 1)
 posts = len([c for c in db.calls if c[0] == "POST"]); r = PB.set_playbook(db, "thumbtack.com", "verify", seed["steps"], True, dry_run=True)
 check("2 dry run writes nothing", len(db.rows) == 1 and db.rows[("thumbtack.com", "verify")]["version"] == 2 and r["version"] == 3 and len([c for c in db.calls if c[0] == "POST"]) == posts)
-for what, args in (("an unknown Directory", ("nope.example", "verify", seed["steps"])), ("a bad step", ("thumbtack.com", "verify", [{"text": "a@b.co"}])), ("send_is_signup on claim", ("thumbtack.com", "claim", seed["steps"], True))):
+for what, args in (("a bad domain", ("not a domain", "verify", seed["steps"])), ("a bad step", ("thumbtack.com", "verify", [{"text": "a@b.co"}])), ("send_is_signup on claim", ("thumbtack.com", "claim", seed["steps"], True))):
     before = len([c for c in db.calls if c[0] == "POST"])
     try: PB.set_playbook(db, *args); e = None
     except PB.PlaybookError as ex: e = str(ex)

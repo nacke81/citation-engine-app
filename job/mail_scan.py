@@ -205,15 +205,22 @@ VERIFY_SUBJECT_RE = re.compile(r"(?i)verif|confirm|activate|welcome|one[- ]time|
 VERIFY_PATH_RE = re.compile(r"(?i)(verif|confirm|activate|validate|token|key|hash|code)")
 
 
+# t_9a722352: agencies send the verify button through their own short-link / mail-platform host, not their site (Sortlist -> sortli.st, Clutch -> HubSpot).
+# Only mail already matched to the Directory (mail_is_from) is read, so these hosts are trusted for that Directory alone. Shapes from real relay mail 2026-11-13.
+VERIFY_LINK_HOSTS = {"sortlist.com": ("sortli.st",), "clutch.co": ("hubspotlinks.com",)}
+NOT_VERIFY_RE = re.compile(r"(?i)unsubscribe|optout|/privacy|/terms|/asm/|/contact([/?#]|$)")   # /asm/ = the SendGrid unsubscribe-group page
+
+
 def verify_urls(text, domain):
-    out = []
+    """Alias-host links (the mail's own button host) first, then own-domain links with a verify-like path. Never unsubscribe / group-preference links."""
+    alias, own = [], []
     for m in URL_RE.finditer(html.unescape(text or "")):
         u = m.group(0).rstrip(".,;:!?)")
         p = urlparse(u)
-        if u in out or not host_ok(u, domain): continue
-        if re.search(r"(?i)unsubscribe|optout|/privacy|/terms", u): continue
-        if VERIFY_PATH_RE.search(p.path + ("?" + p.query if p.query else "")): out.append(u)
-    return out
+        if u in alias or u in own or NOT_VERIFY_RE.search(u): continue
+        if any(host_ok(u, h) for h in VERIFY_LINK_HOSTS.get(domain, ())): alias.append(u)
+        elif host_ok(u, domain) and VERIFY_PATH_RE.search(p.path + ("?" + p.query if p.query else "")): own.append(u)
+    return alias + own
 
 
 def find_verify(directory, messages):

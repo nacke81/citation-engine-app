@@ -27,6 +27,7 @@ class FakeDB:
     def __init__(self): self.calls = []; self.status = {}
     def call(self, method, path, body=None, prefer=None):
         self.calls.append((method, path, body))
+        if method == "GET" and path.startswith("ce_directories?domain="): return [{"domain": path.split("eq.")[1].split("&")[0]}]   # t_9a722352: the Catalog row exists (a new-domain add is tested in auto_directory_test)
         if method == "POST" and path.startswith("ce_directory_status"):
             for r in body: self.status.setdefault((r["biz"], r["directory"]), {}).update(r)
 class FakePortal:
@@ -72,7 +73,7 @@ check("G1 status row is live (transitions.py)", s.get("queue_state") == "live")
 check("G1 counts as a result", counts_as_result(s))
 acts = [c for c in fp.calls if c[0] == "POST" and "deliverables" in c[1]]
 check("G1 client-voiced Activities row", len(acts) == 1 and acts[0][2][0]["title"] == "Your a.example listing is live", acts)
-check("G1 proof written before the transition", [c[1].split("?")[0] for c in db.calls if c[0] == "POST"][0] == "ce_directory_status" and db.calls[0][2][0].get("proof_nap_match") is True)
+check("G1 proof written before the transition", [c[1].split("?")[0] for c in db.calls if c[0] == "POST"][0] == "ce_directory_status" and [c for c in db.calls if c[0] == "POST"][0][2][0].get("proof_nap_match") is True)
 
 # G2 submitted + mismatch -> stays waiting, match=false, no result, no transition
 for label, c in (("phone mismatch", chk(match=False)), ("diffs present", chk(diffs=[{"field": "phone"}]))):

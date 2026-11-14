@@ -10,7 +10,7 @@ ce_directories.agent_access rules (reference facts, kept by whoever saw the wall
   * a needs-human transition sets agent_access=blocked (source 'transition') ONLY when its reason_code is a site wall (WALL_CODES: bot wall, captcha, cloudflare, outage).
     A park about one client's row (login wall on our account, moderation, no permalink, not found, no code) stays on the queue row and leaves the Directory alone.
 """
-import json, os, urllib.request
+import json, os, re, urllib.parse, urllib.request
 
 ENV_FILE = os.path.expandvars("%LOCALAPPDATA%/hermes/.env")
 BIZS = ("SCC", "NM")
@@ -52,6 +52,27 @@ def _owner(db):
 def _upsert_status(db, rows):
     if rows:
         db.call("POST", "ce_directory_status?on_conflict=owner,biz,directory", rows, "resolution=merge-duplicates,return=minimal")
+
+
+DOMAIN_RE = re.compile(r"[a-z0-9][a-z0-9\-]*(\.[a-z0-9][a-z0-9\-]*)+")
+
+
+def directory_name(domain):
+    """Name by rule for an auto-added Directory: first label, hyphens to spaces, title case (designrush.com -> Designrush). A human can rename it later."""
+    return domain.split(".")[0].replace("-", " ").title()
+
+
+def ensure_directory(db, domain, day=None, dry_run=False):
+    """t_9a722352: ce_directory_status and ce_directory_playbooks both reference ce_directories(domain), so a domain new to the Catalog made PostgREST answer 409.
+    Insert a minimal row (priority 4, general, source 'auto', last_verified null) when the domain is absent; never touch an existing row (ignore-duplicates).
+    -> True when a row was (or, on dry_run, would be) added, False when it already existed. A bad domain is refused with a clear message."""
+    d = str(domain or "").strip().lower()
+    if not DOMAIN_RE.fullmatch(d): raise DirectoriesError("cannot add %r to ce_directories: not a bare domain like example.com" % (domain,))
+    if db.call("GET", "ce_directories?domain=eq.%s&select=domain&limit=1" % urllib.parse.quote(d, safe=""), None, "return=representation"): return False
+    if dry_run: return True
+    row = {"domain": d, "name": directory_name(d), "priority": 4, "category": "general", "source": "auto", "last_verified": None}
+    db.call("POST", "ce_directories?on_conflict=domain", [row], "resolution=ignore-duplicates,return=minimal")
+    return True
 
 
 def _status_row(db, biz, directory, day, **cols):
@@ -163,6 +184,7 @@ def sync_transition(client, row, new_state, note, day, kind="fix", db=None, proo
     if reason_code is not None and (reason_code not in REASON_CODES or new_state != "needs-human"):
         raise DirectoriesError("reason_code %r: one of %s, and only on a move to needs-human" % (reason_code, "/".join(REASON_CODES)))
     db = db or DirDB()
+    ensure_directory(db, row["directory"], day)   # t_9a722352: the status row's FK needs the Directory row first
     if new_state != "needs-human": rc = {"reason_code": None}
     elif reason_code: rc = {"reason_code": reason_code}
     elif old_state is not None and old_state != "needs-human": rc = {"reason_code": None}
