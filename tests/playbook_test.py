@@ -119,6 +119,7 @@ nosign_pb = dict(signup_pb, send_is_signup=False)
 p_plain = prompt(nosign_pb)
 p_none = prompt(None)
 check("4 no playbook: the prompt keeps 'no account creation' and has no playbook block", "No CapSolver, no account creation, no payment, no client contact." in p_none and "Directory playbook" not in p_none and "Sign in to the Directory" in p_none)
+check("4 every prompt ends with the playbook write-back note, no DB write offered to the agent (t_2cb780c2)", all(S.WRITE_BACK_STEP in p and "PLAYBOOK-NOTE: ok" in p and "You cannot write it" in p and p.index(S.WRITE_BACK_STEP) > p.index("--outcome accepted") and p.index(S.WRITE_BACK_STEP) < p.index("Hard rules") and "playbook.py set" not in p for p in (p_sign, p_plain, p_none)))
 check("4 playbook without send_is_signup: steps listed, 'no account creation' STAYS, sign-in step stays, no CapSolver line",
       "Directory playbook (version 3" in p_plain and "No CapSolver, no account creation" in p_plain and "Sign in to the Directory with the vault helper" in p_plain and "capsolver_solve" not in p_plain and "create ONE account" not in p_plain)
 check("4 send_is_signup: steps listed in order with url and selector, signup carve-out for THIS Directory, no sign-in step",

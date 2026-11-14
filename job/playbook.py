@@ -86,7 +86,7 @@ def get_playbook(db, domain, task):
     return rows[0] if rows else None
 
 
-def set_playbook(db, domain, task, steps, send_is_signup=False, source=None, last_proven_at=None, now=None, dry_run=False):
+def set_playbook(db, domain, task, steps, send_is_signup=False, source=None, last_proven_at=None, now=None, dry_run=False, stale=False):
     """Validate, check the Directory exists, bump the version, upsert on (domain, task). -> the row written (or that would be, on dry_run)."""
     domain = (domain or "").strip().lower()
     check_target(domain, task, send_is_signup)
@@ -97,9 +97,28 @@ def set_playbook(db, domain, task, steps, send_is_signup=False, source=None, las
     ts = (now or datetime.datetime.now(datetime.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
     row = {"domain": domain, "task": task, "steps": clean, "send_is_signup": bool(send_is_signup), "source": source,
            "last_proven_at": last_proven_at, "updated_at": ts, "version": (cur or {}).get("version", 0) + 1}
+    # `stale` (migration 018): only sent when set, or when the stored row already has the column, so prod without 018 keeps working.
+    # A row with a proven timestamp is never stale: the run that proved it just cleared the doubt.
+    if last_proven_at: stale = False
+    if stale or (cur and "stale" in cur): row["stale"] = bool(stale)
     if not dry_run:
         db.call("POST", "ce_directory_playbooks?on_conflict=domain,task", [row], "resolution=merge-duplicates,return=minimal")
     return row
+
+
+def steps_from_trace(trace):
+    """A verify-traces/promote file (PR #107: {steps: [{action, url, selector}]}) -> a plain step list. No typed value ever rides in a trace, so a
+    `fill` step says only which field. Raises PlaybookError when the trace has no usable step."""
+    if not isinstance(trace, dict) or not isinstance(trace.get("steps"), list): raise PlaybookError("not a promote trace (no steps list)")
+    verbs = {"goto": "Open this page", "click": "Click", "fill": "Fill in", "press": "Press a key in"}
+    out = []
+    for s in trace["steps"]:
+        if not isinstance(s, dict) or s.get("action") not in verbs: raise PlaybookError("trace step with an unknown action")
+        st = {"text": verbs[s["action"]] + ((" " + s["selector"]) if s.get("selector") and s["action"] != "goto" else "")}
+        if s.get("url"): st["url"] = s["url"]
+        if s.get("selector") and s["action"] != "goto": st["selector"] = s["selector"]
+        out.append(st)
+    return validate_steps(out)
 
 
 def render(pb, values):
@@ -133,9 +152,23 @@ def main(argv=None, db=None, out=print, err=None):
         if name == "set":
             p.add_argument("--file", required=True)
             p.add_argument("--dry-run", action="store_true", help="validate and print the row; write nothing")
+    p = sub.add_parser("from-trace", help="turn a verify-traces/promote file (PR #107) into the verify playbook")
+    p.add_argument("--file", required=True)
+    p.add_argument("--proven", action="store_true", help="the run reached its goal (code accepted): stamp last_proven_at now. Without it last_proven_at stays empty")
+    p.add_argument("--send-is-signup", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
     n = a.parse_args(argv)
     err = err or (lambda m: print(m, file=sys.stderr))
     try:
+        if n.cmd == "from-trace":
+            with open(n.file, encoding="utf-8") as fh: tr = json.load(fh)
+            dom = (tr.get("domain") or "") if isinstance(tr, dict) else ""
+            steps = steps_from_trace(tr)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            db = db or _real_db()
+            row = set_playbook(db, dom, "verify", steps, n.send_is_signup, "run %s (trace)" % tr.get("request_id", "?"), now.strftime("%Y-%m-%dT%H:%M:%SZ") if n.proven else None, now=now, dry_run=n.dry_run)
+            out(("DRY RUN, nothing written: " if n.dry_run else "written: ") + json.dumps({k: row[k] for k in ("domain", "task", "send_is_signup", "version", "last_proven_at")}) + " steps=%d" % len(row["steps"]))
+            return 0
         if n.cmd == "set":
             f = _load_file(n.file)
             for k, v in (("domain", n.domain), ("task", n.task)):
@@ -145,7 +178,7 @@ def main(argv=None, db=None, out=print, err=None):
                 out(json.dumps({"domain": d, "task": n.task, "steps": validate_steps(f.get("steps")), "send_is_signup": bool(f.get("send_is_signup")), "dry_run": True}, indent=1))
                 return 0
             db = db or _real_db()
-            row = set_playbook(db, n.domain, n.task, f.get("steps"), bool(f.get("send_is_signup")), f.get("source"), f.get("last_proven_at"), dry_run=n.dry_run)
+            row = set_playbook(db, n.domain, n.task, f.get("steps"), bool(f.get("send_is_signup")), f.get("source"), f.get("last_proven_at"), dry_run=n.dry_run, stale=bool(f.get("stale")))
             out(("DRY RUN, nothing written: " if n.dry_run else "written: ") + json.dumps({k: row[k] for k in ("domain", "task", "send_is_signup", "version")}) + " steps=%d" % len(row["steps"]))
             return 0
         db = db or _real_db()
