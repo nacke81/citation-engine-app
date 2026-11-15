@@ -42,7 +42,8 @@ class Gateway:
 
 class FakeProc:
     pid = 4242
-    def __init__(self, stderr_text): self.dead, self.stderr = False, io.StringIO(stderr_text)
+    def __init__(self, stderr_text):
+        self.dead = False; self.err_path = os.path.join(TMP, "err-%d.txt" % id(self)); open(self.err_path, "w").write(stderr_text)
     def poll(self): return -9 if self.dead else None
     def kill(self): self.dead = True
 
@@ -59,8 +60,8 @@ def scenario(cancel_works=True, stderr_text="noise\nSession: %s\nmore noise\n" %
             proc.dead = True   # taskkill: the CLIENT is gone; the gateway turn is not
         return subprocess.CompletedProcess(argv, 0)
     def factory(rt):
-        a = S.AgentProc(proc, runner, cancel_argv=["python", os.path.join("job", "gateway_cancel.py")], cancel_env={})
-        for _ in range(100):   # the stderr reader is a thread
+        a = S.AgentProc(proc, runner, cancel_argv=["python", os.path.join("job", "gateway_cancel.py")], cancel_env={}, stderr_path=proc.err_path)
+        for _ in range(100):   # the session line is read lazily from the stderr file
             if a.session_id: break
             time.sleep(0.01)
         return a
@@ -92,22 +93,25 @@ check("1f no Session line: the cancel is not guessed (nothing cancelled, nothing
 
 def kill_twice():
     gw, proc = Gateway(), FakeProc("Session: %s\n" % SESSION); seen = []
-    a = S.AgentProc(proc, lambda argv, **kw: seen.append(argv) or subprocess.CompletedProcess(argv, 0), cancel_argv=["py", "gateway_cancel.py"], cancel_env={})
+    a = S.AgentProc(proc, lambda argv, **kw: seen.append(argv) or subprocess.CompletedProcess(argv, 0), cancel_argv=["py", "gateway_cancel.py"], cancel_env={}, stderr_path=proc.err_path)
     for _ in range(100):
         if a.session_id: break
         time.sleep(0.01)
     a.kill(); a.kill(); return [s for s in seen if "gateway_cancel.py" in " ".join(s)]
 check("1g kill twice cancels the session once", len(kill_twice()) == 1)
-raised = S.AgentProc(FakeProc("Session: %s\n" % SESSION), lambda argv, **kw: (_ for _ in ()).throw(OSError("boom")), cancel_argv=["py", "g.py"], cancel_env={})
+_rp = FakeProc("Session: %s\n" % SESSION)
+raised = S.AgentProc(_rp, lambda argv, **kw: (_ for _ in ()).throw(OSError("boom")), cancel_argv=["py", "g.py"], cancel_env={}, stderr_path=_rp.err_path)
 time.sleep(0.2)
 try: raised.kill(); no_raise = True
 except Exception: no_raise = False
 check("1h a failing cancel never raises out of kill()", no_raise)
 
-# the real launch_agent: stderr is a pipe handed to AgentProc, cancel argv points at gateway_cancel.py, cancel env targets the submitter profile
+# the real launch_agent: stderr is a private file handed to AgentProc, cancel argv points at gateway_cancel.py, cancel env targets the submitter profile
 seen = {}
 class LaunchProc(FakeProc):
-    def __init__(self, argv, **kw): FakeProc.__init__(self, "Session: %s\n" % SESSION); seen["argv"], seen["kw"] = argv, kw
+    def __init__(self, argv, **kw):
+        FakeProc.__init__(self, ""); seen["argv"], seen["kw"] = argv, kw
+        kw["stderr"].write(("Session: %s\n" % SESSION).encode()); kw["stderr"].flush()   # the real oneshot writes this to the file it was given
 rt = S.Runtime(popen=LaunchProc, runner=lambda argv, **kw: seen.setdefault("runs", []).append((argv, kw)) or subprocess.CompletedProcess(argv, 0))
 os.environ["CE_SUBMITTER_HOME"] = os.path.join(TMP, "submitter-home")
 h = rt.launch_agent("C:/x/prompt.txt", "http://127.0.0.1:9334")
@@ -116,8 +120,8 @@ for _ in range(100):
     time.sleep(0.01)
 h.kill()
 cancel_runs = [(a, k) for a, k in seen["runs"] if "gateway_cancel.py" in " ".join(a)]
-check("1i launch_agent: stderr piped, session id read, kill runs gateway_cancel.py <id> with HERMES_HOME = the submitter profile",
-      seen["kw"]["stderr"] == subprocess.PIPE and h.session_id == SESSION and len(cancel_runs) == 1 and cancel_runs[0][0][-1] == SESSION
+check("1i launch_agent: stderr to a private file (no pipe), session id read, kill runs gateway_cancel.py <id> with HERMES_HOME = the submitter profile",
+      seen["kw"]["stderr"] != subprocess.PIPE and h.session_id == SESSION and len(cancel_runs) == 1 and cancel_runs[0][0][-1] == SESSION
       and os.path.basename(cancel_runs[0][0][-2]) == "gateway_cancel.py" and cancel_runs[0][1]["env"]["HERMES_HOME"] == os.environ["CE_SUBMITTER_HOME"], len(cancel_runs))
 check("1j the cancel order: session cancel runs BEFORE the process-tree kill", "gateway_cancel.py" in " ".join(seen["runs"][0][0]), seen["runs"][0][0])
 cancel_src = open(os.path.join(HERE, "..", "job", "gateway_cancel.py"), encoding="utf-8").read()
@@ -191,7 +195,7 @@ for biz, cid in (("NM", F.NM), ("SCC", F.SCC)):
               "Never create, edit, rename or move a vault item" in pr and "if the item is not found, STOP" in pr and not [v[1] for v in S.TENANTS.values() if v[1] != org and v[1] in pr])
         arm_i, sent_i, step3_i = pr.find("verify_step.py\" arm --request-id " + F.RID), pr.find("verify_step.py\" sent"), pr.find("3. ")
         check("4c %s %s: step 3 tells the agent to run `arm` right before the send click and STOP on nonzero; arm comes before the sent report" % (biz, label),
-              step3_i != -1 and step3_i < arm_i < sent_i and "exits nonzero, STOP: do NOT click the send" in pr and pr.count('verify_step.py" arm') == 1)
+              step3_i != -1 and step3_i < arm_i < sent_i and "exits nonzero, STOP at once: the send step is cancelled" in pr and pr.count('verify_step.py" arm') == 1)
 
 # ---- 5 sweep fit + time to the send: re-measure of request f2dbd5c0 with the fixes (arithmetic on the measured stages; no real agent, no send) ----------
 # Measured on f2dbd5c0 (CST): requested 13:35:31, pickup +32 s, agent_start +159 s, agent ready 13:38:39 (+188 s), send click ~13:48:40 (+789 s).

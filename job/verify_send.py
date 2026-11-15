@@ -232,21 +232,27 @@ class AgentProc:
     """The running oneshot. kill() STOPS the run (t_c6eee3cb): `hermes chat --oneshot` is only a client of the profile's gateway, so the gateway
     session is cancelled first (gateway_cancel.py: interrupt + close), then the WHOLE process tree is ended (on Windows `taskkill /T`; killing only
     the parent leaves the model's child processes running: lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent.
-    The child's stderr is read here for the one `Session: <id>` line; everything else is discarded."""
-    def __init__(self, proc, runner=None, cancel_argv=None, cancel_env=None):
-        self.proc, self._run, self.session_id = proc, runner or subprocess.run, None
-        self._cancel_argv, self._cancel_env, self._cancelled = cancel_argv, cancel_env, False
-        err = getattr(proc, "stderr", None)
-        if err is not None:
-            threading.Thread(target=self._read_session, args=(err,), daemon=True).start()
+    The child's stderr goes to a private file (never a pipe: no reader of agent output, lesson t_eae8e59f); only the one `Session: <id>` line is
+    read from it, when needed, and the file is deleted at kill/cleanup."""
+    def __init__(self, proc, runner=None, cancel_argv=None, cancel_env=None, stderr_path=None):
+        self.proc, self._run, self._sid = proc, runner or subprocess.run, None
+        self._cancel_argv, self._cancel_env, self._cancelled, self._stderr_path = cancel_argv, cancel_env, False, stderr_path
 
-    def _read_session(self, err):
-        try:
-            for line in err:
-                if isinstance(line, bytes): line = line.decode("utf-8", "replace")
-                m = SESSION_LINE.match(line.strip())
-                if m and not self.session_id: self.session_id = m.group(1)
-        except Exception: pass
+    @property
+    def session_id(self):
+        if self._sid is None and self._stderr_path:
+            try:
+                with open(self._stderr_path, encoding="utf-8", errors="replace") as h:
+                    for line in h:
+                        m = SESSION_LINE.match(line.strip())
+                        if m: self._sid = m.group(1); break
+            except OSError: pass
+        return self._sid
+
+    def _drop_stderr(self):
+        if self._stderr_path:
+            with contextlib.suppress(OSError): os.remove(self._stderr_path)
+            self._stderr_path = None
 
     def poll(self):
         return self.proc.poll()
@@ -266,7 +272,8 @@ class AgentProc:
         return ok
 
     def kill(self):
-        self.cancel_session()   # first: ending the client alone leaves the gateway turn running
+        try: self.cancel_session()   # first: ending the client alone leaves the gateway turn running
+        finally: self._drop_stderr()
         if self.proc.poll() is not None: return
         try:
             if os.name == "nt": self._run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=60)
@@ -331,7 +338,7 @@ def playbook_block(playbook):
 
 
 ARM_STEP = ("   Pre-send fence (do not skip): in the same breath as the send click, immediately BEFORE it, run: %(helper)s arm --request-id %(rid)s\n"
-            "   If it exits nonzero, STOP: do NOT click the send, do not retry it, end the session. The request is closed or about to be, and a send after that is a real message nobody can use.\n")
+            "   If it exits nonzero, STOP at once: the send step is cancelled, so make no send attempt and end the session. The request is closed or about to be, and a send after that is a real message nobody can use.\n")
 STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
 STEP3_MARKED = "3. Do the send step (playbook step %d) once. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 STEP4_MARKED = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
@@ -483,8 +490,13 @@ class Runtime:
         if cdp: env["BROWSER_CDP_URL"] = cdp   # t_45fe02d4: hermes browser tools attach to THIS Chrome (the tenant's), never start their own
         gap = agent_env_gap()
         if gap: log("WARNING: the submitter profile does not forward %s to the gateway turn (terminal.client_env_passthrough); the agent will not see them" % ", ".join(gap))
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, cwd=REPO_ROOT)
-        return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run, cancel_argv=cancel_argv(exe), cancel_env=cancel_env())
+        import sitegate
+        d = os.path.join(sitegate.logs_dir(), "verify-agent-stderr"); os.makedirs(d, exist_ok=True)
+        err_path = os.path.join(d, "agent-%d-%d.txt" % (os.getpid(), int(time.time() * 1000)))
+        with open(err_path, "wb") as err:   # a private file, not a pipe: only the `Session:` line is ever read (AgentProc), then it is deleted
+            kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err, env=env, cwd=REPO_ROOT)
+            proc = (self._popen or subprocess.Popen)(argv, **kw)
+        return AgentProc(proc, self._run, cancel_argv=cancel_argv(exe), cancel_env=cancel_env(), stderr_path=err_path)
 
     def messages(self, tenant):
         import mail_scan as M

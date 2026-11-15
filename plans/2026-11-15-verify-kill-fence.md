@@ -15,5 +15,5 @@ Tests (offline, tests/verify_agent_test.py + new tests/verify_kill_fence_test.py
 ## Add-on (operator note, same card)
 6a. Liveness sweep: every helper verb that passes the request check touches verify-stages/<id>.alive; stale_requests keeps a starting row past 600 s while the agent was heard from within 120 s, up to SWEEP_HARD_CAP_S = 900 (real unfixed click 789 s, fixed estimate ~309 s). arm's limit follows the hard cap (840 s).
 6b. late_sent: step_sent on a could_not_start row, requested <= 1200 s ago, fence ok, no newer request for the verification row -> one conditional PATCH back to starting, then mark_code_sent. Assumes the portal allows the service role that PATCH (fails closed if not).
-7. Copy fix lives in nacke-platform: not this card (no grant); follow-up card.
+7. Copy fix lives in the portal repo: not this card (no grant); follow-up card.
 8. Time to send: reported as arithmetic on the measured stages (no in-process mode exists, no real send).
