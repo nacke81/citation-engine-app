@@ -74,9 +74,16 @@ class StrictPortal:
                 return [dict(r) for r in self.requests.values() if r["status"] in want and r.get(key) and r[key] < params[key][3:]]
             if "id" not in params and params.get("status") == "eq.starting":   # the bridge's deferred-row list
                 return [dict(r) for r in sorted(self.requests.values(), key=lambda r: r.get("claimed_at") or "") if r["status"] == "starting"]
+            if "citation_verification_id" in params:   # t_c6eee3cb late_sent: a NEWER request for the same verification row
+                return [{"id": r["id"]} for r in self.requests.values() if r["citation_verification_id"] == params["citation_verification_id"][3:] and r["requested_at"] > params["requested_at"][3:]]
             r = self.requests.get(params.get("id", "")[3:])
             if not r or ("status" in params and r["status"] != params["status"][3:]): return []
             return [dict(r)]
+        if table == B.REQUEST_TABLE and method == "PATCH":   # t_c6eee3cb late_sent: reopen a swept request (the only request-table write besides the RPCs)
+            assert prefer == "return=representation" and body == {"status": "starting", "fail_code": None} and params["status"] == "eq.could_not_start", "reopen shape"
+            r = self.requests.get(params["id"][3:])
+            if not r or r["status"] != "could_not_start": return []
+            r["status"] = "starting"; r["fail_code"] = None; return [dict(r)]
         if table == B.VERIFICATION_TABLE and method == "GET":
             if "id" not in params:   # the first-use list: waiting sms/phone-call rows (logged apart from per-row reads)
                 self.calls[-1] = (method, "citation_verification:list", body)

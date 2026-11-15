@@ -45,6 +45,8 @@ EXPECTED_LOGIN = {"NM": "listings@na" + "ckemedia.com", "SCC": "listings@seniorc
 RELAY_OPEN_MIN, RELAY_CLOSE_MIN = 8 * 60, 19 * 60 + 58   # nm-listings-relay cron "*/2 8-19" (Central): last run 19:58
 AGENT_START_S = 1500      # kill the oneshot at 25 min when no `sent` call happened
 SUBMITTER_PROFILE = "citation-submitter"
+SESSION_LINE = re.compile(r"^Session: (\S{8,200})$")   # hermes chat prints this to stderr when the gateway session is created
+AGENT_ENV_NAMES = ("BROWSER_CDP_URL", "TERMINAL_CWD")   # the gateway forwards a client env name only when the profile lists it in terminal.client_env_passthrough
 AGENT_AFTER_SENT_S = B.POLL_MAX_S + 300   # 30 min code wait + 5 min to type it; then the run ends the oneshot
 AGENT_GRACE_S = 60        # a closed request: the agent gets this long to exit on its own
 AGENT_TICK_S = 5
@@ -197,16 +199,74 @@ class CylexDriver:
 
 
 # ---- agent path --------------------------------------------------------------------------------------------------------------------
+def submitter_home():
+    return os.environ.get("CE_SUBMITTER_HOME") or os.path.join(os.environ.get("LOCALAPPDATA") or "", "hermes", "profiles", SUBMITTER_PROFILE)
+
+
+def cancel_argv(hermes_exe):
+    """argv (without the session id) that cancels one gateway session: the hermes venv's own interpreter (it imports hermes_cli) + gateway_cancel.py."""
+    py = os.path.join(os.path.dirname(hermes_exe), "python.exe" if os.name == "nt" else "python")
+    return [py if os.path.exists(py) else sys.executable, os.path.join(HERE, "gateway_cancel.py")]
+
+
+def cancel_env():
+    env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
+    env["HERMES_HOME"] = submitter_home()   # the cancel talks to the SUBMITTER profile's gateway, the one the oneshot used
+    return env
+
+
+def agent_env_gap(config_path=None):
+    """The AGENT_ENV_NAMES the submitter profile does NOT list in terminal.client_env_passthrough (so the gateway turn never sees them). Every name when
+    the config is unreadable. Read-only; the profile edit is not this repo's."""
+    p = config_path or os.path.join(submitter_home(), "config.yaml")
+    try:
+        txt = open(p, encoding="utf-8").read()
+    except OSError:
+        return list(AGENT_ENV_NAMES)
+    m = re.search(r"^[ \t]*client_env_passthrough:[ \t]*(\[[^\]]*\]|\n(?:[ \t]*-[^\n]*\n?)+)", txt, re.M)
+    listed = set(re.findall(r"[A-Z][A-Z0-9_]+", m.group(1))) if m else set()
+    return [n for n in AGENT_ENV_NAMES if n not in listed]
+
+
 class AgentProc:
-    """The running oneshot. kill() ends the WHOLE process tree (on Windows `taskkill /T`): killing only the parent leaves the model's child
-    processes running (lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent."""
-    def __init__(self, proc, runner=None):
-        self.proc, self._run = proc, runner or subprocess.run
+    """The running oneshot. kill() STOPS the run (t_c6eee3cb): `hermes chat --oneshot` is only a client of the profile's gateway, so the gateway
+    session is cancelled first (gateway_cancel.py: interrupt + close), then the WHOLE process tree is ended (on Windows `taskkill /T`; killing only
+    the parent leaves the model's child processes running: lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent.
+    The child's stderr is read here for the one `Session: <id>` line; everything else is discarded."""
+    def __init__(self, proc, runner=None, cancel_argv=None, cancel_env=None):
+        self.proc, self._run, self.session_id = proc, runner or subprocess.run, None
+        self._cancel_argv, self._cancel_env, self._cancelled = cancel_argv, cancel_env, False
+        err = getattr(proc, "stderr", None)
+        if err is not None:
+            threading.Thread(target=self._read_session, args=(err,), daemon=True).start()
+
+    def _read_session(self, err):
+        try:
+            for line in err:
+                if isinstance(line, bytes): line = line.decode("utf-8", "replace")
+                m = SESSION_LINE.match(line.strip())
+                if m and not self.session_id: self.session_id = m.group(1)
+        except Exception: pass
 
     def poll(self):
         return self.proc.poll()
 
+    def cancel_session(self):
+        """Stop the gateway turn. -> True when the cancel ran and exited 0. Never raises; runs once."""
+        if self._cancelled or not self._cancel_argv: return False
+        if not self.session_id:
+            log("agent session id unknown; the pre-send fence is the only stop"); return False
+        self._cancelled = True
+        try:
+            r = self._run(self._cancel_argv + [self.session_id], capture_output=True, timeout=60, env=self._cancel_env)
+            ok = getattr(r, "returncode", 1) == 0
+        except Exception as e:
+            log("gateway cancel failed: %s" % type(e).__name__); return False
+        log("gateway session %s" % ("cancelled" if ok else "cancel refused"))
+        return ok
+
     def kill(self):
+        self.cancel_session()   # first: ending the client alone leaves the gateway turn running
         if self.proc.poll() is not None: return
         try:
             if os.name == "nt": self._run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=60)
@@ -247,7 +307,7 @@ def helper_command():
 
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
-SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, always pass --cdp %(cdp)s.\n")
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
 
@@ -270,6 +330,8 @@ def playbook_block(playbook):
     return "Directory playbook (version %s, from the Directory DB; follow these in order, they win over the row steps):\n%s\n" % (playbook.get("version", "?"), "\n".join(lines))
 
 
+ARM_STEP = ("   Pre-send fence (do not skip): in the same breath as the send click, immediately BEFORE it, run: %(helper)s arm --request-id %(rid)s\n"
+            "   If it exits nonzero, STOP: do NOT click the send, do not retry it, end the session. The request is closed or about to be, and a send after that is a real message nobody can use.\n")
 STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
 STEP3_MARKED = "3. Do the send step (playbook step %d) once. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 STEP4_MARKED = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
@@ -294,7 +356,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         phone_step = "2. Go to the phone verification step. Before the send step (playbook step %d), check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
     if signup:
-        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, always pass --cdp %(cdp)s.\n")
+        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
         # t_3223ee18: n is the playbook's own send step (computed above), never "the Sign up click"
         phone_step = "2. Before the send step (playbook step %d), check the phone shown in the form against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
@@ -306,7 +368,8 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
     helper = helper_command()
     step4 = (STEP4_MARKED if n else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
-    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "cdp": tenant_browser(biz)[2]}
+    step3 += ARM_STEP % {"helper": helper, "rid": request_id}   # t_c6eee3cb: the fence the agent runs right before the send click
+    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "org": tenant[1], "cdp": tenant_browser(biz)[2]}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
@@ -412,13 +475,16 @@ class Runtime:
         """Start the submitter agent oneshot. Its output is NOT kept (the code passes through its context); the helper logs reason words to its own stderr.
         The child env drops any service-role variable. -> a handle with poll() and kill() (kills the whole tree)."""
         import postcard_step as PS
-        argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
+        exe = PS._hermes_exe()
+        argv = [exe, "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
         env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
         env["TERMINAL_CWD"] = REPO_ROOT   # the agent's terminal starts in the app clone, whatever cwd the bridge had
         env.pop("BROWSER_CDP_URL", None)
         if cdp: env["BROWSER_CDP_URL"] = cdp   # t_45fe02d4: hermes browser tools attach to THIS Chrome (the tenant's), never start their own
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)
-        return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
+        gap = agent_env_gap()
+        if gap: log("WARNING: the submitter profile does not forward %s to the gateway turn (terminal.client_env_passthrough); the agent will not see them" % ", ".join(gap))
+        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, cwd=REPO_ROOT)
+        return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run, cancel_argv=cancel_argv(exe), cancel_env=cancel_env())
 
     def messages(self, tenant):
         import mail_scan as M

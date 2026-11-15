@@ -12,7 +12,7 @@ MUTATIONS = [
     ("profile parse reverts to the round-1 regex (quote before the flag read as unquoted)", "    if m.group(1) or m.group(2):\n        end = rest.find('\"')", "    if m.group(2):\n        end = rest.find('\"')"),
     ("launch_agent drops BROWSER_CDP_URL", '        if cdp: env["BROWSER_CDP_URL"] = cdp', '        pass'),
     ("the agent run launches without the tenant's cdp url", "rt.launch_agent(rt.write_prompt(request_id, prompt), tenant_browser(tenant[0])[2])", "rt.launch_agent(rt.write_prompt(request_id, prompt))"),
-    ("prompt drops --cdp for the fill helper", "always pass --cdp %(cdp)s.", "use the default browser."),
+    ("prompt drops --cdp for the fill helper", "--cdp %(cdp)s on every call", "on every call"),
     ("SCC ignores a fresh build lease", 'if held and not str(held.get("card") or "").startswith(VERIFY_LEASE):', 'if False:'),
     ("SCC does not take its own lease", 'lease = KA.Lease("%s%d" % (VERIFY_LEASE, os.getpid())); lease.touch()', 'lease = KA.Lease("%s%d" % (VERIFY_LEASE, os.getpid()))'),
     ("SCC removes the lease even when a batch took it over", 'if cur and cur.get("card") == lease.card: KA.lease_release()', 'KA.lease_release()'),
@@ -225,8 +225,8 @@ os.environ.pop("BROWSER_CDP_URL", None)
 for label, pb in (("sign-in", PB), ("signup", PB_SIGNUP), ("no playbook", None)):
     nm, scc = prompt(NM_T, pb), prompt(SCC_T, pb)
     check("%s prompt tells the agent to pass --cdp <tenant url> to vaultwarden-cli-fill.js (NM 9334 / SCC 9333)" % label,
-          "vaultwarden-cli-fill.js, always pass --cdp http://127.0.0.1:9334." in nm and "--cdp http://127.0.0.1:9333" not in nm
-          and "vaultwarden-cli-fill.js, always pass --cdp http://127.0.0.1:9333." in scc and "--cdp http://127.0.0.1:9334" not in scc)
+          "--cdp http://127.0.0.1:9334 on every call" in nm and "--cdp http://127.0.0.1:9333" not in nm
+          and "--cdp http://127.0.0.1:9333 on every call" in scc and "--cdp http://127.0.0.1:9334" not in scc)
 
 # ---- 3 the send run: the browser is up BEFORE the agent, closed after, and a refusal starts no agent -----------------------------------
 AGENT_DIR = "agentdir.example"

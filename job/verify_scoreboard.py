@@ -12,7 +12,7 @@ verified_at, outcome, send_mode (agent|script). A stage the run never reached is
 
 Reader:  python job/verify_scoreboard.py --summary [--file F]   one table row per run + medians (click-to-send, code-to-verified, pickup+start).
 """
-import argparse, datetime, json, os, statistics, sys
+import argparse, contextlib, datetime, json, os, statistics, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -81,6 +81,32 @@ def stamp(rid, stage, at=None, **meta):
         _log("stamp skipped: %s" % type(e).__name__); return False
 
 
+def _alive_file(rid):
+    return os.path.join(_dir(), "verify-stages", "%s.alive" % rid)
+
+
+def touch_alive(rid):
+    """t_c6eee3cb: the agent is alive (it just called a helper verb). The sweeper keeps a `starting` row while this file is fresh. Never raises."""
+    try:
+        rid = _clean_rid(rid)
+        if not rid: return False
+        f = _alive_file(rid); os.makedirs(os.path.dirname(f), exist_ok=True)
+        with open(f, "a"): pass
+        os.utime(f, None)
+        return True
+    except Exception:
+        return False
+
+
+def last_alive(rid):
+    """Epoch seconds of the agent's last helper call for this request, or None."""
+    try:
+        rid = _clean_rid(rid)
+        return os.path.getmtime(_alive_file(rid)) if rid else None
+    except Exception:
+        return None
+
+
 NOTE_MAX = 400
 
 
@@ -123,6 +149,7 @@ def finalize(rid, outcome, at=None):
         rid = _clean_rid(rid)
         if not rid: return False
         f = _stage_file(rid)
+        with contextlib.suppress(OSError): os.remove(_alive_file(rid))   # the request is closed: its heartbeat file goes with it
         if not os.path.exists(f): return False
         with open(f, encoding="utf-8") as h: cur = json.load(h)
         row = {"request_id": rid}

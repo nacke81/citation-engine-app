@@ -1,6 +1,7 @@
 """Verify Now agent helper (t_218b03ef). The submitter AGENT calls this instead of raw RPCs; it never holds the portal service key (this
 process reads it from the portal env pointer, the agent only sees stdout and the exit code).
 
+  python job/verify_step.py arm    --request-id X                                 pre-send fence, run right BEFORE the send click: nonzero (5) = STOP, do not click
   python job/verify_step.py sent   --request-id X --masked "(629) ***-2578"   the code was just sent to that number
   python job/verify_step.py code   --request-id X [--wait-s 540]               waits up to --wait-s (max 540) per call, prints the code ONLY on stdout
   python job/verify_step.py result --request-id X --outcome accepted|rejected  the Directory accepted or rejected the typed code
@@ -48,11 +49,61 @@ def _claimed(portal, request_id, statuses):
     verdict, row = B.fence(req, portal)
     if verdict != "ok":
         log("fence refused %s: %s" % (request_id, verdict)); return None, None
+    SB.touch_alive(request_id)   # t_c6eee3cb: the sweeper keeps a live agent's `starting` row (liveness, not wall clock)
     return req, row
+
+
+ARM_MARGIN_S = 60   # the send must be clicked at least this long before the sweeper's hard cap (B.SWEEP_HARD_CAP_S from requested_at)
+
+
+def _late_reopen(portal, request_id, now_dt=None):
+    """t_c6eee3cb (b): `sent` arrived for a request the sweeper already closed (could_not_start) within the last LATE_SENT_WINDOW_S of its sweep, and no
+    NEWER request exists for the same verification row. Then the text really went out and the client must get the code box: move the row back to
+    `starting` (one conditional PATCH, exactly one row or nothing), so mark_code_sent can run. -> (req, row) or (None, None). Logged as late_sent."""
+    try:
+        req = B.request_row(portal, request_id)
+        if not req or req.get("status") != "could_not_start": return None, None
+        t0 = B._parse(req.get("requested_at"))
+        if t0 is None: return None, None
+        age = ((now_dt or datetime.datetime.now(datetime.timezone.utc)) - t0).total_seconds()
+        if age > B.SWEEP_AFTER_S + B.LATE_SENT_WINDOW_S:
+            log("late_sent refused %s: swept longer ago than %d s" % (request_id, B.LATE_SENT_WINDOW_S)); return None, None
+        verdict, row = B.fence(req, portal)
+        if verdict != "ok":
+            log("late_sent fence refused %s: %s" % (request_id, verdict)); return None, None
+        newer = portal.call("GET", "%s?select=id&citation_verification_id=eq.%s&requested_at=gt.%s&limit=1" % (B.REQUEST_TABLE, req["citation_verification_id"], req["requested_at"]))
+        if newer:
+            log("late_sent refused %s: a newer request exists for this row" % request_id); return None, None
+        got = portal.call("PATCH", "%s?id=eq.%s&status=eq.could_not_start" % (B.REQUEST_TABLE, request_id), {"status": "starting", "fail_code": None}, prefer="return=representation")
+        if not got or len(got) != 1:
+            log("late_sent refused %s: the row could not be reopened" % request_id); return None, None
+        log("late_sent %s: swept request reopened because its text went out" % request_id)
+        return dict(req, status="starting"), row
+    except Exception as e:
+        log("late_sent failed: %s" % type(e).__name__); return None, None
+
+
+def step_arm(request_id, portal, now_dt=None):
+    """t_c6eee3cb pre-send fence: the agent runs this immediately before the send click. 0 = go; REFUSED (5) = STOP, do not click: the request is not
+    `starting` (swept, superseded, already sent), fails the bridge fence, has no readable requested_at, or is past SWEEP_AFTER_S - ARM_MARGIN_S old
+    (the sweeper would close it before the code could be consumed). Read-only: no stamp, no RPC."""
+    req, _row = _claimed(portal, request_id, ("starting",))
+    if not req: return REFUSED
+    t0 = B._parse(req.get("requested_at"))
+    if t0 is None:
+        log("arm refused %s: no requested_at" % request_id); return REFUSED
+    now_dt = now_dt or datetime.datetime.now(datetime.timezone.utc)
+    age = (now_dt - t0).total_seconds()
+    limit = B.SWEEP_HARD_CAP_S - ARM_MARGIN_S   # a live agent keeps its row to the hard cap (verify_bridge.stale_requests)
+    if age >= limit:
+        log("arm refused %s: request is %d s old (limit %d s); do not send" % (request_id, age, limit)); return REFUSED
+    log("armed %s: %d s old, %d s left before the cutoff" % (request_id, age, limit - age))
+    return OK
 
 
 def step_sent(request_id, masked, portal, rpc, now_dt=None):
     req, _row = _claimed(portal, request_id, ("starting",))
+    if not req and B.MASK_RE.match(str(masked or "")): req, _row = _late_reopen(portal, request_id, now_dt)   # t_c6eee3cb (b): a real send after the sweep still reaches the code box
     if not req: return REFUSED
     try: rpc.mark_sent(request_id, masked)
     except B.BridgeError as e:
@@ -247,7 +298,7 @@ def _closed_by_portal(portal, request_id):
 def main(argv=None, portal=None, rpc=None, out=None):
     a = argparse.ArgumentParser(description="Verify Now agent helper")
     sub = a.add_subparsers(dest="cmd", required=True)
-    for name in ("sent", "code", "result", "stage", "trace", "note"):
+    for name in ("arm", "sent", "code", "result", "stage", "trace", "note"):
         s = sub.add_parser(name); s.add_argument("--request-id", required=True)
         if name == "stage": s.add_argument("--name", required=True, choices=tuple(STAGE_NAMES))
         if name == "trace":
@@ -266,6 +317,7 @@ def main(argv=None, portal=None, rpc=None, out=None):
     except Exception as e:
         log("portal env unavailable: %s" % type(e).__name__); return REFUSED
     rpc = rpc or B.VerifyRpc(portal)
+    if n.cmd == "arm": return step_arm(n.request_id, portal)
     if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc)
     if n.cmd == "stage": return step_stage(n.request_id, n.name, portal)
     if n.cmd == "note": return step_note(n.request_id, n.text, portal)
