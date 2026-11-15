@@ -330,8 +330,8 @@ class FakeProc:
     def poll(self): return None if not self.killed else -9
     def kill(self): self.killed += 1
 os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-key-placeholder"
-rtr = S.Runtime(popen=FakeProc, runner=lambda argv, **kw: seen.setdefault("kill", argv))
-h = rtr.launch_agent("C:/x/prompt.txt")
+rtr = S.Runtime(popen=FakeProc, runner=lambda argv, **kw: (seen.setdefault("kill", argv) if argv[0] == "taskkill" else None) or subprocess.CompletedProcess(argv, 0))
+h = rtr.launch_agent("C:/x/prompt.txt", "http://127.0.0.1:9334")
 exe = seen["argv"][0]
 check("oneshot argv is `hermes -p citation-submitter chat --query-file <file> --oneshot`", os.path.basename(exe).lower().startswith("hermes") and seen["argv"][1:] == ["-p", "citation-submitter", "chat", "--query-file", "C:/x/prompt.txt", "--oneshot"], seen["argv"])
 check("the oneshot's env has no service-role variable and its stdout is dropped; stderr is a private file (never a pipe) read only for the Session line (t_c6eee3cb)", all("SERVICE_ROLE" not in k.upper() for k in seen["kw"]["env"]) and seen["kw"]["stdout"] == subprocess.DEVNULL and seen["kw"]["stderr"] != subprocess.PIPE and seen["kw"]["stderr"] != subprocess.DEVNULL and not hasattr(h, "note"))

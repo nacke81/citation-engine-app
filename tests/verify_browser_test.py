@@ -214,13 +214,14 @@ class FakeProc:
     def poll(self): return None
     def kill(self): pass
 os.environ["BROWSER_CDP_URL"] = "http://127.0.0.1:1111"   # an inherited value must never leak into the child
-r2 = S.Runtime(popen=FakeProc, runner=lambda argv, **kw: None)
+r2 = S.Runtime(popen=FakeProc, runner=lambda argv, **kw: subprocess.CompletedProcess(argv, 0))
 r2.launch_agent("C:/x/p.txt", "http://127.0.0.1:9334")
 check("NM launch env: BROWSER_CDP_URL = the NM url (9334), never 9333, the inherited value gone", seen["env"].get("BROWSER_CDP_URL") == "http://127.0.0.1:9334" and "9333" not in str(seen["env"].get("BROWSER_CDP_URL")), seen["env"].get("BROWSER_CDP_URL"))
 r2.launch_agent("C:/x/p.txt", "http://127.0.0.1:9333")
 check("SCC launch env: BROWSER_CDP_URL = the SCC url (9333)", seen["env"].get("BROWSER_CDP_URL") == "http://127.0.0.1:9333", seen["env"].get("BROWSER_CDP_URL"))
-r2.launch_agent("C:/x/p.txt")
-check("no tenant url: no BROWSER_CDP_URL at all (not the inherited one)", "BROWSER_CDP_URL" not in seen["env"])
+try: r2.launch_agent("C:/x/p.txt"); _no_url = None
+except S.BrowserError as _e: _no_url = _e
+check("no tenant url: the launch is refused (BrowserError), no agent, the inherited BROWSER_CDP_URL is never used", isinstance(_no_url, S.BrowserError) and seen["env"].get("BROWSER_CDP_URL") != "http://127.0.0.1:1111")
 os.environ.pop("BROWSER_CDP_URL", None)
 for label, pb in (("sign-in", PB), ("signup", PB_SIGNUP), ("no playbook", None)):
     nm, scc = prompt(NM_T, pb), prompt(SCC_T, pb)

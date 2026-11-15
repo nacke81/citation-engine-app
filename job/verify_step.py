@@ -53,7 +53,7 @@ def _claimed(portal, request_id, statuses):
     return req, row
 
 
-ARM_MARGIN_S = 60   # the send must be clicked at least this long before the sweeper's hard cap (B.SWEEP_HARD_CAP_S from requested_at)
+ARM_MARGIN_S = 60   # the send must be clicked at least this long before the portal shows could_not_start: B.SWEEP_AFTER_S (600) = the portal verify-now START_LIMIT_MS (10 min), which derives could_not_start at READ time from requested_at whatever the bridge status is. The liveness hold (B.SWEEP_HARD_CAP_S) never extends this.
 
 
 def _late_reopen(portal, request_id, now_dt=None):
@@ -63,10 +63,11 @@ def _late_reopen(portal, request_id, now_dt=None):
     try:
         req = B.request_row(portal, request_id)
         if not req or req.get("status") != "could_not_start": return None, None
-        t0 = B._parse(req.get("requested_at"))
+        fin = B._parse(req.get("finished_at"))   # the sweep time: finish_code_request sets finished_at = now(); requested_at only when it is null
+        t0 = fin or B._parse(req.get("requested_at"))
         if t0 is None: return None, None
         age = ((now_dt or datetime.datetime.now(datetime.timezone.utc)) - t0).total_seconds()
-        if age > B.SWEEP_AFTER_S + B.LATE_SENT_WINDOW_S:
+        if age > B.LATE_SENT_WINDOW_S + (0 if fin else B.SWEEP_AFTER_S):
             log("late_sent refused %s: swept longer ago than %d s" % (request_id, B.LATE_SENT_WINDOW_S)); return None, None
         verdict, row = B.fence(req, portal)
         if verdict != "ok":
@@ -74,7 +75,7 @@ def _late_reopen(portal, request_id, now_dt=None):
         newer = portal.call("GET", "%s?select=id&citation_verification_id=eq.%s&requested_at=gt.%s&limit=1" % (B.REQUEST_TABLE, req["citation_verification_id"], req["requested_at"]))
         if newer:
             log("late_sent refused %s: a newer request exists for this row" % request_id); return None, None
-        got = portal.call("PATCH", "%s?id=eq.%s&status=eq.could_not_start" % (B.REQUEST_TABLE, request_id), {"status": "starting", "fail_code": None}, prefer="return=representation")
+        got = portal.call("PATCH", "%s?id=eq.%s&status=eq.could_not_start" % (B.REQUEST_TABLE, request_id), {"status": "starting", "fail_code": None, "finished_at": None}, prefer="return=representation")
         if not got or len(got) != 1:
             log("late_sent refused %s: the row could not be reopened" % request_id); return None, None
         log("late_sent %s: swept request reopened because its text went out" % request_id)
@@ -85,8 +86,8 @@ def _late_reopen(portal, request_id, now_dt=None):
 
 def step_arm(request_id, portal, now_dt=None):
     """t_c6eee3cb pre-send fence: the agent runs this immediately before the send click. 0 = go; REFUSED (5) = STOP, do not click: the request is not
-    `starting` (swept, superseded, already sent), fails the bridge fence, has no readable requested_at, or is past SWEEP_AFTER_S - ARM_MARGIN_S old
-    (the sweeper would close it before the code could be consumed). Read-only: no stamp, no RPC."""
+    `starting` (swept, superseded, already sent), fails the bridge fence, has no readable requested_at, or is past SWEEP_AFTER_S - ARM_MARGIN_S (540 s) old
+    (the portal shows could_not_start from SWEEP_AFTER_S = its START_LIMIT_MS, so a later send is a text the client was told never started). Read-only: no stamp, no RPC."""
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
     t0 = B._parse(req.get("requested_at"))
@@ -94,7 +95,7 @@ def step_arm(request_id, portal, now_dt=None):
         log("arm refused %s: no requested_at" % request_id); return REFUSED
     now_dt = now_dt or datetime.datetime.now(datetime.timezone.utc)
     age = (now_dt - t0).total_seconds()
-    limit = B.SWEEP_HARD_CAP_S - ARM_MARGIN_S   # a live agent keeps its row to the hard cap (verify_bridge.stale_requests)
+    limit = B.SWEEP_AFTER_S - ARM_MARGIN_S   # 540 s. NOT the hard cap: the portal's START_LIMIT_MS (10 min) says could_not_start whatever the bridge holds
     if age >= limit:
         log("arm refused %s: request is %d s old (limit %d s); do not send" % (request_id, age, limit)); return REFUSED
     log("armed %s: %d s old, %d s left before the cutoff" % (request_id, age, limit - age))

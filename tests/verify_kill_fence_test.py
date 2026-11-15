@@ -123,33 +123,157 @@ cancel_runs = [(a, k) for a, k in seen["runs"] if "gateway_cancel.py" in " ".joi
 check("1i launch_agent: stderr to a private file (no pipe), session id read, kill runs gateway_cancel.py <id> with HERMES_HOME = the submitter profile",
       seen["kw"]["stderr"] != subprocess.PIPE and h.session_id == SESSION and len(cancel_runs) == 1 and cancel_runs[0][0][-1] == SESSION
       and os.path.basename(cancel_runs[0][0][-2]) == "gateway_cancel.py" and cancel_runs[0][1]["env"]["HERMES_HOME"] == os.environ["CE_SUBMITTER_HOME"], len(cancel_runs))
-check("1j the cancel order: session cancel runs BEFORE the process-tree kill", "gateway_cancel.py" in " ".join(seen["runs"][0][0]), seen["runs"][0][0])
+_names = [("cancel" if "gateway_cancel.py" in " ".join(a) else "taskkill" if a[0] == "taskkill" else ("browser:disconnect" if "disconnect" in a else "browser:connect") if "gateway_browser.py" in " ".join(a) else "other") for a, _k in seen["runs"]]
+check("1j the kill order: session cancel runs BEFORE the process-tree kill, and the browser override is released last", _names.index("cancel") < (_names.index("taskkill") if "taskkill" in _names else 99) and _names[-1] == "browser:disconnect", str(_names))
 cancel_src = open(os.path.join(HERE, "..", "job", "gateway_cancel.py"), encoding="utf-8").read()
-check("1k gateway_cancel.py: resume, interrupt, close on the session; rejects a bad id with exit 2",
-      all(s in cancel_src for s in ('"session.resume"', '"session.interrupt"', '"session.close"')) and __import__("gateway_cancel").main(["bad id"]) == 2)
+check("1k gateway_cancel.py: resume, interrupt with the snapshot's execution_generation, re-read until not running; rejects a bad id with exit 2",
+      all(s in cancel_src for s in ('"session.resume"', '"session.interrupt"', 'execution_generation', '"running"')) and __import__("gateway_cancel").main(["bad id"]) == 2)
 
-# ---- 2 env reaches the agent ------------------------------------------------------------------------------------------------------------------
+# 1l LIVE finding: `hermes chat --oneshot` prints NO `Session:` line, so the session is also found in the submitter's state.db (the first user message newer than
+# the newest one at launch that carries this request's id).
+import sqlite3
+_home = os.path.join(TMP, "probe-home"); os.makedirs(_home, exist_ok=True); os.environ["CE_SUBMITTER_HOME"] = _home
+_c = sqlite3.connect(os.path.join(_home, "state.db")); _c.execute("create table messages (id integer primary key autoincrement, session_id text, role text, content text)")
+STORED = "local-" + "ab" * 32
+_c.execute("insert into messages (session_id, role, content) values ('local-oldrun-0001', 'user', ?)", ("an OLD run of %s" % F.RID,)); _c.commit()
+_pp = os.path.join(TMP, "probe-prompt.txt"); open(_pp, "w").write("do it, helper arm --request-id %s\n" % F.RID)
+_runs = []
+_rt = S.Runtime(popen=lambda argv, **kw: FakeProc(""), runner=lambda argv, **kw: _runs.append(argv) or subprocess.CompletedProcess(argv, 0))
+_h = _rt.launch_agent(_pp, "http://127.0.0.1:9334")
+_a = _h.session_id
+_c.execute("insert into messages (session_id, role, content) values ('local-other-0002', 'user', 'another prompt')"); _c.commit(); _b = _h.session_id
+_c.execute("insert into messages (session_id, role, content) values (?, 'user', ?)", (STORED, "x " + open(_pp).read())); _c.commit()
+_h.kill(); _c.close()
+_cx = [a for a in _runs if "gateway_cancel.py" in " ".join(a)]
+check("1l no Session line: the session is found in state.db by the request id, ignoring older rows and other prompts; kill then cancels exactly it",
+      _a is None and _b is None and _h.session_id == STORED and len(_cx) == 1 and _cx[0][-1] == STORED, (_a, _b, _h.session_id, len(_cx)))
+_h2 = S.Runtime(popen=lambda argv, **kw: FakeProc(""), runner=lambda argv, **kw: subprocess.CompletedProcess(argv, 0)).launch_agent(os.path.join(TMP, "nope.txt"), "http://127.0.0.1:9334")
+check("1m an unreadable prompt or db gives no session (never a guess); kill still ends the client", _h2.session_id is None and not _h2.kill())
+
+# 1n gateway_cancel against a fake gateway client (the real RPC shapes, live-verified: interrupt needs the snapshot's execution_generation; the interrupt reply
+# status is not trusted; success = the gateway's own snapshot says running=False)
+import contextlib as _cl, types as _types, gateway_cancel as GC
+def fake_gateway(running_seq, interrupt_reply=None, gen=7):
+    calls = []
+    class Client:
+        n = 0
+        async def rpc(self, method, **kw):
+            calls.append((method, dict(kw)))
+            if method == "session.resume":
+                i = min(Client.n, len(running_seq) - 1); Client.n += 1
+                return {"session_id": "live-" + kw["session_id"], "running": running_seq[i], "execution_generation": gen}
+            if method == "session.interrupt":
+                if kw.get("execution_generation") != gen: raise RuntimeError("stale_generation")
+                return interrupt_reply or {}
+            raise RuntimeError("unknown_method")
+    @_cl.asynccontextmanager
+    async def connect_gateway(*a, **k): yield Client()
+    mod = _types.ModuleType("hermes_cli.gateway_client"); mod.connect_gateway = connect_gateway
+    sys.modules["hermes_cli"] = _types.ModuleType("hermes_cli"); sys.modules["hermes_cli.gateway_client"] = mod
+    return calls
+GC.CONFIRM_EVERY_S = 0.001; _sid = "local-" + "cd" * 32
+calls = fake_gateway([True, True, False]); rcc, _t = quiet(GC.main, [_sid])
+check("1n gateway_cancel on a running session: interrupt carries the snapshot's execution_generation, re-reads until running=False, exit 0 (no session.close: it does not exist)",
+      rcc == 0 and [c[0] for c in calls if c[0] == "session.interrupt"] == ["session.interrupt"] and [c[1].get("execution_generation") for c in calls if c[0] == "session.interrupt"] == [7]
+      and not [c for c in calls if c[0] == "session.close"] and [c[1]["session_id"] for c in calls if c[0] == "session.interrupt"] == ["live-" + _sid], (rcc, [c[0] for c in calls]))
+calls = fake_gateway([False]); rci, _t = quiet(GC.main, [_sid])
+check("1o gateway_cancel on an idle session: exit 0 and NO interrupt sent", rci == 0 and not [c for c in calls if c[0] == "session.interrupt"], (rci, [c[0] for c in calls]))
+fake_gateway([True]); rcs, _t = quiet(GC.main, [_sid])
+check("1p gateway_cancel when the gateway still reports running after the interrupt: exit 1 (never claims a stop it did not see)", rcs == 1)
+for _m in ("hermes_cli", "hermes_cli.gateway_client"): sys.modules.pop(_m, None)
+
+# ---- 2 the tenant's Chrome reaches the agent: browser.manage connect BEFORE the oneshot, fail closed, released on every exit -----------------
+import gateway_browser as GB
+CDP = "http://127.0.0.1:9334"
+os.environ["CE_SUBMITTER_HOME"] = os.path.join(TMP, "submitter-home")
+
+def launch(rc=None, exc=None, popen_exc=None, cdp=CDP):
+    """The REAL Runtime.launch_agent with a fake runner and a fake Popen. -> (handle|exception, events, popen kwargs, HERMES_HOME of each runner call)."""
+    events, homes, kws = [], [], {}
+    rc = dict({"connect": 0, "disconnect": 0, "cancel": 0}, **(rc or {}))
+    def runner(argv, **kw):
+        j = " ".join(argv)
+        verb = ("disconnect" if "disconnect" in argv else "connect") if "gateway_browser.py" in j else "cancel" if "gateway_cancel.py" in j else "other"
+        events.append(verb + (" " + argv[-1] if verb == "connect" else "")); homes.append((kw.get("env") or {}).get("HERMES_HOME"))
+        if (exc or {}).get(verb): raise exc[verb]
+        return subprocess.CompletedProcess(argv, rc.get(verb, 0))
+    class Pp(FakeProc):
+        def __init__(self, argv, **kw):
+            events.append("popen")
+            if popen_exc: raise popen_exc
+            FakeProc.__init__(self, "Session: %s\n" % SESSION); kws.update(kw)
+            kw["stderr"].write(("Session: %s\n" % SESSION).encode()); kw["stderr"].flush()
+    try: got = S.Runtime(popen=Pp, runner=runner).launch_agent("C:/x/p.txt", cdp)
+    except BaseException as e: got = e
+    return got, events, kws, homes
+
 os.environ["BROWSER_CDP_URL"] = "http://127.0.0.1:1111"; os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "x"
-seen2 = {}
-class P2(FakeProc):
-    def __init__(self, argv, **kw): FakeProc.__init__(self, ""); seen2["kw"] = kw
-S.Runtime(popen=P2).launch_agent("C:/x/p.txt", "http://127.0.0.1:9334")
-env = seen2["kw"]["env"]
-check("2a child env: BROWSER_CDP_URL = the tenant's Chrome (not the inherited one), TERMINAL_CWD = the app clone, no service role", env.get("BROWSER_CDP_URL") == "http://127.0.0.1:9334" and env.get("TERMINAL_CWD") == S.REPO_ROOT and not [k for k in env if "SERVICE_ROLE" in k.upper()])
+h, ev, kws, homes = launch()
+env = kws["env"]
+check("2a child env: BROWSER_CDP_URL = the tenant's Chrome (not the inherited one), TERMINAL_CWD = the app clone, no service role",
+      env.get("BROWSER_CDP_URL") == CDP and env.get("TERMINAL_CWD") == S.REPO_ROOT and not [k for k in env if "SERVICE_ROLE" in k.upper()] and kws["cwd"] == S.REPO_ROOT)
 del os.environ["BROWSER_CDP_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-def cfg(text):
-    d = tempfile.mkdtemp(); path = os.path.join(d, "config.yaml"); open(path, "w", encoding="utf-8").write(text); return path
-check("2b gap: a profile that lists neither name reports both (the gateway drops client env it is not told to forward)", S.agent_env_gap(cfg("terminal:\n  backend: local\n")) == ["BROWSER_CDP_URL", "TERMINAL_CWD"])
-check("2c gap: inline list with both names = no gap", S.agent_env_gap(cfg("terminal:\n  client_env_passthrough: [BROWSER_CDP_URL, TERMINAL_CWD]\n")) == [])
-check("2d gap: block list with both names = no gap; one name missing is reported", S.agent_env_gap(cfg("terminal:\n  client_env_passthrough:\n    - BROWSER_CDP_URL\n    - TERMINAL_CWD\nother: 1\n")) == []
-      and S.agent_env_gap(cfg("terminal:\n  client_env_passthrough:\n    - BROWSER_CDP_URL\nother: TERMINAL_CWD\n")) == ["TERMINAL_CWD"])
-check("2e gap: an unreadable config reports every name", S.agent_env_gap(os.path.join(TMP, "nope.yaml")) == list(S.AGENT_ENV_NAMES))
-real_cfg = os.path.expandvars("%LOCALAPPDATA%/hermes/profiles/citation-submitter/config.yaml")
-lines = []
-S.log = lambda m: lines.append(m)
-os.environ["CE_SUBMITTER_HOME"] = os.path.dirname(cfg("terminal:\n  backend: local\n"))
-S.Runtime(popen=P2).launch_agent("C:/x/p.txt", "http://127.0.0.1:9334")
-check("2f launch_agent logs a loud WARNING naming the missing env names (no silent drop)", any("WARNING" in l and "BROWSER_CDP_URL" in l for l in lines), lines)
+check("2b the gateway's browser override is connected to the tenant's Chrome BEFORE the oneshot starts, on the submitter's HERMES_HOME",
+      ev == ["connect " + CDP, "popen"] and homes[0] == os.environ["CE_SUBMITTER_HOME"], (ev, homes))
+for _x in (h,):
+    if isinstance(_x, S.AgentProc): _x.kill()
+
+bad, ev, _k, _h = launch(rc={"connect": 1})
+check("2c connect refused (exit 1: refused or wrong url): BrowserError, NO oneshot started", isinstance(bad, S.BrowserError) and "popen" not in ev and ev == ["connect " + CDP], (bad, ev))
+for name, e in (("unreachable (OSError)", OSError("gateway down")), ("timeout", subprocess.TimeoutExpired("x", 90))):
+    bad, ev, _k, _h = launch(exc={"connect": e})
+    check("2d connect %s: BrowserError, NO oneshot started" % name, isinstance(bad, S.BrowserError) and "popen" not in ev, (bad, ev))
+bad, ev, _k, _h = launch(cdp=None)
+check("2e no tenant browser url: BrowserError and nothing runs at all (no connect, no oneshot)", isinstance(bad, S.BrowserError) and ev == [], (bad, ev))
+bad, ev, _k, _h = launch(popen_exc=OSError("no exe"))
+check("2f the oneshot fails to start after a good connect: the override is released and the error propagates", isinstance(bad, OSError) and ev == ["connect " + CDP, "popen", "disconnect"], (bad, ev))
+
+h, ev, _k, _h = launch(); n0 = len(ev); h.kill(); h.kill()
+check("2g kill releases the override once, LAST, after the session cancel (kill twice = one disconnect)", ev[n0:].count("disconnect") == 1 and ev[-1] == "disconnect" and ev.index("cancel") < ev.index("disconnect"), ev)
+h, ev, _k, _h = launch(exc={"cancel": RuntimeError("boom")}); h.kill()
+check("2h a failing session cancel never skips the release", ev[-1] == "disconnect", ev)
+h, ev, _k, _h = launch(rc={"disconnect": 1}); n0 = len(ev)
+try: h.kill(); ok_kill = True
+except Exception: ok_kill = False
+check("2i a refused disconnect never raises out of kill()", ok_kill)
+# the run's own exit paths: S.run kills the agent in a finally, so a sweep, a done run and a crash all release it
+for label, steps in (("agent exits on its own", [lambda: None]), ("agent raises", [lambda: (_ for _ in ()).throw(RuntimeError("x"))])):
+    pr = agent_portal(); rel = []
+    class RA(F.FakeAgent):
+        def kill(self): F.FakeAgent.kill(self); rel.append(1)
+    rt_ = F.FakeRuntime(F.FakePage(), agent_factory=lambda rt, steps=steps: RA(steps))
+    try: quiet(S.run, F.RID, pr, B.VerifyRpc(pr), rt_, F.NOW)
+    except Exception: pass
+    check("2j run exit path (%s): the agent handle is killed (that is where the release runs)" % label, len(rel) >= 1, rel)
+
+# gateway_browser.py: exit 0 only when the gateway answered connected=True with exactly the url asked for
+def gb(reply=None, exc=None, argv=("connect", CDP)):
+    async def fake(action, url=None):
+        if exc: raise exc
+        return reply
+    real, GB.manage = GB.manage, fake
+    try: return quiet(GB.main, list(argv))[0]
+    finally: GB.manage = real
+check("2k gateway_browser connect: connected=True + the same url = 0 (a trailing slash does not matter)", gb({"connected": True, "url": CDP}) == 0 and gb({"connected": True, "url": CDP + "/"}) == 0)
+check("2l gateway_browser connect: a WRONG url in the reply (the other tenant's Chrome) = 1", gb({"connected": True, "url": "http://127.0.0.1:9333"}) == 1)
+check("2m gateway_browser connect: connected=False, empty or missing reply, or an RPC error = 1", gb({"connected": False, "url": CDP}) == 1 and gb({}) == 1 and gb(None) == 1 and gb(exc=RuntimeError("5031")) == 1)
+check("2n gateway_browser connect: a non-local or malformed url = 2 (nothing sent to the gateway)", gb({"connected": True, "url": "http://evil.example:80"}, argv=("connect", "http://evil.example:80")) == 2 and gb({"connected": True}, argv=("connect", "x")) == 2)
+check("2o gateway_browser disconnect: connected=False = 0; anything else or an error = 1", gb({"connected": False}, argv=("disconnect",)) == 0 and gb({"connected": True}, argv=("disconnect",)) == 1 and gb(exc=OSError("x"), argv=("disconnect",)) == 1)
+src = open(os.path.join(HERE, "..", "job", "verify_send.py"), encoding="utf-8").read()
+check("2p the config-edit warning is gone: no agent_env_gap, no client_env_passthrough advice (that setting never reaches the browser tools)", not hasattr(S, "agent_env_gap") and "client_env_passthrough" not in src and "WARNING" not in src)
+
+# one agent run at a time across tenants: the override is per profile, so NM and SCC runs must not overlap
+with B.submitter_lock() as first:
+    with B.submitter_lock() as second:
+        check("2q the submitter-gateway lock is one global lock: a second holder (the other tenant) is refused", first is True and second is False)
+    with B.tenant_lock(F.NM) as t_nm, B.tenant_lock(F.SCC) as t_scc:
+        check("2r it is independent of the per-tenant locks (NM and SCC tenant locks alone would NOT serialize them)", t_nm is True and t_scc is True)
+    pb = agent_portal(); rtb = F.FakeRuntime(F.FakePage(), agent_factory=lambda rt: F.FakeAgent())
+    rb, _t = quiet(S.run, F.RID, pb, B.VerifyRpc(pb), rtb, F.NOW)
+    check("2s another tenant's agent run holds the gateway: this request is deferred, no browser override, no oneshot, request stays `starting`", rb == "deferred" and rtb.launched == [] and pb.requests[F.RID]["status"] == "starting", (rb, rtb.launched))
+pc = agent_portal(); rtc = F.FakeRuntime(F.FakePage(), agent_factory=lambda rt: F.FakeAgent(steps=[lambda: None]))
+rc_, _t = quiet(S.run, F.RID, pc, B.VerifyRpc(pc), rtc, F.NOW)
+check("2t control: with the lock free the same request launches the agent (so 2s can fail)", len(rtc.launched) == 1, (rc_, rtc.launched))
 S.log = lambda m: print("verify_send: " + m, file=sys.stderr, flush=True)
 
 # ---- 3 pre-send fence -----------------------------------------------------------------------------------------------------------------------
@@ -159,7 +283,9 @@ def arm(status="starting", age_s=5, **kw):
     return r, p
 r, p = arm()
 check("3a arm on a fresh `starting` request exits 0 and writes nothing (no PATCH, no RPC)", r == 0 and all(c[0] == "GET" for c in p.calls), (r, [c[:2] for c in p.calls]))
-check("3b arm at the margin: 839 s old is go, 840 s old (SWEEP_HARD_CAP_S - 60) is STOP", arm(age_s=839)[0] == 0 and arm(age_s=840)[0] == ST.REFUSED and B.SWEEP_HARD_CAP_S - ST.ARM_MARGIN_S == 840)
+check("3b arm at the margin: 539 s old is go, 540 s old (SWEEP_AFTER_S - 60, inside the portal's 10 min START_LIMIT_MS) is STOP", arm(age_s=539)[0] == 0 and arm(age_s=540)[0] == ST.REFUSED and B.SWEEP_AFTER_S - ST.ARM_MARGIN_S == 540)
+SBD0 = __import__("verify_scoreboard"); SBD0.touch_alive(F.RID)   # a FRESH alive file (the liveness hold keeps the row `starting` to the hard cap)
+check("3b2 arm at 541 s with a fresh .alive file is STOP (5): the liveness hold never extends the arm; the portal already says could_not_start", arm(age_s=541)[0] == ST.REFUSED and arm(age_s=700)[0] == ST.REFUSED)
 check("3c arm on a SWEPT row (could_not_start/timeout) is STOP (5)", arm(status="could_not_start", age_s=700)[0] == ST.REFUSED)
 check("3d arm on failed, verified, requested and already-sent (code_sent) rows is STOP", all(arm(status=s)[0] == ST.REFUSED for s in ("failed", "verified", "requested", "code_sent", "checking")))
 check("3e arm on a row past the hard cap that is still `starting` (sweeper not run yet) is STOP", arm(age_s=901)[0] == ST.REFUSED)
@@ -177,7 +303,7 @@ pm2 = F.StrictPortal(requests=[F.request(status="could_not_start", age_s=700)], 
 rm2, _t = quiet(ST.main, ["arm", "--request-id", F.RID], pm2, B.VerifyRpc(pm2))
 check("3i CLI: `arm --request-id` exits 0 on a fresh request and 5 on a swept row", rm == 0 and rm2 == 5, (rm, rm2))
 src = open(os.path.join(HERE, "..", "job", "verify_step.py"), encoding="utf-8").read()
-check("3j the fence cutoff is derived from the sweeper's own constant (B.SWEEP_HARD_CAP_S), not a copy", "B.SWEEP_HARD_CAP_S - ARM_MARGIN_S" in src)
+check("3j the fence cutoff is derived from the sweeper's own constant (B.SWEEP_AFTER_S, the portal START_LIMIT_MS), not a copy; never the hard cap", "B.SWEEP_AFTER_S - ARM_MARGIN_S" in src and "B.SWEEP_HARD_CAP_S - ARM_MARGIN_S" not in src.replace("NOT the hard cap", ""))
 
 # ---- 4 prompt: vault organization, no vault writes, the arm line --------------------------------------------------------------------------------
 ent = B.directory_entry("cylex.us", "sms")
@@ -204,7 +330,7 @@ for biz, cid in (("NM", F.NM), ("SCC", F.SCC)):
 MEAS = {"pickup": 32, "agent_start": 159, "ready": 188, "click": 789}
 OWN_CHROMIUM_S, VAULT_ORG_HUNT_S = 180, 300
 click_after = MEAS["click"] - OWN_CHROMIUM_S - VAULT_ORG_HUNT_S
-limit = B.SWEEP_HARD_CAP_S - ST.ARM_MARGIN_S
+limit = B.SWEEP_AFTER_S - ST.ARM_MARGIN_S   # 540 s: the arm limit, tied to the portal's START_LIMIT_MS (10 min)
 print("INFO pickup->agent_start %d s, pickup->agent_ready %d s, agent_ready->send_clicked %d s measured / %d s with the fixes; request->send %d s (%d:%02d) vs the 4 min target (240 s)"
       % (MEAS["agent_start"] - MEAS["pickup"], MEAS["ready"] - MEAS["pickup"], MEAS["click"] - MEAS["ready"], click_after - MEAS["ready"], click_after, click_after // 60, click_after % 60))
 check("5 re-measure: the real run clicked at 789 s; with the fixes ~%d s, inside the arm limit %d s (hard cap %d); SWEEP_AFTER_S stays %d (the 600 s sweep only bites a silent agent now)" % (click_after, limit, B.SWEEP_HARD_CAP_S, B.SWEEP_AFTER_S),
@@ -235,8 +361,8 @@ check("6a-7 mutation: without the liveness read a live agent's row is swept at 6
 SBD.last_alive = orig_alive
 
 # ---- 6 (b) late_sent: `sent` after the sweep reaches the code box ---------------------------------------------------------------------------------
-def late(age_s=700, status="could_not_start", newer=False, masked=MASK):
-    reqs = [F.request(status=status, age_s=age_s)]
+def late(age_s=700, status="could_not_start", newer=False, masked=MASK, fin_ago=100):
+    reqs = [F.request(status=status, age_s=age_s, fin_ago=fin_ago)]
     if newer: reqs.append(dict(F.request(rid="aaaaaaaa-0000-4000-8000-000000000002", status="requested", age_s=age_s - 100)))
     p = F.StrictPortal(requests=reqs, verifications=[F.verification(directory=AGENT_DIR)])
     r, text = quiet(ST.step_sent, F.RID, masked, p, B.VerifyRpc(p), F.NOW)
@@ -244,8 +370,14 @@ def late(age_s=700, status="could_not_start", newer=False, masked=MASK):
 r, p, text = late()
 check("6b-1 `sent` for a request swept 100 s ago with no newer request: row goes code_sent (code box), exit 0, logged late_sent", r == 0 and p.requests[F.RID]["status"] == "code_sent" and "late_sent" in text, (r, p.requests[F.RID]["status"]))
 check("6b-2 the reopen is ONE conditional PATCH on the request table, then mark_code_sent (in that order)", [c[0] + " " + c[1] for c in p.calls if c[0] == "PATCH" or c[1] == "rpc/mark_code_sent"] == ["PATCH citation_code_request", "POST rpc/mark_code_sent"], [c[:2] for c in p.calls])
-r2, p2, _t = late(age_s=B.SWEEP_AFTER_S + B.LATE_SENT_WINDOW_S + 5)
-check("6b-3 swept more than 10 min ago: refused (5), row stays could_not_start, no PATCH", r2 == ST.REFUSED and p2.requests[F.RID]["status"] == "could_not_start" and not [c for c in p2.calls if c[0] == "PATCH"])
+check("6b-1b the reopen clears finished_at: a row that reached code_sent no longer reads as finished", p.requests[F.RID]["finished_at"] is None and p.requests[F.RID]["fail_code"] is None)
+r2, p2, _t = late(age_s=1500, fin_ago=B.LATE_SENT_WINDOW_S + 1)
+check("6b-3 `sent` 601 s after finished_at (the sweep): refused (5), row stays could_not_start, no PATCH", r2 == ST.REFUSED and p2.requests[F.RID]["status"] == "could_not_start" and not [c for c in p2.calls if c[0] == "PATCH"])
+r2b, p2b, _t = late(age_s=1400, fin_ago=500)
+check("6b-3b swept at 900 s, `sent` at 1400 s (500 s after the sweep): accepted, code_sent (the window keys on finished_at, not requested_at)", r2b == 0 and p2b.requests[F.RID]["status"] == "code_sent" and p2b.requests[F.RID]["finished_at"] is None, (r2b, p2b.requests[F.RID]["status"]))
+r2c, p2c, _t = late(age_s=1100, fin_ago=None)
+r2d, p2d, _t = late(age_s=1300, fin_ago=None)
+check("6b-3c finished_at null: falls back to requested_at (SWEEP_AFTER_S + window = 1200 s): 1100 s accepted, 1300 s refused", r2c == 0 and r2d == ST.REFUSED and p2d.requests[F.RID]["status"] == "could_not_start", (r2c, r2d))
 r3, p3, text3 = late(newer=True)
 check("6b-4 a NEWER request exists for the same verification row: refused, row stays could_not_start", r3 == ST.REFUSED and p3.requests[F.RID]["status"] == "could_not_start" and "newer request" in text3)
 r4, p4, _t = late(status="failed")

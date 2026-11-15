@@ -175,13 +175,23 @@ def lock_dir():
     return d
 
 
-@contextlib.contextmanager
 def tenant_lock(client_id):
     """One send run per tenant. Non-blocking. Yields True when this caller holds the lock, False when another run does. The OS drops
     the lock when the holder exits or crashes, so there is no stale lock file to clean up."""
     cid = str(client_id or "")
     if not UUID_RE.match(cid): raise BridgeError("tenant lock: bad client id")
-    fh = open(os.path.join(lock_dir(), "tenant-%s.lock" % cid), "a+b")
+    return _file_lock("tenant-%s.lock" % cid)
+
+
+def submitter_lock():
+    """t_c6eee3cb: ONE agent run at a time across ALL tenants. NM and SCC share the submitter profile's gateway, whose live browser override
+    (browser.manage connect) is per profile, so two tenants' agent runs would swap each other's Chrome. Same semantics as tenant_lock."""
+    return _file_lock("submitter-gateway.lock")
+
+
+@contextlib.contextmanager
+def _file_lock(name):
+    fh = open(os.path.join(lock_dir(), name), "a+b")
     got = False
     try:
         try:

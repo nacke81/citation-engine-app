@@ -63,7 +63,7 @@ class StrictPortal:
                 if body["p_status"] == "verified":
                     v = self.verifications[r["citation_verification_id"]]
                     if v["state"] != "live": raise RuntimeError("verified refused: row not live")
-                r["status"] = body["p_status"]; r["fail_code"] = body["p_fail_code"]; return None
+                r["status"] = body["p_status"]; r["fail_code"] = body["p_fail_code"]; r["finished_at"] = iso(NOW); return None
             raise AssertionError("unknown rpc " + name)
         table, _, q = path.partition("?")
         params = dict(kv.split("=", 1) for kv in q.split("&") if "=" in kv)
@@ -80,10 +80,10 @@ class StrictPortal:
             if not r or ("status" in params and r["status"] != params["status"][3:]): return []
             return [dict(r)]
         if table == B.REQUEST_TABLE and method == "PATCH":   # t_c6eee3cb late_sent: reopen a swept request (the only request-table write besides the RPCs)
-            assert prefer == "return=representation" and body == {"status": "starting", "fail_code": None} and params["status"] == "eq.could_not_start", "reopen shape"
+            assert prefer == "return=representation" and body == {"status": "starting", "fail_code": None, "finished_at": None} and params["status"] == "eq.could_not_start", "reopen shape (finished_at must be cleared)"
             r = self.requests.get(params["id"][3:])
             if not r or r["status"] != "could_not_start": return []
-            r["status"] = "starting"; r["fail_code"] = None; return [dict(r)]
+            r["status"] = "starting"; r["fail_code"] = None; r["finished_at"] = None; return [dict(r)]
         if table == B.VERIFICATION_TABLE and method == "GET":
             if "id" not in params:   # the first-use list: waiting sms/phone-call rows (logged apart from per-row reads)
                 self.calls[-1] = (method, "citation_verification:list", body)
@@ -101,9 +101,10 @@ class StrictPortal:
     def count(self, what): return sum(1 for c in self.calls if c[1] == what)
 
 
-def request(rid=RID, client=NM, status="requested", age_s=5, channel="sms", vid=VID):
+def request(rid=RID, client=NM, status="requested", age_s=5, channel="sms", vid=VID, fin_ago=None):
     return {"id": rid, "citation_verification_id": vid, "client_id": client, "channel": channel, "status": status,
-            "requested_at": iso(NOW - datetime.timedelta(seconds=age_s)), "claimed_at": None, "code_sent_at": None}
+            "requested_at": iso(NOW - datetime.timedelta(seconds=age_s)), "claimed_at": None, "code_sent_at": None,
+            "finished_at": None if fin_ago is None else iso(NOW - datetime.timedelta(seconds=fin_ago))}   # finished_at: set by finish_code_request (the sweep time)
 
 
 def verification(vid=VID, client=NM, directory="cylex.us", state="requires_verification"):
