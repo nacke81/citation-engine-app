@@ -40,6 +40,12 @@ VERIFICATION_TABLE = "citation_verification"
 STATUSES = ("verified", "could_not_start", "failed")
 FAIL_CODES = ("timeout", "no_playbook", "signin_failed", "send_failed", "code_rejected", "code_expired", "resend", "other")
 SWEEP_AFTER_S = 600
+# t_c6eee3cb: a `starting` row past SWEEP_AFTER_S is kept while its agent was heard from (any helper verb) within LIVE_SILENCE_S, up to the hard cap.
+# Evidence (request f2dbd5c0): the unfixed run clicked send at 789 s; with the own-Chromium and vault-org losses removed it is ~309 s. 900 s = 3x that and
+# 111 s past the worst real run; the Directory code lives 10 min after the click, so a click at the cap still leaves the code time to land.
+LIVE_SILENCE_S = 120
+SWEEP_HARD_CAP_S = 900
+LATE_SENT_WINDOW_S = 600   # `sent` for a request swept this recently (requested_at + SWEEP_AFTER_S + this at most) is reopened as code_sent (late_sent)
 POLL_MAX_S = 1800
 POST_SEND_SWEEP_S = POLL_MAX_S + 600   # 40 min: a send run that died after mark_code_sent
 POST_SEND_FAIL = {"code_sent": "code_expired", "checking": "other"}
@@ -169,13 +175,23 @@ def lock_dir():
     return d
 
 
-@contextlib.contextmanager
 def tenant_lock(client_id):
     """One send run per tenant. Non-blocking. Yields True when this caller holds the lock, False when another run does. The OS drops
     the lock when the holder exits or crashes, so there is no stale lock file to clean up."""
     cid = str(client_id or "")
     if not UUID_RE.match(cid): raise BridgeError("tenant lock: bad client id")
-    fh = open(os.path.join(lock_dir(), "tenant-%s.lock" % cid), "a+b")
+    return _file_lock("tenant-%s.lock" % cid)
+
+
+def submitter_lock():
+    """t_c6eee3cb: ONE agent run at a time across ALL tenants. NM and SCC share the submitter profile's gateway, whose live browser override
+    (browser.manage connect) is per profile, so two tenants' agent runs would swap each other's Chrome. Same semantics as tenant_lock."""
+    return _file_lock("submitter-gateway.lock")
+
+
+@contextlib.contextmanager
+def _file_lock(name):
+    fh = open(os.path.join(lock_dir(), name), "a+b")
     got = False
     try:
         try:
@@ -316,6 +332,10 @@ def stale_requests(portal, now, after_s=SWEEP_AFTER_S):
     out = []
     for r in rows:   # re-check locally: the sweeper trusts its own clock, not the filter alone
         t = _parse(r.get("requested_at"))
+        if r.get("status") == "starting" and t and r.get("id") and after_s == SWEEP_AFTER_S and after_s <= (now - t).total_seconds() < SWEEP_HARD_CAP_S:
+            alive = SB.last_alive(r["id"])   # liveness, not wall clock: an agent heard from within LIVE_SILENCE_S keeps its row until the hard cap
+            if alive is not None and now.timestamp() - alive <= LIVE_SILENCE_S:
+                log("sweep skipped %s: agent alive %d s ago, request %d s old (hard cap %d s)" % (r["id"], now.timestamp() - alive, (now - t).total_seconds(), SWEEP_HARD_CAP_S)); continue
         if r.get("status") in ("requested", "starting") and t and (now - t).total_seconds() >= after_s and r.get("id"):
             out.append((r["id"], r["status"], (now - t).total_seconds()))
     return out

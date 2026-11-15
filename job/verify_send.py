@@ -45,6 +45,9 @@ EXPECTED_LOGIN = {"NM": "listings@na" + "ckemedia.com", "SCC": "listings@seniorc
 RELAY_OPEN_MIN, RELAY_CLOSE_MIN = 8 * 60, 19 * 60 + 58   # nm-listings-relay cron "*/2 8-19" (Central): last run 19:58
 AGENT_START_S = 1500      # kill the oneshot at 25 min when no `sent` call happened
 SUBMITTER_PROFILE = "citation-submitter"
+SESSION_LINE = re.compile(r"^Session: (\S{8,200})$")   # a foreground hermes chat prints this to stderr; `--oneshot` does NOT (live-verified, t_c6eee3cb), so the session is also found in the submitter's state.db
+ANY_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+STORED_SESSION = re.compile(r"^[A-Za-z0-9_.:-]{8,200}$")
 AGENT_AFTER_SENT_S = B.POLL_MAX_S + 300   # 30 min code wait + 5 min to type it; then the run ends the oneshot
 AGENT_GRACE_S = 60        # a closed request: the agent gets this long to exit on its own
 AGENT_TICK_S = 5
@@ -197,24 +200,91 @@ class CylexDriver:
 
 
 # ---- agent path --------------------------------------------------------------------------------------------------------------------
+def submitter_home():
+    return os.environ.get("CE_SUBMITTER_HOME") or os.path.join(os.environ.get("LOCALAPPDATA") or "", "hermes", "profiles", SUBMITTER_PROFILE)
+
+
+def cancel_argv(hermes_exe):
+    """argv (without the session id) that cancels one gateway session: the hermes venv's own interpreter (it imports hermes_cli) + gateway_cancel.py."""
+    py = os.path.join(os.path.dirname(hermes_exe), "python.exe" if os.name == "nt" else "python")
+    return [py if os.path.exists(py) else sys.executable, os.path.join(HERE, "gateway_cancel.py")]
+
+
+def cancel_env():
+    env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
+    env["HERMES_HOME"] = submitter_home()   # the cancel talks to the SUBMITTER profile's gateway, the one the oneshot used
+    return env
+
+
+def browser_argv(hermes_exe):
+    """argv (without the verb) that sets or clears the gateway's live browser override: the hermes venv's interpreter + gateway_browser.py."""
+    return cancel_argv(hermes_exe)[:-1] + [os.path.join(HERE, "gateway_browser.py")]
+
+
 class AgentProc:
-    """The running oneshot. kill() ends the WHOLE process tree (on Windows `taskkill /T`): killing only the parent leaves the model's child
-    processes running (lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent."""
-    def __init__(self, proc, runner=None):
-        self.proc, self._run = proc, runner or subprocess.run
+    """The running oneshot. kill() STOPS the run (t_c6eee3cb): `hermes chat --oneshot` is only a client of the profile's gateway, so the gateway
+    session is cancelled first (gateway_cancel.py: interrupt + close), then the WHOLE process tree is ended (on Windows `taskkill /T`; killing only
+    the parent leaves the model's child processes running: lesson 2026-11-11-a-child-you-kill-does-not-end-its-parent). Idempotent.
+    The child's stderr goes to a private file (never a pipe: no reader of agent output, lesson t_eae8e59f); only the one `Session: <id>` line is
+    read from it, when needed, and the file is deleted at kill/cleanup."""
+    def __init__(self, proc, runner=None, cancel_argv=None, cancel_env=None, stderr_path=None, on_end=None, probe=None):
+        self.proc, self._run, self._sid, self._probe = proc, runner or subprocess.run, None, probe   # probe() -> the stored session id or None (state.db lookup)
+        self._cancel_argv, self._cancel_env, self._cancelled, self._stderr_path = cancel_argv, cancel_env, False, stderr_path
+        self._on_end = on_end   # runs once, last, on every kill(): the gateway's browser override is released (t_c6eee3cb)
+
+    @property
+    def session_id(self):
+        if self._sid is None and self._stderr_path:
+            try:
+                with open(self._stderr_path, encoding="utf-8", errors="replace") as h:
+                    for line in h:
+                        m = SESSION_LINE.match(line.strip())
+                        if m: self._sid = m.group(1); break
+            except OSError: pass
+        if self._sid is None and self._probe:
+            try: self._sid = self._probe()
+            except Exception: self._sid = None
+        return self._sid
+
+    def _drop_stderr(self):
+        if self._stderr_path:
+            with contextlib.suppress(OSError): os.remove(self._stderr_path)
+            self._stderr_path = None
 
     def poll(self):
         return self.proc.poll()
 
-    def kill(self):
-        if self.proc.poll() is not None: return
+    def cancel_session(self):
+        """Stop the gateway turn. -> True when the cancel ran and exited 0. Never raises; runs once."""
+        if self._cancelled or not self._cancel_argv: return False
+        if not self.session_id:
+            log("agent session id unknown; the pre-send fence is the only stop"); return False
+        self._cancelled = True
         try:
-            if os.name == "nt": self._run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=60)
-            else: self.proc.kill()
+            r = self._run(self._cancel_argv + [self.session_id], capture_output=True, timeout=60, env=self._cancel_env)
+            ok = getattr(r, "returncode", 1) == 0
         except Exception as e:
-            log("agent kill failed: %s" % type(e).__name__)
-        try: self.proc.kill()
-        except Exception: pass
+            log("gateway cancel failed: %s" % type(e).__name__); return False
+        log("gateway session %s" % ("cancelled" if ok else "cancel refused"))
+        return ok
+
+    def kill(self):
+        try:
+            try: self.cancel_session()   # first: ending the client alone leaves the gateway turn running
+            finally: self._drop_stderr()
+            if self.proc.poll() is not None: return
+            try:
+                if os.name == "nt": self._run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=60)
+                else: self.proc.kill()
+            except Exception as e:
+                log("agent kill failed: %s" % type(e).__name__)
+            try: self.proc.kill()
+            except Exception: pass
+        finally:
+            end, self._on_end = self._on_end, None
+            if end:
+                try: end()
+                except Exception as e: log("browser release failed: %s" % type(e).__name__)
 
 
 def central_now(dt_utc):
@@ -247,7 +317,7 @@ def helper_command():
 
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
-SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, always pass --cdp %(cdp)s.\n")
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
 
@@ -270,6 +340,8 @@ def playbook_block(playbook):
     return "Directory playbook (version %s, from the Directory DB; follow these in order, they win over the row steps):\n%s\n" % (playbook.get("version", "?"), "\n".join(lines))
 
 
+ARM_STEP = ("   Pre-send fence (do not skip): in the same breath as the send click, immediately BEFORE it, run: %(helper)s arm --request-id %(rid)s\n"
+            "   If it exits nonzero, STOP at once: the send step is cancelled, so make no send attempt and end the session. The request is closed or about to be, and a send after that is a real message nobody can use.\n")
 STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
 STEP3_MARKED = "3. Do the send step (playbook step %d) once. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 STEP4_MARKED = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
@@ -294,7 +366,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         phone_step = "2. Go to the phone verification step. Before the send step (playbook step %d), check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
     if signup:
-        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, always pass --cdp %(cdp)s.\n")
+        sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
         # t_3223ee18: n is the playbook's own send step (computed above), never "the Sign up click"
         phone_step = "2. Before the send step (playbook step %d), check the phone shown in the form against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
@@ -306,7 +378,8 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     how = "a text message (SMS)" if ch == "sms" else "an automated phone call that reads the code aloud"
     helper = helper_command()
     step4 = (STEP4_MARKED if n else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
-    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "cdp": tenant_browser(biz)[2]}
+    step3 += ARM_STEP % {"helper": helper, "rid": request_id}   # t_c6eee3cb: the fence the agent runs right before the send click
+    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "org": tenant[1], "cdp": tenant_browser(biz)[2]}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
@@ -412,13 +485,66 @@ class Runtime:
         """Start the submitter agent oneshot. Its output is NOT kept (the code passes through its context); the helper logs reason words to its own stderr.
         The child env drops any service-role variable. -> a handle with poll() and kill() (kills the whole tree)."""
         import postcard_step as PS
-        argv = [PS._hermes_exe(), "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
+        exe = PS._hermes_exe()
+        argv = [exe, "-p", SUBMITTER_PROFILE, "chat", "--query-file", prompt_path, "--oneshot"]
         env = {k: v for k, v in os.environ.items() if "SERVICE_ROLE" not in k.upper()}
         env["TERMINAL_CWD"] = REPO_ROOT   # the agent's terminal starts in the app clone, whatever cwd the bridge had
         env.pop("BROWSER_CDP_URL", None)
         if cdp: env["BROWSER_CDP_URL"] = cdp   # t_45fe02d4: hermes browser tools attach to THIS Chrome (the tenant's), never start their own
-        kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, cwd=REPO_ROOT)
-        return AgentProc((self._popen or subprocess.Popen)(argv, **kw), self._run)
+        if not cdp: raise BrowserError("no browser url for the agent run")   # fail closed: no tenant Chrome, no agent
+        self.gateway_browser("connect", cdp)   # BEFORE Popen: the gateway's browser tools read the live override, not this child's env. Raises when refused/wrong url.
+        probe = self.session_probe(prompt_path)   # the base message id is taken BEFORE the oneshot exists
+        released = [False]
+        def release():
+            if released[0]: return
+            released[0] = True
+            try: self.gateway_browser("disconnect")
+            except BrowserError as e: log("browser release: %s" % e)
+        try:
+            import sitegate
+            d = os.path.join(sitegate.logs_dir(), "verify-agent-stderr"); os.makedirs(d, exist_ok=True)
+            err_path = os.path.join(d, "agent-%d-%d.txt" % (os.getpid(), int(time.time() * 1000)))
+            with open(err_path, "wb") as err:   # a private file, not a pipe: only the `Session:` line is ever read (AgentProc), then it is deleted
+                kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err, env=env, cwd=REPO_ROOT)
+                proc = (self._popen or subprocess.Popen)(argv, **kw)
+        except BaseException:
+            release(); raise   # the oneshot never started: do not leave the override on this tenant
+        return AgentProc(proc, self._run, cancel_argv=cancel_argv(exe), cancel_env=cancel_env(), stderr_path=err_path, on_end=release, probe=probe)
+
+    def session_probe(self, prompt_path):
+        """-> probe() that finds THIS run's stored gateway session in the submitter's state.db: the first user message newer than the newest one now whose text
+        carries the request id (a UUID in the prompt). Read-only; None until the gateway has created the session. Without a UUID or a readable db: always None
+        (the pre-send fence is then the only stop; logged at kill)."""
+        import pathlib, sqlite3
+        try:
+            m = ANY_UUID.search(open(prompt_path, encoding="utf-8").read())
+            db = os.path.join(submitter_home(), "state.db")
+            uri = pathlib.Path(db).as_uri() + "?mode=ro"
+            c = sqlite3.connect(uri, uri=True, timeout=3)
+            try: base = c.execute("select coalesce(max(id), 0) from messages").fetchone()[0]
+            finally: c.close()
+        except Exception as e:
+            log("session probe unavailable: %s" % type(e).__name__); return None
+        if not m: return None
+        nonce = m.group(0)
+        def probe():
+            c = sqlite3.connect(uri, uri=True, timeout=3)
+            try: row = c.execute("select session_id from messages where id > ? and role = 'user' and instr(content, ?) > 0 order by id limit 1", (base, nonce)).fetchone()
+            finally: c.close()
+            return row[0] if row and STORED_SESSION.match(str(row[0])) else None
+        return probe
+
+    def gateway_browser(self, verb, url=None):
+        """Run gateway_browser.py (connect <url> | disconnect) against the SUBMITTER gateway. Raises BrowserError unless it exits 0 (connect: the gateway
+        answered connected=True with exactly this url)."""
+        import postcard_step as PS
+        argv = browser_argv(PS._hermes_exe()) + [verb] + ([url] if url else [])
+        try:
+            r = self._run(argv, capture_output=True, timeout=90, env=cancel_env())
+            rc = getattr(r, "returncode", 1)
+        except Exception as e:
+            raise BrowserError("gateway browser %s did not run: %s" % (verb, type(e).__name__)) from None
+        if rc != 0: raise BrowserError("gateway browser %s refused (exit %s)" % (verb, rc))
 
     def messages(self, tenant):
         import mail_scan as M
@@ -558,6 +684,20 @@ def run(request_id, portal, rpc, rt, now_dt=None):
 
 
 def _send(request_id, portal, rpc, rt, req, row, base, now_dt, end):
+    """An agent send also holds the submitter-gateway lock: NM and SCC share one gateway whose browser override is per profile (t_c6eee3cb)."""
+    entry = B.directory_entry(row.get("directory"), req.get("channel"))
+    if entry and entry.get("send") == "agent":
+        for attempt in range(LOCK_TRIES):
+            with B.submitter_lock() as got:
+                if got: return _send_run(request_id, portal, rpc, rt, req, row, base, now_dt, end)
+            if attempt < LOCK_TRIES - 1: rt.sleep(LOCK_WAIT_S)
+        log("submitter gateway busy (another tenant's agent run); %s stays starting, the bridge retries it" % request_id)
+        B.clear_started(request_id)
+        return "deferred"
+    return _send_run(request_id, portal, rpc, rt, req, row, base, now_dt, end)
+
+
+def _send_run(request_id, portal, rpc, rt, req, row, base, now_dt, end):
     entry = B.directory_entry(row.get("directory"), req.get("channel"))
     if not entry or (entry["send"] == "script" and entry["domain"] != DOMAIN):
         log("no send path for %s" % request_id); return end("failed", "no_playbook")
