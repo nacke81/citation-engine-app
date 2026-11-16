@@ -1,6 +1,7 @@
 """Fakes for the Verify Now bridge tests: a STRICT fake of the 4 agent RPCs (exact names and arg names; anything else raises), a
 scripted Cylex page, a fake runtime with a virtual clock, and a fake card runner that dedupes on the idempotency key. No network."""
 import contextlib, datetime, os, sys
+os.environ["CE_NO_CDP"] = "1"   # t_00a83602: no test suite ever reads a real Chrome over CDP
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import portal as P

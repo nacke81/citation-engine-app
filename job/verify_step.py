@@ -26,6 +26,7 @@ sys.path.insert(0, HERE)
 import portal as P
 import verify_bridge as B
 import verify_scoreboard as SB
+import verify_dom as VD
 
 LIVE_STATUSES = ("code_sent", "checking")
 POLL_EVERY_S = 10
@@ -164,6 +165,32 @@ def step_fail(request_id, reason, evidence, portal, rpc):
     return OK
 
 
+DOM_CHECK = VD.check   # t_00a83602: tests swap this; (cdp_url) -> True | False | None
+
+
+def _page_landed(request_id, text, portal):
+    """t_00a83602: does the page show a landed send? The tenant's Chrome (CDP, read-only) decides when it can be read: a visible code input = landed
+    (whatever the text says), a read page with none = refused (whatever the text says). Chrome not readable = the text gate `landed()` alone."""
+    try:
+        req = B.request_row(portal, request_id)
+        cdp = VD.tenant_cdp((req or {}).get("client_id"))
+        row = B.verification_row(portal, (req or {}).get("citation_verification_id"))
+        ent = B.directory_entry((row or {}).get("directory"), (req or {}).get("channel")) or {}
+        doms = [d for d in [ent.get("domain")] + list(ent.get("aliases") or []) if d]
+        seen = DOM_CHECK(cdp, doms) if cdp else None
+    except Exception as e:
+        log("dom check failed (%s); falling back to the text" % type(e).__name__); seen = None
+    if seen is None:
+        ok = landed(text)
+        if not ok: log("sent refused: evidence names no code field or code-sent text (dom unavailable)")
+        else: log("dom unavailable; the evidence text is the only landed signal")
+        return ok
+    if seen:
+        log("dom: visible code input; send landed"); return True
+    log("sent refused: dom shows no visible code input on the Directory's pages (%d page(s) seen, %d on its domain; text %s landed); inputs seen: %s"
+        % (VD.LAST["pages"], VD.LAST["matched"], "said" if landed(text) else "did not say", VD.LAST.get("shapes") or "none")); return False
+
+
 def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):
     """t_4ee21e60: `sent` needs page evidence that the send LANDED (a code box or a 'code sent' text) and no error text. No evidence, evidence that carries a
     value, evidence without a landed signal = REFUSED (nothing recorded). Evidence that reads as an error = the failure path (request finished failed)."""
@@ -175,7 +202,7 @@ def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):
     if ERROR_TEXT.search(clean):
         log("sent refused: the evidence has an error word but not a send refusal; nothing recorded. If the page shows a real error near the phone field run `fail`; "
             "if the send landed, run `sent` again quoting only the code-box or code-sent text"); return REFUSED
-    if not landed(text): log("sent refused: evidence names no code field or code-sent text"); return REFUSED
+    if not _page_landed(request_id, text, portal): return REFUSED
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req and B.MASK_RE.match(str(masked or "")): req, _row = _late_reopen(portal, request_id, now_dt)   # t_c6eee3cb (b): a real send after the sweep still reaches the code box
     if not req: return REFUSED
