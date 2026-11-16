@@ -231,6 +231,10 @@ jobs:
         run: python tests/verify_browser_test.py
       - name: Verify Now tenant browser mutations (swapped profiles and ports, no profile check, old wording)
         run: python tests/verify_browser_test.py --mutations
+      - name: Verify Now speed, phone-on-account, landed send (t_4ee21e60)
+        run: python tests/verify_speed_test.py
+      - name: Verify Now speed mutations (flag ignored, error detection off, landed check off, loop off)
+        run: python tests/verify_speed_test.py --mutations
       - name: Leak check with planted control
         run: python tests/leak_check.py
 
