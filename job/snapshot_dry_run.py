@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import snapshot as SN
 
 
-def run(path, queue_path=None, out=print, day="2026-10-27"):
+def run(path, queue_path=None, out=print, day="2026-10-27", proof_by_dir=None):
     d = json.load(open(path, encoding="utf-8"))
     p = d.get("payload", d) if isinstance(d, dict) else {}
     old = {k: p[k] for k in SN.FROZEN_KEYS if k in p}
@@ -25,8 +25,13 @@ def run(path, queue_path=None, out=print, day="2026-10-27"):
         rows = buildqueue.load_all_rows(queue_path)
         out("queue rows overlaid (all lists): %d" % len(rows))
         new = buildqueue.overlay_directories(p, rows, day)
+        # t_9d36198a: the count basis write_run applies to SCC. No network here: proof = the queue rows' own proof (or the injected map), not ce_directory_status.
+        import portal, transitions
+        new = SN.apply_count_basis(new, portal.count_proof(rows, proof_by_dir if proof_by_dir is not None else {}), transitions.proof_problems)
+        out("count basis applied (live row needs complete proof, GBP once; proof from queue rows only, ce_directory_status NOT read): unproven live rows -> couldnt_check")
     else:
         new = SN.finalize(p)
+        out("count basis NOT applied (no queue file): NEW SUMMARY may overcount live rows that lack proof")
     out("rows after: %d" % len(new["directories"]))
     out("states after: %s" % json.dumps(dict(sorted(collections.Counter(x.get("state") for x in new["directories"]).items()))))
     out("NEW SUMMARY: %s" % json.dumps(new["summary"]))

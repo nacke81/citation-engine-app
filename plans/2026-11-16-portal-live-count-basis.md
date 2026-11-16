@@ -18,3 +18,10 @@ A row counts toward `summary.live` only if (a) complete proof (`transitions.proo
 
 ## After merge
 Run the portal push, read back the portal snapshot summary, post it on the card.
+
+## Rework (review round 1, comment 792)
+The page counts state == live rows; summary/countsAsLive are dropped by the portal normalizer. Change of design:
+- `snapshot.apply_count_basis` re-states every non-GBP live row without complete proof to couldnt_check / reason unproven / reasonText "Listing seen, not yet verified" (url kept, NAP cleared), keeps google.com once, recounts summary. No `countsAsLive` flag; `summary_from_rows` back to plain state == live.
+- `portal.write_run(..., proof_by_dir=None)` and `run.portal_publish(..., proof_by_dir=None)`: injectable proof source; None reads ce_directory_status, failure -> PortalWriteError "proof read failed: ..." (logged PORTAL WRITE FAILED, old snapshot stays). Tests pass `proof_by_dir={}` and never read prod.
+- `snapshot_dry_run` applies the basis (queue-row proof only, says so) or prints that it was not applied.
+- Test asserts state == live rows == 24 on the written payload, GBP twice, proof-read failure text, dry-run parity. CI step added. maps.apple.com / n49.com proof is t_43aa1480, not here.

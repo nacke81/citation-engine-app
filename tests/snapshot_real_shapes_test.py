@@ -80,7 +80,7 @@ q3 = {"fix_queue": [dict(id="fix-a", directory="d00.example", state="queued")],
 qp = os.path.join(tempfile.mkdtemp(), "q.json"); json.dump(q3, open(qp, "w", encoding="utf-8"))
 Q.QUEUE_PATH = qp
 fp = FakePortal()
-res = P.write_run(checks, "2026-10-27", fp)   # default overlay: no queue_rows passed
+res = P.write_run(checks, "2026-10-27", fp, proof_by_dir={})   # default overlay: no queue_rows passed
 sent = [r for k, r in fp.store.items() if r["client_id"] == P.ALLOWED["SCC"]][0]["payload"]
 byd = {d["domain"]: d for d in sent["directories"]}
 check("R3 write_run payload holds the create_queue rows (live-one, live-two, wrong, wall)", all(x in byd for x in ("live-one.example", "live-two.example", "wrong.example", "wall.example")), str(sorted(byd)))

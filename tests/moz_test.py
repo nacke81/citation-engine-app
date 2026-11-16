@@ -208,7 +208,7 @@ def checks_for(biz):
     return [dict(biz=biz, directory=n, result="absent", url=None, method="m", note=None, diffs=None) for n in names]
 
 def write_with_authority(fp, amap):
-    P.write_run(checks_for("SCC") + checks_for("NM"), "2026-10-27", fp, queue_rows=[], authority=amap)
+    P.write_run(checks_for("SCC") + checks_for("NM"), "2026-10-27", fp, queue_rows=[], authority=amap, proof_by_dir={})
 
 fp = FakePortal()
 write_with_authority(fp, {"bing.com": 93})

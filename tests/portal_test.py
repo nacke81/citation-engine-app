@@ -64,7 +64,7 @@ check("P1 keyScore null (no BrightLocal score)", ps["keyScore"] is None)
 
 # successful write, readback
 fp = FakePortal()
-res = P.write_run(SCC + NM, "2026-10-16", fp)
+res = P.write_run(SCC + NM, "2026-10-16", fp, proof_by_dir={})
 check("P1 write_run writes both businesses with source citation_engine and the run day", sorted((v["client_id"], v["source"], v["captured_day"]) for v in res.values()) == sorted((i, "citation_engine", "2026-10-16") for i in P.ALLOWED.values()))
 check("P1 only footprint_snapshot is touched", all("footprint_snapshot" in u for _, u in fp.calls))
 
@@ -75,11 +75,11 @@ for bad in ("430b764e-1a44-4246-959f-6b8945bf6a7c", "7caf0d65-333d-4ba3-b71e-f03
     except P.PortalWriteError: raised = True
     check("P2 id %s refused, zero network calls" % (bad[:8] or "empty"), raised and fp.calls == [])
 fp = FakePortal()
-try: P.write_run(SCC + [dict(SCC[0], biz="FBS")], "2026-10-16", fp); raised = False
+try: P.write_run(SCC + [dict(SCC[0], biz="FBS")], "2026-10-16", fp, proof_by_dir={}); raised = False
 except P.PortalWriteError: raised = True
 check("P2 a business outside SCC/NM refuses the whole write before any call", raised and fp.calls == [])
 fp = FakePortal()
-try: P.write_run(SCC, "2026-10-16", fp); raised = False
+try: P.write_run(SCC, "2026-10-16", fp, proof_by_dir={}); raised = False
 except P.PortalWriteError: raised = True
 check("P2 a partial run (NM missing) is refused before any call", raised and fp.calls == [])
 check("P2 allow-list is exactly SCC + NM and disjoint from the forbidden ids", set(P.ALLOWED) == {"SCC", "NM"} and not (set(P.ALLOWED.values()) & P.FORBIDDEN))
@@ -96,7 +96,7 @@ import run as jobrun  # noqa: E402
 fp = FakePortal(fail_on="footprint_snapshot")
 err, out = io.StringIO(), io.StringIO()
 with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
-    r = jobrun.portal_publish(SCC + NM, "2026-10-16", fp)
+    r = jobrun.portal_publish(SCC + NM, "2026-10-16", fp, proof_by_dir={})
 check("P3 portal failure returns False (run exits 1) and logs PORTAL WRITE FAILED", r is False and "PORTAL WRITE FAILED" in err.getvalue() and "PORTAL WRITE FAILED" in out.getvalue())
 check("P4 the key never appears in the log", "SECRETKEY123" not in err.getvalue() + out.getvalue())
 src = open(os.path.join(HERE, "..", "job", "run.py"), encoding="utf-8").read()

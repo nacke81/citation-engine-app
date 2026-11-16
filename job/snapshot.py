@@ -45,7 +45,7 @@ def apply_nap_check(d, nap_check):
 
 def summary_from_rows(directories):
     n = lambda f: sum(1 for d in directories if f(d))
-    live = [d for d in directories if d.get("state") == "live" and d.get("countsAsLive") is not False]   # t_9d36198a: a row marked countsAsLive False is shown, not counted
+    live = [d for d in directories if d.get("state") == "live"]
     return {
         "live": len(live),
         "inProgress": n(lambda d: d.get("state") in IN_PROGRESS),
@@ -58,17 +58,23 @@ def summary_from_rows(directories):
 
 
 GBP_DOMAIN = "google.com"   # the Google Business Profile row: counts without a queue proof (Nate basis 11/10), once
+UNPROVEN_REASON, UNPROVEN_TEXT = "unproven", "Listing seen, not yet verified"
 
 
 def apply_count_basis(payload, proof_by_dir, problems):
-    """t_9d36198a. Copy of payload with `countsAsLive` set on every live row, then `summary` recounted. Counts only: complete proof (problems(proof) == [])
-    or the GBP row (google.com). A scan-found row with no proof is shown but not counted. proof_by_dir: {domain: proof dict}; problems: transitions.proof_problems."""
+    """t_9d36198a. The portal page counts rows with state == "live" (it ignores summary and any extra flag), so the rule is applied to the ROWS:
+    a live row with complete proof (problems(proof) == []) or the GBP row (google.com, kept once) stays live; every other live row is re-stated
+    couldnt_check / reason unproven / reasonText "Listing seen, not yet verified" (url kept, NAP fields cleared). `summary` is then recounted.
+    proof_by_dir: {domain: proof dict}; problems: transitions.proof_problems. Returns a copy; the input is not touched."""
     out = dict(payload)
-    dirs = []
+    dirs, seen_gbp = [], False
     for d in payload.get("directories") or []:
         d = dict(d)
-        if d.get("state") == "live":
-            d["countsAsLive"] = d.get("domain") == GBP_DOMAIN or not problems((proof_by_dir or {}).get(d.get("domain")))
+        if d.get("domain") == GBP_DOMAIN and d.get("state") == "live":
+            if seen_gbp: continue
+            seen_gbp = True
+        elif d.get("state") == "live" and problems((proof_by_dir or {}).get(d.get("domain"))):
+            d.update(state="couldnt_check", reason=UNPROVEN_REASON, reasonText=UNPROVEN_TEXT, napConsistent=None, issues=[], napErrors=[])
         dirs.append(d)
     out["directories"] = dirs
     out["summary"] = summary_from_rows(dirs)

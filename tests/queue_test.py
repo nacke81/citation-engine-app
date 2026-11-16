@@ -61,7 +61,7 @@ class CapturePortal:
 
 nm_checks = [dict(c, biz="NM") for c in checks]
 capture = CapturePortal()
-P.write_run(checks + nm_checks, "2026-10-19", capture)
+P.write_run(checks + nm_checks, "2026-10-19", capture, proof_by_dir={})
 scc_payload = capture.writes[P.ALLOWED["SCC"]]
 check("Q1 write_run loads queue and publishes all 5 as nap-fix (listing exists)",
       all(d["state"] == "nap-fix" for d in scc_payload["directories"] if d["domain"] in domains)
