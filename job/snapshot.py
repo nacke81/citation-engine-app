@@ -45,7 +45,7 @@ def apply_nap_check(d, nap_check):
 
 def summary_from_rows(directories):
     n = lambda f: sum(1 for d in directories if f(d))
-    live = [d for d in directories if d.get("state") == "live"]
+    live = [d for d in directories if d.get("state") == "live" and d.get("countsAsLive") is not False]   # t_9d36198a: a row marked countsAsLive False is shown, not counted
     return {
         "live": len(live),
         "inProgress": n(lambda d: d.get("state") in IN_PROGRESS),
@@ -55,6 +55,24 @@ def summary_from_rows(directories):
         "blocked": n(lambda d: d.get("state") == "blocked"),
         "declined": n(lambda d: d.get("state") == "rejected"),
     }
+
+
+GBP_DOMAIN = "google.com"   # the Google Business Profile row: counts without a queue proof (Nate basis 11/10), once
+
+
+def apply_count_basis(payload, proof_by_dir, problems):
+    """t_9d36198a. Copy of payload with `countsAsLive` set on every live row, then `summary` recounted. Counts only: complete proof (problems(proof) == [])
+    or the GBP row (google.com). A scan-found row with no proof is shown but not counted. proof_by_dir: {domain: proof dict}; problems: transitions.proof_problems."""
+    out = dict(payload)
+    dirs = []
+    for d in payload.get("directories") or []:
+        d = dict(d)
+        if d.get("state") == "live":
+            d["countsAsLive"] = d.get("domain") == GBP_DOMAIN or not problems((proof_by_dir or {}).get(d.get("domain")))
+        dirs.append(d)
+    out["directories"] = dirs
+    out["summary"] = summary_from_rows(dirs)
+    return out
 
 
 def apply_authority(payload, authority):

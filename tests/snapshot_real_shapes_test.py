@@ -73,8 +73,8 @@ def scan(biz):
     return [dict(biz=biz, directory="d%02d.example" % i, result=r, url=None, method="m", note=None, diffs=[]) for i, r in enumerate(["found", "found", "absent", "couldnt_check"])]
 checks = scan("SCC") + scan("NM")
 q3 = {"fix_queue": [dict(id="fix-a", directory="d00.example", state="queued")],
-      "create_queue": {"rows": [dict(id="create-live1", directory="live-one.example", state="live", nap_check={"consistent": True, "at": "2026-10-27"}),
-                                dict(id="create-live2", directory="live-two.example", state="live", nap_check={"consistent": None, "reason": "page not readable (403)", "at": "2026-10-27"}),
+      "create_queue": {"rows": [dict(id="create-live1", directory="live-one.example", state="live", proof=dict(proof_url="https://live-one.example/b/1", proof_nap="n", proof_at="2026-10-27", proof_nap_match=True, build_action="new"), nap_check={"consistent": True, "at": "2026-10-27"}),
+                                dict(id="create-live2", directory="live-two.example", state="live", proof=dict(proof_url="https://live-two.example/b/1", proof_nap="n", proof_at="2026-10-27", proof_nap_match=True, build_action="new"), nap_check={"consistent": None, "reason": "page not readable (403)", "at": "2026-10-27"}),
                                 dict(id="create-wrong", directory="wrong.example", state="needs-human", nap_check={"consistent": False, "fields": ["phone"]}),
                                 dict(id="create-wall", directory="wall.example", state="needs-human", evidence_url="https://wall.example/biz/9")]}}
 qp = os.path.join(tempfile.mkdtemp(), "q.json"); json.dump(q3, open(qp, "w", encoding="utf-8"))
@@ -86,7 +86,7 @@ byd = {d["domain"]: d for d in sent["directories"]}
 check("R3 write_run payload holds the create_queue rows (live-one, live-two, wrong, wall)", all(x in byd for x in ("live-one.example", "live-two.example", "wrong.example", "wall.example")), str(sorted(byd)))
 check("R3 a live create row's nap_check shows on its snapshot row", byd["live-one.example"]["napConsistent"] is True and byd["live-two.example"]["napConsistent"] is None and "403" in byd["live-two.example"]["reasonText"])
 scan_live = [d for d in sent["directories"] if d["domain"].startswith("d") and d["state"] == "live"]   # the scan's own live row(s) are counted too
-check("R3 napChecked counts the read create row, the unread live create row stays out of it", sent["summary"]["live"] == 2 + len(scan_live) and sent["summary"]["napChecked"] == 1 + sum(d["napConsistent"] is not None for d in scan_live)
+check("R3 napChecked counts the read create row, the unread live create row stays out of it", sent["summary"]["live"] == 2 and all(d["countsAsLive"] is False for d in scan_live) and sent["summary"]["napChecked"] == 1
       and byd["live-two.example"]["state"] == "live" and byd["live-two.example"]["napConsistent"] is None, json.dumps(sent["summary"]))
 check("R3 wrong NAP read -> nap-fix; wall with an evidence URL only -> blocked", byd["wrong.example"]["state"] == "nap-fix" and byd["wall.example"]["state"] == "blocked")
 check("R3 scan rows are kept (4 scan rows + 4 create rows) and the summary equals the recount", len(sent["directories"]) == 8 and sent["summary"] == SN.summary_from_rows(sent["directories"]) and res["SCC"]["summary"] == sent["summary"])

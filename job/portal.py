@@ -143,6 +143,19 @@ class Portal:
         return rows[0]
 
 
+def _apply_count_basis(p, rows):
+    """t_9d36198a: live count = rows with complete proof + GBP. Proof comes from ce_directory_status (read-only), else the queue row's own proof when the sink is off.
+    A failed proof read raises, which refuses the SCC write: never publish an unproven number."""
+    import snapshot as SN, transitions as T
+    db_proof = T.db_proof_by_directory()
+    proof = {}
+    for r in rows or []:
+        if r.get("state") == "live" and r.get("directory") and isinstance(r.get("proof"), dict): proof[r["directory"]] = r["proof"]
+    for k, v in (db_proof or {}).items():
+        if not T.proof_problems(v): proof[k] = v
+    return SN.apply_count_basis(p, proof, T.proof_problems)
+
+
 def write_run(checks, captured_day, portal=None, queue_rows=None, authority=None):
     """Write both businesses. Validates every id BEFORE the first network call. Returns {biz: readback summary}."""
     by = {b: [c for c in checks if c["biz"] == b] for b in ALLOWED}
@@ -157,7 +170,9 @@ def write_run(checks, captured_day, portal=None, queue_rows=None, authority=None
         p = build_payload(cs, captured_day)
         if b == "SCC":  # fix/create queue state is shown on SCC only
             import buildqueue
-            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_all_rows(), captured_day)
+            qrows = queue_rows if queue_rows is not None else buildqueue.load_all_rows()
+            p = buildqueue.overlay_directories(p, qrows, captured_day)
+            p = _apply_count_basis(p, qrows)
         import snapshot as SN
         p = SN.apply_authority(p, authority)   # t_295208a6: Moz DA only (da_source='moz'), else null
         row = portal.upsert_snapshot(ids[b], captured_day, p)
