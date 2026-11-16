@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 TASKS = ("check", "create", "claim", "fix", "verify")
 PLACEHOLDERS = ("business_name", "login_email", "phone", "website", "vault_item", "contact_name")
-STEP_KEYS = ("text", "url", "selector", "send")
+STEP_KEYS = ("text", "url", "selector", "send", "phone_on_account", "phone_evidence")
 _PH = re.compile(r"\{([A-Za-z_]+)\}")
 _EMAIL = re.compile(r"[^\s@/]+@[^\s@/]+\.[A-Za-z]{2,}")
 _PHONE = re.compile(r"\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4}")
@@ -69,6 +69,14 @@ def validate_steps(steps):
         if "send" in s:
             if s["send"] is not True and s["send"] is not False: raise PlaybookError("%s: send must be true or false" % w)
             if s["send"]: c["send"] = True
+        if "phone_on_account" in s:   # t_4ee21e60: the code goes to the phone on the account; the page shows no phone to compare
+            if s["phone_on_account"] is not True and s["phone_on_account"] is not False: raise PlaybookError("%s: phone_on_account must be true or false" % w)
+            if s["phone_on_account"]:
+                c["phone_on_account"] = True
+                ev = s.get("phone_evidence")
+                if not isinstance(ev, str) or not ev.strip(): raise PlaybookError("%s: phone_on_account needs a phone_evidence note (where the playbook learned it)" % w)
+                _check_text(w + " phone_evidence", ev); c["phone_evidence"] = ev.strip()
+        if s.get("phone_evidence") is not None and not s.get("phone_on_account"): raise PlaybookError("%s: phone_evidence without phone_on_account" % w)
         for k in ("url", "selector"):
             v = s.get(k)
             if v is None: continue
@@ -77,6 +85,11 @@ def validate_steps(steps):
             c[k] = v.strip()
         out.append(c)
     return out
+
+
+def phone_on_account(steps):
+    """t_4ee21e60: True when a step records that the code goes to the phone on the account (the page shows no phone to compare)."""
+    return any(isinstance(s, dict) and s.get("phone_on_account") is True for s in steps or [])
 
 
 def check_target(domain, task, send_is_signup=False):

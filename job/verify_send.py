@@ -318,6 +318,7 @@ def helper_command():
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
 SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
+PHONE_ON_ACCOUNT_STEP = "2. This page shows no phone; the playbook records the code goes to the phone on the account. Proceed.\n"
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
 
@@ -342,9 +343,12 @@ def playbook_block(playbook):
 
 ARM_STEP = ("   Pre-send fence (do not skip): in the same breath as the send click, immediately BEFORE it, run: %(helper)s arm --request-id %(rid)s\n"
             "   If it exits nonzero, STOP at once: the send step is cancelled, so make no send attempt and end the session. The request is closed or about to be, and a send after that is a real message nobody can use.\n")
-STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+CONFIRM_LINE = ("   CONFIRM the send landed BEFORE `sent` (a click is not a send): read the page after the click. It must show a code-entry field or a \"code sent\" text AND no error text near the phone field (a phone-call send the same: the page must show the code field, a bare \"we are calling you\" is not enough) "
+                "(for example \"The number entered is not a mobile phone\"). Then pass the short page text as evidence: --evidence \"<what the page says, no numbers>\". "
+                "If any error shows, or no code box appears, do NOT run `sent`; run: %(helper)s fail --request-id %(rid)s --reason directory_refused_phone --evidence \"<the error text>\" and end the session.\n")
+STEP4_SIGNIN = "4. Choose the %(ch)s option and send the code. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\" --evidence \"<page text>\"\n" + CONFIRM_LINE
 STEP3_MARKED = "3. Do the send step (playbook step %d) once. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
-STEP4_MARKED = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\"\n"
+STEP4_MARKED = "4. Playbook step %(n)s already sent the code. Do NOT click any other send, resend or SMS option after it. Immediately run: %(helper)s sent --request-id %(rid)s --masked \"%(masked)s\" --evidence \"<page text>\"\n" + CONFIRM_LINE
 
 
 def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=None):
@@ -365,6 +369,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     if n:   # t_8b8c2650: the marked step IS the send on the sign-in path too: one order, no generic second click
         phone_step = "2. Go to the phone verification step. Before the send step (playbook step %d), check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n" % n
         step3 = STEP3_MARKED % n
+        if PB.phone_on_account(playbook.get("steps")): phone_step = PHONE_ON_ACCOUNT_STEP   # t_4ee21e60: the page shows no phone; the playbook says where the code goes
     if signup:
         sign_in = ("1. This Directory's send IS the signup: do NOT sign in. Follow the Directory playbook above with the vault helper for the password (the Vaultwarden Citations item %(item)s for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
         # t_3223ee18: n is the playbook's own send step (computed above), never "the Sign up click"
@@ -710,6 +715,8 @@ def _send_run(request_id, portal, rpc, rt, req, row, base, now_dt, end):
     since = now_dt or datetime.datetime.now(datetime.timezone.utc)
     if biz == "NM" and not relay_window_open(since):   # Nate stop 3: the mailed access code comes from the relay cron, 08:00-19:58 CT only
         log("NM send outside the mail relay window (08:00-19:58 CT); no Directory touched"); return end("failed", "timeout")
+    if entry["send"] == "agent" and hasattr(rt, "login_username"):
+        return _agent_fast_start(request_id, portal, rt, req, row, entry, tenant, end)   # t_4ee21e60: the vault check runs beside the agent's start, not before it
     if not rt.vault_lookup(tenant):
         log("vault item for %s missing or unreadable" % biz); return end("failed", "signin_failed")
     email = rt.login_username(tenant)
@@ -786,7 +793,38 @@ def _status(portal, request_id):
     return cur.get("status") if cur else None
 
 
-def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
+VAULT_CHECK_S = 240   # a vault read that has not answered by now is a failed check (measured 59-72 s per bw login+unlock+sync)
+
+
+class VaultCheck:
+    """t_4ee21e60: the vault identity check (the item exists and its username is the expected listings address) in a worker thread. login_username runs the same
+    readItem as the old lookup-only call (scope, origin and deletion checks), so the separate lookup (59 s measured) is gone. The agent starts at once with the
+    pinned address; `verify_step.py arm` will not go before mark_vault_ok, and a failed check kills the agent and ends the request signin_failed."""
+    def __init__(self, rt, tenant, expected):
+        self._r, self._expected, self.state = {}, expected, None   # state: None running | True passed | False failed
+        def work():
+            try: self._r["u"] = rt.login_username(tenant)
+            except Exception as e: self._r["err"] = type(e).__name__
+        self._t = threading.Thread(target=work, daemon=True); self._t.start()
+
+    def poll(self):
+        if self.state is None: self._t.join(0.05)   # a read that is already done is seen at once; a running one costs this much per tick
+        if self.state is None and not self._t.is_alive():
+            u = self._r.get("u")
+            self.state = bool(isinstance(u, str) and u.strip().lower() == self._expected)
+        return self.state
+
+
+def _agent_fast_start(request_id, portal, rt, req, row, entry, tenant, end):
+    biz = tenant[0]
+    check = VaultCheck(rt, tenant, EXPECTED_LOGIN[biz])
+    g = rt.guard().reserve(entry["domain"], request_id)   # beside the vault read (the reservation is the one Directory session for this request)
+    if not g.get("ok"):
+        log("sitegate refused: %s" % ("cooldown or cap")); return end("could_not_start", "other")
+    return _agent_send(request_id, portal, rt, req, row, entry, tenant, EXPECTED_LOGIN[biz], end, vault=check)
+
+
+def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end, vault=None):
     """Hand ONE request to the submitter agent and own its clocks. The agent reports only through job/verify_step.py (sent, code, result).
     -> verified | closed (the helper or portal closed it) | failed:<code> | unknown. The tenant lock and the sitegate reservation are already held."""
     masked = rt.business_phone_masked(tenant)
@@ -806,10 +844,11 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end):
             if hasattr(rt, "agent_browser"): stack.enter_context(rt.agent_browser(tenant))
         except (BrowserError, OSError, RuntimeError) as e:
             log("agent browser not available: %s" % (e if isinstance(e, BrowserError) else type(e).__name__)); return end("failed", "send_failed")
-        return _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook)
+        return _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook, vault)
 
 
-def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook):
+def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook, vault=None):
+    if vault is None: B.mark_vault_ok(request_id)   # no background check (a caller that already checked the vault): the arm gate is open
     try:
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
         agent = rt.launch_agent(rt.write_prompt(request_id, prompt), tenant_browser(tenant[0])[2])
@@ -820,6 +859,12 @@ def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, m
     try:
         while agent.poll() is None:
             now = rt.now(); st = _status(portal, request_id)
+            if vault is not None:
+                vs = vault.poll()
+                if vs is True and not B.vault_ok(request_id): B.mark_vault_ok(request_id); log("vault identity check passed")
+                if vs is None and now - t0 >= VAULT_CHECK_S: vault.state = vs = False
+                if vs is False:
+                    log("vault identity check failed; killing the agent"); agent.kill(); return end("failed", "signin_failed")
             if st in LIVE_STATUSES and sent_at is None: sent_at = now
             if st in ("verified", "failed", "could_not_start") and closed_at is None: closed_at = now
             if sent_at is None and closed_at is None and now - t0 >= AGENT_START_S and st not in LIVE_STATUSES:
@@ -832,6 +877,10 @@ def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, m
             rt.sleep(AGENT_TICK_S)
     finally:
         agent.kill()   # idempotent; every way out of this function leaves no oneshot (or its children) behind
+    if vault is not None and vault.state is not True:   # the agent ended before the loop saw the check's verdict: take it now (fail closed)
+        vault._t.join(VAULT_CHECK_S)
+        if vault.poll() is not True:
+            log("vault identity check did not pass; nothing is kept"); return end("failed", "signin_failed")
     st = _status(portal, request_id)
     if st == "verified":
         log("done %s verified (finished by the helper)" % request_id)

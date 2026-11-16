@@ -10,7 +10,7 @@ sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import verify_fakes as F
 import verify_bridge as B
 import verify_send as S
-import verify_step as ST
+import verify_step as ST; F_ = __import__("verify_fakes"); F_.default_evidence(ST)
 import playbook as PB
 import playbook_proven as PP
 

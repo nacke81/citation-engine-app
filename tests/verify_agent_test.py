@@ -13,7 +13,7 @@ sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import verify_fakes as F
 import verify_bridge as B
 import verify_send as S
-import verify_step as ST
+import verify_step as ST; F_ = __import__("verify_fakes"); F_.default_evidence(ST)
 import portal as P
 
 NM_LOGIN = "listings@na" + "ckemedia.com"
@@ -213,7 +213,7 @@ m = re.match(r'^"([^"]+)" "([^"]+)"$', hc)
 check("helper_command is the interpreter and the helper, both quoted absolute paths that exist", bool(m) and os.path.isabs(m.group(1)) and os.path.isabs(m.group(2)) and os.path.exists(m.group(1)) and os.path.exists(m.group(2)) and os.path.basename(m.group(2)) == "verify_step.py", hc)
 check("helper_command is the running interpreter (sys.executable) and has no backslashes", m and os.path.normcase(os.path.abspath(m.group(1))) == os.path.normcase(os.path.abspath(sys.executable)) and "\\" not in hc)
 pr = S.build_prompt(F.RID, F.request(), F.verification(), B.directory_entry("cylex.us", "sms"), ("NM", "o", "i", "u"), MASK, "x")
-check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 8, pr.count(hc))   # arm, sent, code, result + the scoreboard trace, stage signed_in, stage ready and the playbook note
+check("prompt: no relative `python job/verify_step.py`; every helper line uses the absolute command", "python job/" not in pr and pr.count(hc) == 9, pr.count(hc))   # arm, sent, fail (t_4ee21e60), code, result + the scoreboard trace, stage signed_in, stage ready and the playbook note
 check("prompt: code step says terminal timeout 600, exit 6 means run again, 3 and 4 mean stop", "timeout set to 600" in pr and "Exit 6" in pr and "run the same command again" in pr and "Exit 3" in pr and "exit 4" in pr)
 
 # ---- 8 an empty status read is a miss, not 'superseded' (Nate stop 5) -----------------------------------------------------------------
@@ -277,16 +277,16 @@ check("the helper CLI without a portal env exits 5 with nothing on stdout", r.re
 for label, kw, want in (("username differs from listings@", {"username": "someone@example.com"}, "failed:signin_failed"),
                         ("username missing", {"username": ""}, "failed:signin_failed"),
                         ("vault item missing", {"vault_ok": False}, "failed:signin_failed")):
-    p = agent_portal(); page = F.FakePage(); rt = F.FakeRuntime(page, **kw)
+    p = agent_portal(); page = F.FakePage(); rt = F.FakeRuntime(page, agent_factory=lambda rt: F.FakeAgent([], hang=True), **kw)
     if kw.get("username") == "": rt.login_username = lambda tenant: None
     r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
-    check("%s -> %s, no sitegate reserve, no oneshot, 0 loads" % (label, want), r == want and rt.reserves == [] and rt.launched == [] and page.visits == [] and rt.browsers == 0, r)
+    check("%s -> %s, no page load; the agent (started beside the vault check) is killed, t_4ee21e60" % (label, want), r == want and page.visits == [] and rt.agent.kills >= 1, r)
 p = agent_portal(); rt = F.FakeRuntime(F.FakePage(), username="  Listings@Na" + "ckeMedia.com ", agent_factory=lambda rt: F.FakeAgent([]))
 r, _ = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
 check("the expected address matches case-insensitively and trimmed", len(rt.launched) == 1, r)
-p = agent_portal(client=F.SCC); rt = F.FakeRuntime(F.FakePage(), username=NM_LOGIN, agent_factory=lambda rt: F.FakeAgent([]))
+p = agent_portal(client=F.SCC); rt = F.FakeRuntime(F.FakePage(), username=NM_LOGIN, agent_factory=lambda rt: F.FakeAgent([], hang=True))
 r, _ = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
-check("SCC refuses the NM address (no fallback to any other login)", r == "failed:signin_failed" and rt.launched == [], r)
+check("SCC refuses the NM address (no fallback to any other login)", r == "failed:signin_failed" and rt.agent.kills >= 1, r)
 calls = []
 class R:
     def __init__(self, rc, so): self.returncode, self.stdout = rc, so
