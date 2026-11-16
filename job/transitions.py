@@ -441,7 +441,7 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
 
 
 def retype_path(client_id, directory, verify_type):
-    """t_5148d0b9: PATCH scope for a re-park that changes sms <-> phone-call: this client + directory, still requires_verification, type differs."""
+    """t_5148d0b9: PATCH scope for a re-park to sms/phone-call over a row of any other type: this client + directory, still requires_verification, type differs."""
     return "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification&verification_type=neq.%s" % (client_id, directory, verify_type)
 
 
@@ -625,7 +625,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             ver = verification or portal or P.Portal(*P.load_portal_env())
             if ver_rec:
                 ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=ignore-duplicates,return=minimal")  # existing row untouched: no deadline restart, a live row is not flipped back
-                if verify_type in AL.AUTO_TYPES:   # t_5148d0b9: ignore-duplicates left an existing row's type stale (a25e00ff stayed sms after a phone-call re-park). Retype only a still-waiting row whose type differs; deadline, parked_at and live rows stay untouched.
+                if verify_type in AL.AUTO_TYPES:   # t_5148d0b9: ignore-duplicates left an existing row's type stale (a25e00ff stayed sms after a phone-call re-park). Retype only a still-waiting row whose type differs; parked_at and live rows stay untouched; a retyped row loses deadline/steps/directory_url (RETYPE_CLEARS).
                     ver.call("PATCH", *retype_request(client_id, row["directory"], verify_type), prefer="return=minimal")
             else:
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
