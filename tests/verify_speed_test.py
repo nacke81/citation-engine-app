@@ -118,12 +118,42 @@ if not ONLY_MUT:
     p = portal(); r, t = quiet(ST.step_fail, F.RID, "directory_refused_phone", "x@y.example", p, B.VerifyRpc(p))
     check("4e `fail` evidence with an email is refused (usage error), request untouched", r == ST.BAD_ARGS and p.requests[F.RID]["status"] == "starting")
 
+# ---- 4b rework (review round 1): only a send refusal finishes the request; help text on a landed page never does; a call needs a code field --------------
+HELP_PAGES = [
+    "We sent a code to your phone. Didn't receive it? Try again",
+    "Enter the code we sent. Can't find it? Resend code",
+    "Enter code. Unable to receive SMS? Call me instead",
+    "Enter your code. Invalid code will lock the account after too many attempts",
+]
+def help_page_outcomes():
+    out = []
+    for t in HELP_PAGES:
+        p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=t)
+        out.append((r, p.requests[F.RID]["status"]))
+    return out
+if not ONLY_MUT:
+    for t, (r, st) in zip(HELP_PAGES, help_page_outcomes()):
+        check("4f help text on a landed code page is NOT finished failed: refused (5), nothing recorded, request stays starting [%s]" % t[:40], r == ST.REFUSED and st == "starting", (r, st))
+    p = portal(); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=HELP_PAGES[0])
+    check("4g the refusal message tells the agent to run `fail` for a real error or re-run `sent` quoting only the code text", "fail" in t and "quoting only" in t, t)
+    p = portal(); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We sent a code. Too many attempts, wait a minute.")
+    check("4h 'too many attempts' WITH a code-sent text is not a send refusal: refused, request stays starting", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting")
+    for t in ("Too many requests. Please wait.", "Too many attempts, try later.", "Please enter a valid number. Invalid phone.", "We could not send the text.", "Unable to send a code to this number."):
+        p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=t)
+        check("4i send-refusal phrase finishes the request failed/send_failed [%s]" % t[:40], p.requests[F.RID]["status"] == "failed" and p.requests[F.RID].get("fail_code") == "send_failed", p.requests[F.RID]["status"])
+    p = portal(channel="phone-call"); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We called your phone")
+    check("4j call path: 'We called your phone' with no code field is refused, nothing recorded", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting", (r, p.requests[F.RID]["status"]))
+    p = portal(channel="phone-call"); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We called your phone. Enter the code from the call")
+    check("4k call path: 'We called your phone. Enter the code from the call' is recorded (code_sent)", r == 0 and p.requests[F.RID]["status"] == "code_sent", r)
+    p = portal(); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We called you. Done.")
+    check("4l text path too: 'called you' alone is not a landed code", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting")
+
 # mutations of the evidence gate (each must be CAUGHT: the bad outcome shows)
-orig_err = ST.ERROR_TEXT
-ST.ERROR_TEXT = __import__("re").compile(r"(?!x)x")   # mutation: error text never matches
+orig_err, orig_err2 = ST.SEND_REFUSAL, ST.ERROR_TEXT
+ST.SEND_REFUSAL = ST.ERROR_TEXT = __import__("re").compile(r"(?!x)x")   # mutation: error text never matches
 p = portal(); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Enter the verification code. " + ALIGNABLE_ERR)
 check("5a MUTATION error detection off: the Alignable page is recorded as sent (the live false sent), so 3g catches it", p.requests[F.RID]["status"] == "code_sent")
-ST.ERROR_TEXT = orig_err
+ST.SEND_REFUSAL, ST.ERROR_TEXT = orig_err, orig_err2
 orig_ce = ST.clean_evidence
 ST.clean_evidence = lambda text: ((text or "ok").strip() or "ok", None)   # mutation: evidence is not required
 p = portal(); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW)
@@ -136,6 +166,16 @@ p = portal(); r, t = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, 
 check("5c MUTATION landed check off: unrelated text is recorded as sent, so 3j catches it", p.requests[F.RID]["status"] == "code_sent")
 ST.LANDED_TEXT = orig_ld
 check("5d the prompt tells the agent to confirm the page and pass --evidence, and to run `fail` on an error (text and call path)", "--evidence" in p_flag and " fail --request-id " in p_flag and "phone-call send the same" in p_flag)
+orig_sr = ST.SEND_REFUSAL
+ST.SEND_REFUSAL = ST.ERROR_TEXT   # mutation: the auto-fail set is widened back to every error word
+mut = help_page_outcomes()
+check("5e MUTATION auto-fail widened back to any error word: real landed sends are finished failed (the review probe), so 4f catches it", any(st == "failed" for _r, st in mut), mut)
+ST.SEND_REFUSAL = orig_sr
+orig_ld2 = ST.LANDED_TEXT
+ST.LANDED_TEXT = __import__("re").compile(r"(?i)(called (you|your)|(we|i)('ve| have)? called|" + orig_ld2.pattern[len("(?i)"):] + ")")   # mutation: the old call rule (a bare 'called' lands)
+p = portal(channel="phone-call"); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We called your phone")
+check("5f MUTATION call path lands without a code field: 'We called your phone' is recorded as sent, so 4j catches it", p.requests[F.RID]["status"] == "code_sent")
+ST.LANDED_TEXT = orig_ld2
 
 # ---- 6 bridge loop ----------------------------------------------------------------------------------------------------------------------------
 class Clk:
@@ -188,6 +228,45 @@ if not ONLY_MUT:
         except OSError: pass
         r, rt, p, text = run_send(**kw)
         check("7d %s: the agent that started beside the check is killed and the request ends failed:signin_failed, gate stays shut" % label, r == "failed:signin_failed" and rt.agent.kills >= 1 and not B.vault_ok(F.RID), r)
+
+# ---- 7e/7f the two other vault-check exits (review round 1: mutations M3 and M4 survived) -------------------------------------------------------
+import types
+def mutant(old, new):
+    """S with ONE source line changed (a mutation of verify_send.py), loaded as a separate module; the same bridge/playbook modules."""
+    src = open(os.path.join(HERE, "..", "job", "verify_send.py"), encoding="utf-8").read()
+    assert src.count(old) == 1, old
+    m = types.ModuleType("verify_send_mut"); m.__file__ = os.path.join(HERE, "..", "job", "verify_send.py")
+    exec(compile(src.replace(old, new), m.__file__, "exec"), m.__dict__); return m
+M3_OLD = "if vault is not None and vault.state is not True:"
+M4_OLD = "if vs is None and now - t0 >= VAULT_CHECK_S: vault.state = vs = False"
+def vault_run(mod, mode):
+    """mode 'ends': the agent exits at once while the check still runs, then the check answers with the WRONG username.
+    mode 'hangs': the agent hangs and the check blocks past VAULT_CHECK_S (released later so no thread is left behind)."""
+    p = F.StrictPortal(requests=[F.request(status="starting", age_s=5)], verifications=[F.verification(directory=AGENT_DIR)])
+    page = F.FakePage(); gate = threading.Event()
+    rt = F.FakeRuntime(page, agent_factory=lambda rt: F.FakeAgent([], hang=(mode == "hangs")))
+    def login(t):
+        if mode == "ends": gate.wait(0.5); return "someone@example.com"
+        gate.wait(6); return S.EXPECTED_LOGIN[t[0]]
+    rt.login_username = login
+    old = mod.AGENT_START_S; mod.AGENT_START_S = 400   # past VAULT_CHECK_S (240) so the check, not the start cap, ends a hung run; fake clock, so this is only ticks
+    try:
+        try: os.remove(B._vault_marker(F.RID))
+        except OSError: pass
+        B.clear_started(F.RID)
+        r, text = quiet(mod.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
+    finally:
+        mod.AGENT_START_S = old; gate.set()
+    return r, rt, p, text
+if not ONLY_MUT:
+    r, rt, p, text = vault_run(S, "ends")
+    check("7e agent exits while the vault check still runs and the check then fails: failed:signin_failed, gate shut, request failed", r == "failed:signin_failed" and not B.vault_ok(F.RID) and p.requests[F.RID]["status"] == "failed", (r, p.requests[F.RID]["status"]))
+    r, rt, p, text = vault_run(S, "hangs")
+    check("7f the vault check hangs past VAULT_CHECK_S: agent killed, failed:signin_failed, gate shut", r == "failed:signin_failed" and rt.agent.kills >= 1 and not B.vault_ok(F.RID), (r, rt.agent.kills))
+r, rt, p, text = vault_run(mutant(M3_OLD, "if False:"), "ends")
+check("7m3 MUTATION M3 end-of-run fail-closed removed: the run no longer ends signin_failed after a failed late check, so 7e catches it", r != "failed:signin_failed", r)
+r, rt, p, text = vault_run(mutant(M4_OLD, "if False: pass"), "hangs")
+check("7m4 MUTATION M4 VAULT_CHECK_S timeout never fires: a hung check no longer ends signin_failed in time, so 7f catches it", r != "failed:signin_failed", r)
 
 # ---- 8 arm gate ---------------------------------------------------------------------------------------------------------------------------------
 def arm_gate(marker, age_s=5):
