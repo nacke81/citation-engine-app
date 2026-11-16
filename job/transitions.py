@@ -440,6 +440,11 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
             "channel_label": ACTIVITY_CHANNEL_LABEL}
 
 
+def retype_path(client_id, directory, verify_type):
+    """t_5148d0b9: PATCH scope for a re-park that changes sms <-> phone-call: this client + directory, still requires_verification, type differs."""
+    return "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification&verification_type=neq.%s" % (client_id, directory, verify_type)
+
+
 def set_verification_live(portal, verification_id, client_id, now=None):
     """t_0d601426 (Verify Now): the ONE writer of citation_verification state=live for a client-typed phone code that the Directory accepted.
     Same PATCH as the verification-queue step of record_transition (state, verified_at, updated_at), but guarded: only the row with this id AND
@@ -607,6 +612,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             ver = verification or portal or P.Portal(*P.load_portal_env())
             if ver_rec:
                 ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=ignore-duplicates,return=minimal")  # existing row untouched: no deadline restart, a live row is not flipped back
+                if verify_type in AL.AUTO_TYPES:   # t_5148d0b9: ignore-duplicates left an existing row's type stale (a25e00ff stayed sms after a phone-call re-park). Retype only a still-waiting row whose type differs; deadline, parked_at and live rows stay untouched.
+                    ver.call("PATCH", retype_path(client_id, row["directory"], verify_type), {"verification_type": verify_type, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, prefer="return=minimal")
             else:
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 ver.call("PATCH", ver_patch_path, {"state": "live", "verified_at": now, "updated_at": now}, prefer="return=minimal")

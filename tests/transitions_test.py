@@ -147,7 +147,7 @@ check("T6 env flag CE_ACTIVITIES_WRITE=1 still on", r["activities_written"] is T
 def vcalls(fp): return [c for c in fp.calls if len(c) == 3 and str(c[1]).startswith("citation_verification")]
 for vt in ("phone-call", "sms", "postcard"):
     p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "needs-human", fp=fp, verify_type=vt)
-    vc = vcalls(fp); b = vc[0][2][0] if vc else {}
+    vc = [c for c in vcalls(fp) if c[0] == "POST"]; b = vc[0][2][0] if vc else {}   # t_5148d0b9: sms/phone-call also send a scoped retype PATCH (T14)
     qrow = json.load(open(p))["fix_queue"][0]
     check("T10 %s: one upsert on_conflict client_id,directory, state requires_verification" % vt,
           len(vc) == 1 and vc[0][0] == "POST" and "on_conflict=client_id,directory" in vc[0][1] and b["client_id"] == SCC and b["directory"] == d
@@ -229,7 +229,7 @@ check("T9 buildqueue.py still has no network import", not any(w in src for w in 
 for vt in ("phone-call", "sms", "postcard"):
     p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type=vt)
     h = json.load(open(p))["fix_queue"][0]["history"][-1]
-    check("T13 %s: queue history entry has verify_type=%s" % (vt, vt), h.get("verify_type") == vt and len(vcalls(fp)) == 1)
+    check("T13 %s: queue history entry has verify_type=%s" % (vt, vt), h.get("verify_type") == vt and len([c for c in vcalls(fp) if c[0] == "POST"]) == 1)
 p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp)
 check("T13 no verify type: history entry has no verify_type key", "verify_type" not in json.load(open(p))["fix_queue"][0]["history"][-1])
 p, rid, d = fresh("submitted"); fp = portal_with(d); r = rec(p, rid, "needs-human", fp=fp, verify_type="sms", dry_run=True)
@@ -323,5 +323,17 @@ for label, kw, state in (("unknown reason", dict(park_reason="whatever"), "submi
     try: rec(p, rid, to, fp=fp, note="a note", **kw); bad = False
     except T.TransitionRefused: bad = open(p, "rb").read() == before and not fp.calls
     check("T17 refused before any write: %s" % label, bad)
+# T14 (t_5148d0b9): a re-park that changes sms -> phone-call must retype the existing waiting row (the upsert is ignore-duplicates)
+for vt in ("phone-call", "sms"):
+    p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type=vt)
+    pv = [c for c in vcalls(fp) if c[0] == "PATCH"]
+    check("T14 %s park: one scoped retype PATCH (client + directory + requires_verification + type differs), type and updated_at only" % vt,
+          len(pv) == 1 and ("client_id=eq." + SCC) in pv[0][1] and ("directory=eq." + d) in pv[0][1] and "state=eq.requires_verification" in pv[0][1]
+          and ("verification_type=neq." + vt) in pv[0][1] and set(pv[0][2]) == {"verification_type", "updated_at"} and pv[0][2]["verification_type"] == vt)
+p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type="postcard")
+check("T14 postcard park: no retype PATCH (deadline and steps untouched)", not [c for c in vcalls(fp) if c[0] == "PATCH"])
+p, rid, d = fresh("submitted"); fp = portal_with(d); b0 = open(p, "rb").read()
+rec(p, rid, "needs-human", fp=fp, verify_type="phone-call", dry_run=True)
+check("T14 dry run: no calls", not fp.calls and open(p, "rb").read() == b0)
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)

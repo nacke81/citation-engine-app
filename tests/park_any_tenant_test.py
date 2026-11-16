@@ -51,7 +51,7 @@ def refused(fn):
 def local_rows():
     try: return json.load(open(LOCAL, encoding="utf-8"))["directories"]
     except Exception: return []
-def ver_posts(fp): return [c for c in fp.calls if c[1].startswith("citation_verification")]
+def ver_posts(fp): return [c for c in fp.calls if c[1].startswith("citation_verification") and c[0] == "POST"]   # t_5148d0b9: the retype PATCH is checked in transitions_test T14
 
 def nm_park(p, rid="nm-fix-mapquest", vt="phone-call", fp=None, **kw):
     fp = fp or FP("mapquest.com")
