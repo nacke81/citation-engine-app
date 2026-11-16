@@ -314,7 +314,7 @@ if not ONLY_MUT:
               "A text message has been sent to your phone with a verification code", "SMS sent with your code", "Thumbtack sent a code to your phone", "No problem, a code was sent to your phone",
               "Do not send this code to anyone; enter the code we texted you", "Send verification code. Enter the verification code we texted you",
               "Do not send this code to anyone, enter the code we texted you", "We sent you a verification code, if you haven't received it in 2 minutes tap resend",
-              "We texted you a code - do not send it to anyone", "We texted you a code and will send another in 60s if needed", "We'll never share your number. Enter the verification code we texted you"):
+              "We texted you a code - do not send it to anyone", "We texted you a code and will send another in 60s if needed", "We'll never share your number. Enter the verification code we texted you", "Send code / Enter code"):
         p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=t)
         check("10c landed context with a named code is recorded [%s]" % t[:40], r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
     p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Enter the verification code. " + ALIGNABLE_ERR)
@@ -335,6 +335,10 @@ ST.CLAUSE = __import__("re").compile(r"[.?!]+")   # mutation: clauses split only
 mut = label_outcomes()
 p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Do not send this code to anyone, enter the code we texted you")
 check("10l MUTATION clause split only at . ? ! : 'Do not send this code to anyone, enter the code we texted you' is refused, and a label before a comma leaks, so 10c/10a catch it", r == ST.REFUSED or any(st == "code_sent" for _r, st in mut), (r, mut))
+ST.CLAUSE = orig_cl
+ST.CLAUSE = __import__("re").compile(r"[.?!;,\n|]+|\s[-\u2013\u2014]+\s")   # mutation (t_00a83602): `/` dropped from the split set
+p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Send code / Enter code")
+check("10m MUTATION `/` dropped from CLAUSE: 'Send code / Enter code' stays one clause that starts with a send control and is refused, so 10c catches it", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting", (r, p.requests[F.RID]["status"]))
 ST.CLAUSE = orig_cl
 orig_neg = ST.NEGATED_SEND
 ST.NEGATED_SEND = __import__("re").compile(r"(?!x)x")   # mutation: negation is ignored
