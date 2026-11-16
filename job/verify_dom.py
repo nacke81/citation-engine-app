@@ -31,6 +31,13 @@ CODE_PARTNERS = frozenset(("verification", "verify", "security", "confirmation",
 COMPOUNDS = frozenset(("verificationcode", "verifycode", "securitycode", "smscode", "authcode", "confirmationcode", "confirmcode", "otpcode", "onetimecode"))
 SPLIT = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z0-9]+")
 NOT_A_CODE = re.compile(r"(?i)(zip|postal|phone|\btel|promo|coupon|referral|invite|country|area|card|cvc|cvv|ssn|year|\bexp)")
+# t_00a83602 review round 2 (Nate, comment 787): address/category/count fields that are numeric with a short maxlength, and the human labels of a real code box.
+NOT_CODE_TOKENS = frozenset(("post", "postcode", "employee", "employees", "founded", "street", "house", "suite", "unit", "apt", "quantity", "qty", "amount",
+                             "price", "age", "dob", "birth", "naics", "sic"))
+PHONEISH = frozenset(("phone", "mobile", "cell", "tel", "telephone", "email", "mail"))
+FILLER_BEFORE = frozenset(("enter", "type", "input", "the", "your", "a", "an", "please", "digit", "digits", "4", "5", "6", "7", "8"))
+FILLER_AFTER = frozenset(("here", "below", "we", "sent", "texted", "emailed", "you", "to", "your", "by", "via", "phone", "mobile", "number", "email", "sms",
+                          "text", "message"))
 ROW_MIN, ROW_MAX = 4, 8
 READS, READ_GAP_S = 3, 1.0
 
@@ -54,7 +61,8 @@ def rule_one_time_code(i, row=None):
 
 def rule_numeric_maxlen(i, row=None):
     m = _maxlen(i)
-    return i.get("inputmode") in ("numeric", "decimal") and m is not None and ROW_MIN <= m <= ROW_MAX and not NOT_A_CODE.search(_label(i)) and "captcha" not in _label(i).lower()
+    return (i.get("inputmode") in ("numeric", "decimal") and m is not None and ROW_MIN <= m <= ROW_MAX and not NOT_A_CODE.search(_label(i))
+            and "captcha" not in _label(i).lower() and not NOT_CODE_TOKENS.intersection(_tokens(_label(i))))
 
 
 def _tokens(text):
@@ -68,13 +76,31 @@ def _field_is_code(text, exact_ok):
     return any(t == "code" and ((k > 0 and toks[k - 1] in CODE_PARTNERS) or (k + 1 < len(toks) and toks[k + 1] in CODE_PARTNERS)) for k, t in enumerate(toks))
 
 
+def _human_code(text):
+    """aria/placeholder only: a bare `code` with only filler around it."""
+    toks = _tokens(text)
+    if "code" not in toks: return False
+    k = toks.index("code")
+    return all(t in FILLER_BEFORE for t in toks[:k]) and all(t in FILLER_AFTER for t in toks[k + 1:])
+
+
+def _phone_first(text):
+    """aria/placeholder only: a phone/email word before any code word = the phone (or email) field."""
+    for t in _tokens(text):
+        if t in OTP_WORDS or t in COMPOUNDS or t == "code": return False
+        if t in PHONEISH: return True
+    return False
+
+
 def rule_named_code(i, row=None):
     """name/id/aria-label/placeholder reads as a code field: otp/totp/passcode, `code` next to verification/verify/security/confirmation/sms/auth/one-time,
     or a name/id that is exactly `code`. Never with `captcha` in the label; a password box only with otp/passcode."""
     label = _label(i)
     if "captcha" in label.lower(): return False
     if (i.get("type") or "") == "password" and not any(t in ("otp", "totp", "passcode") for t in _tokens(label)): return False
-    return any(_field_is_code(i.get(k), k in ("name", "id")) for k in ("name", "id", "aria", "placeholder"))
+    if any(_phone_first(i.get(k)) for k in ("aria", "placeholder")): return False
+    return (any(_field_is_code(i.get(k), k in ("name", "id")) for k in ("name", "id", "aria", "placeholder"))
+            or any(_human_code(i.get(k)) for k in ("aria", "placeholder")))
 
 
 def rule_single_char_row(i, row=None):
@@ -148,7 +174,18 @@ def tenant_cdp(client_id):
         return None
 
 
-LAST = {"pages": 0, "matched": 0}   # of the last check(): pages seen, pages on the Directory's domain (for the refusal log)
+LAST = {"pages": 0, "matched": 0, "shapes": ""}   # of the last check(): pages seen, pages on the Directory's domain (for the refusal log)
+
+
+def shapes(items, n=5):
+    """Attributes only (never values): up to n usable inputs as type/inputmode/maxlength/autocomplete/name|id|aria|placeholder, for the refusal log."""
+    out = []
+    for i in items or []:
+        if isinstance(i, dict) and _usable(i):
+            out.append("%s/%s/%s/%s/%s" % (i.get("type") or "text", i.get("inputmode") or "-", i.get("maxlength") if i.get("maxlength") is not None else "-",
+                                          i.get("autocomplete") or "-", "|".join(str(i.get(k) or "-")[:40] for k in ("name", "id", "aria", "placeholder"))))
+        if len(out) >= n: break
+    return "; ".join(out)
 
 
 def check(cdp_url, domains=(), snap=snapshot_inputs, sleep=time.sleep, reads=READS, gap=READ_GAP_S, rules=None):
@@ -159,6 +196,7 @@ def check(cdp_url, domains=(), snap=snapshot_inputs, sleep=time.sleep, reads=REA
         s = snap(cdp_url)
         if s is None: return None
         mine, LAST["pages"], LAST["matched"] = scope(s, domains)
+        LAST["shapes"] = shapes(mine)
         if has_code_input(mine, rules): return True
         if n + 1 < reads: sleep(gap)
     return False

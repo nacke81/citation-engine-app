@@ -187,8 +187,8 @@ def _page_landed(request_id, text, portal):
         return ok
     if seen:
         log("dom: visible code input; send landed"); return True
-    log("sent refused: dom shows no visible code input on the Directory's pages (%d page(s) seen, %d on its domain; text %s landed)"
-        % (VD.LAST["pages"], VD.LAST["matched"], "said" if landed(text) else "did not say")); return False
+    log("sent refused: dom shows no visible code input on the Directory's pages (%d page(s) seen, %d on its domain; text %s landed); inputs seen: %s"
+        % (VD.LAST["pages"], VD.LAST["matched"], "said" if landed(text) else "did not say", VD.LAST.get("shapes") or "none")); return False
 
 
 def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):

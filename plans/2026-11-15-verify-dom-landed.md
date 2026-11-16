@@ -37,3 +37,12 @@ Combine rule follows Nate's proposal on the card; no plan-review stop taken. Ris
 - Scope: every snapshot item carries its page URL; pages with no inputs still count as seen. `step_sent` hands the probe the Directory's domain + aliases (`B.directory_entry`). Only pages whose host is the domain or a subdomain count. No page on the domain = refused, nothing recorded, log says pages seen / matched. No fallback to text. Unlisted Directory (no domains) = nothing in scope = refused.
 - Named-code rule: token allowlist (split on case change, `_ - space`). Match: otp/totp/passcode; `code` adjacent to verification/verify/security/confirmation/sms/auth/one-time; compound tokens (verificationcode, smscode...); a name/id exactly `code`. Never with `captcha` in the label; a password box only with otp/passcode. Numeric+maxlength rule also excludes captcha.
 - Tests 13a/13b (18 leaks refused, 15 real shapes recorded), 14a-14h (host scope), mutations: substring rule back, captcha guard off (named and numeric), password guard off, bare-code token, host filter removed / substring / exact-only.
+
+## Round 3 review changes (Nate, comment 787, last label round)
+- `_human_code` (aria/placeholder only): a bare `code` with only filler words around it records (`Enter code`, `6-digit code`, `Code`, `Enter the code we sent to your phone`).
+- `_phone_first` (aria/placeholder only, never name/id): a phone/email word before any code word = the phone field, refused. `phoneVerificationCode` as a name still records.
+- `NOT_CODE_TOKENS` on the numeric+maxlength rule: postcode/employees/house_number/naics etc. refused.
+- Refusal log lists up to 5 usable inputs of the Directory's pages as `type/inputmode/maxlength/autocomplete/name|id|aria|placeholder` (attributes only, no values), kept in `VD.LAST["shapes"]`.
+- Test 13b (placeholder `code`) now asserts True. New 15a-15d plus mutations: `_human_code` removed / accepts anything, `_phone_first` removed, `NOT_CODE_TOKENS` emptied.
+- Known limit (card design, not a defect): a page that shows the code box before the send click (phone field, Send button and code box on one screen) records a sent from the DOM, whatever happened.
+- Any new label family after this round is a follow-up; the refusal log is how real shapes get collected.

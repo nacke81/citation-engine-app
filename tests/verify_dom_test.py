@@ -147,7 +147,7 @@ if not ONLY_MUT:
         check("13a named-code leak refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
     for kw in REAL:
         check("13b real OTP shape recorded: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
-    check("13b a name that is not exactly `code` does not count by itself (placeholder code)", VD.has_code_input([inp(placeholder="code")]) is False)
+    check("13b a placeholder `code` is a human code-box label and records (round 3, overrules the round-1 test)", VD.has_code_input([inp(placeholder="code")]) is True)
 
 # ---- review round 1 (Nate): only pages on the request's Directory domain count
 OTHER = "https://www.thumbtack.com/verify"
@@ -172,6 +172,25 @@ if not ONLY_MUT:
     check("14g step_sent: code box on www. of the Directory records", r == 0 and st == "code_sent", (r, st))
     DOMS.clear(); run("Enter the verification code", RULE_FIX["named_code"], calls=[])
     check("14h the Directory's domain (plus aliases) is what step_sent hands the probe", DOMS and DOMS[-1][0] == AGENT_DIR, DOMS)
+
+# ---- round 3 (Nate, comment 787)
+HUMAN = [dict(placeholder="Enter code"), dict(aria="Enter code"), dict(placeholder="Enter the code"), dict(aria="6-digit code"), dict(placeholder="Code"),
+         dict(placeholder="Enter the code we sent to your phone")]
+PHONE_LABELS = [dict(aria="Phone number for verification code"), dict(placeholder="Mobile number (we'll text a verification code)"),
+                dict(placeholder="Enter phone to receive a security code")]
+NUM_LEAK = [dict(name="postcode"), dict(name="post_code"), dict(name="employees"), dict(name="founded"), dict(name="house_number"), dict(name="naics")]
+def numbox(**kw): return inp(inputmode="numeric", maxlength="5", **kw)
+if not ONLY_MUT:
+    for kw in HUMAN: check("15a human code-box label records: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
+    for kw in PHONE_LABELS: check("15b phone-field label refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
+    for kw in NUM_LEAK: check("15c numeric maxlength address/count field refused: %s" % (kw,), VD.has_code_input([numbox(**kw)]) is False)
+    check("15b phoneVerificationCode as a NAME still records (phone-first is aria/placeholder only)", VD.has_code_input([inp(name="phoneVerificationCode")]) is True)
+    check("15a a filler-only label is not a code (placeholder 'Enter your business name')", VD.has_code_input([inp(placeholder="Enter your business name")]) is False)
+    check("15a a code label with a business word before it is not a code (placeholder 'Promo code')", VD.has_code_input([inp(placeholder="Promo code")]) is False)
+    # item 4: the refusal log carries input shapes, attributes only
+    r, st, out = run("Enter the verification code we texted you", [inp(page="https://agentdir.example/login", type="text", name="biz_name", placeholder="Business name", maxlength="40", value="SECRETVAL")])
+    check("15d refusal log lists the page's input shapes (attributes only, no values)", r == ST.REFUSED and "inputs seen: text/-/40/-/biz_name|-|-|Business name" in out and "SECRETVAL" not in out, out.strip()[-200:])
+    check("15d shapes() caps at 5 and skips unusable inputs", VD.shapes([inp(name="n%d" % n) for n in range(9)] + [inp(visible=False)]).count(";") == 4)
 
 # ---- mutations: every one must be caught
 def caught(label, cond, d=""): check("12 MUTATION %s" % label, cond, d)
@@ -250,6 +269,21 @@ r, st, _ = run(CARD_STRINGS[0], None, check_fn=lenient)
 caught("a no-input page treated as 'cannot see': the card string records, so 11c catches it", st == "code_sent", (r, st))
 seq = iter([[], RULE_FIX["named_code"]])
 caught("re-read count cut to 1: a late code box is missed (11h expects True at 3 reads)", orig_chk("u", [AGENT_DIR], snap=lambda u: next(seq), sleep=lambda s: None, reads=1) is False)
+
+# round 3 mutations
+orig_hc, orig_pf, orig_nct = VD._human_code, VD._phone_first, VD.NOT_CODE_TOKENS
+VD._human_code = lambda text: False
+caught("_human_code removed: `Enter code`/`6-digit code`/`Code` are refused, so 15a catches it", not all(VD.has_code_input([inp(**kw)]) for kw in HUMAN))
+VD._human_code = orig_hc
+VD._phone_first = lambda text: False
+caught("_phone_first removed: the phone-field labels are seen as the code box, so 15b catches it", any(VD.has_code_input([inp(**kw)]) for kw in PHONE_LABELS))
+VD._phone_first = orig_pf
+VD.NOT_CODE_TOKENS = frozenset()
+caught("NOT_CODE_TOKENS emptied: postcode/employees/house_number numeric boxes are seen, so 15c catches it", any(VD.has_code_input([numbox(**kw)]) for kw in NUM_LEAK))
+VD.NOT_CODE_TOKENS = orig_nct
+VD._human_code = lambda text: True
+caught("_human_code accepts anything: 'Enter your business name' is seen, so 15a catches it", VD.has_code_input([inp(placeholder="Enter your business name")]) is True)
+VD._human_code = orig_hc
 
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)
