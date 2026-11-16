@@ -1,0 +1,9 @@
+# Plan: rework of PR #122 after review round 1 (t_4ee21e60, new PR off main)
+
+Cites lesson `docs/lessons/2026-11-15-a-click-is-not-a-send.md` (latest): record an irreversible step only on evidence read after it, and a gate must fail closed. This rework tightens that gate in both directions: a real landed send must not be failed, and a call without a code field must not pass.
+
+## Changes (job/verify_step.py only, plus tests)
+1. Split the error check. SEND_REFUSAL (not a mobile|valid|cell phone|number, invalid phone|number, couldn't|could not|unable to|failed to send, too many requests|attempts only when no code field shows) is the ONLY text that finishes the request failed/send_failed. Any other ERROR_TEXT word ("try again", "can't find it", "unable to receive SMS", "invalid code ... too many attempts") REFUSES `sent` (exit 5), records nothing, request stays `starting`; the message tells the agent to run `fail` for a real error or re-run `sent` quoting only the code-box / code-sent text.
+2. LANDED_TEXT must name a code on every path (code field/box/input, enter the code, verification/confirmation/security code, code sent, sent|texted ... code). "We called your phone" alone is refused; "We called your phone. Enter the code from the call" is recorded.
+3. Tests in tests/verify_speed_test.py: the 4 reviewer strings are not finished failed; Alignable text still failed/send_failed; call-path both strings; vault check (a) agent exits while the check runs, then it fails -> failed:signin_failed (M3), (b) check hangs past VAULT_CHECK_S -> agent killed, failed:signin_failed (M4). Mutations: widen auto-fail back, LANDED accepts "called", M3, M4 all named in `--mutations`.
+No portal write, deploy, or live read. Measurements stay as reported in PR #122 (live numbers are on t_5148d0b9).

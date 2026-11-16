@@ -115,7 +115,11 @@ def step_arm(request_id, portal, now_dt=None, sleep=time.sleep):
 EVIDENCE_MAX = 300
 ERROR_TEXT = re.compile(r"(?i)\b(not a (mobile|valid|cell)|invalid|error|couldn'?t|could not|can'?t|unable|try again|failed|incorrect|not recogni[sz]ed|too many)\b")
 # text and call path alike: the page must show a code-entry field or a sent/called text. A bare click or "we are calling you" with no code field never counts.
-LANDED_TEXT = re.compile(r"(?i)(code (was |has been )?sent|(we|i)('ve| have)? (sent|texted|called)|texted (you|a)|called (you|your)|verification code|enter (the |your |a )?(\d-digit )?code|enter the code|confirmation code|security code|code (field|box|input))")
+LANDED_TEXT = re.compile(r"(?i)(code (was |has been )?(sent|texted|emailed)|\b(sent|texted)\b[^.?!]{0,40}\bcode|verification code|enter (the |your |a )?(\d-digit )?code|confirmation code|security code|code (field|box|input))")
+# t_4ee21e60 rework: ONLY a refusal of the send itself may finish the request failed. Help text on a landed code page ("Didn't receive it? Try again", "Invalid code will lock...")
+# is not a refusal; it refuses `sent` with nothing recorded and the agent quotes only the code text. "too many" counts only when no code field shows.
+SEND_REFUSAL = re.compile(r"(?i)\b(not an? (mobile|valid|cell)( phone)?( number)?|invalid (phone|number)|(couldn'?t|could not|unable to|failed to) send)\b")
+TOO_MANY = re.compile(r"(?i)\btoo many (requests|attempts)\b")
 NO_ERROR_PHRASE = re.compile(r"(?i)\b(no|without|not any|zero) (visible |inline )?(error|errors|error text|error message|error messages)\b")   # an agent's own "no error" report is not an error
 FAIL_REASONS = {"directory_refused_phone": "send_failed", "send_failed": "send_failed"}
 
@@ -153,9 +157,13 @@ def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):
     value, evidence without a landed signal = REFUSED (nothing recorded). Evidence that reads as an error = the failure path (request finished failed)."""
     text, why = clean_evidence(evidence)
     if text is None: log("sent refused: evidence %s" % why); return REFUSED
-    if ERROR_TEXT.search(NO_ERROR_PHRASE.sub(" ", text)):
-        log("sent refused: the page shows an error; recording the refusal"); step_fail(request_id, "directory_refused_phone", text, portal, rpc); return REFUSED
-    if not LANDED_TEXT.search(text): log("sent refused: evidence shows no code box or code-sent text"); return REFUSED
+    clean = NO_ERROR_PHRASE.sub(" ", text)
+    if SEND_REFUSAL.search(clean) or (TOO_MANY.search(clean) and not LANDED_TEXT.search(clean)):
+        log("sent refused: the page refuses the send; recording the refusal"); step_fail(request_id, "directory_refused_phone", text, portal, rpc); return REFUSED
+    if ERROR_TEXT.search(clean):
+        log("sent refused: the evidence has an error word but not a send refusal; nothing recorded. If the page shows a real error near the phone field run `fail`; "
+            "if the send landed, run `sent` again quoting only the code-box or code-sent text"); return REFUSED
+    if not LANDED_TEXT.search(text): log("sent refused: evidence names no code field or code-sent text"); return REFUSED
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req and B.MASK_RE.match(str(masked or "")): req, _row = _late_reopen(portal, request_id, now_dt)   # t_c6eee3cb (b): a real send after the sweep still reaches the code box
     if not req: return REFUSED
