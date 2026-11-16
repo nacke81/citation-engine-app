@@ -32,3 +32,8 @@ Excluded words (rules 2, 3 only; rule 1 is explicit and always wins): zip, posta
 
 ## Not in scope / risks
 Combine rule follows Nate's proposal on the card; no plan-review stop taken. Risk: a Directory whose code box is not an `<input>` (contenteditable) is refused when the probe sees the page. That surfaces as a refused `sent` (nothing recorded), the visible failure mode, not a false send. No live reads or sends in this card.
+
+## Round 1 review changes (Nate, comment 785)
+- Scope: every snapshot item carries its page URL; pages with no inputs still count as seen. `step_sent` hands the probe the Directory's domain + aliases (`B.directory_entry`). Only pages whose host is the domain or a subdomain count. No page on the domain = refused, nothing recorded, log says pages seen / matched. No fallback to text. Unlisted Directory (no domains) = nothing in scope = refused.
+- Named-code rule: token allowlist (split on case change, `_ - space`). Match: otp/totp/passcode; `code` adjacent to verification/verify/security/confirmation/sms/auth/one-time; compound tokens (verificationcode, smscode...); a name/id exactly `code`. Never with `captcha` in the label; a password box only with otp/passcode. Numeric+maxlength rule also excludes captcha.
+- Tests 13a/13b (18 leaks refused, 15 real shapes recorded), 14a-14h (host scope), mutations: substring rule back, captcha guard off (named and numeric), password guard off, bare-code token, host filter removed / substring / exact-only.

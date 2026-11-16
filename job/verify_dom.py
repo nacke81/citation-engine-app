@@ -8,6 +8,7 @@ Two halves, so tests never need a browser:
   check(cdp_url, ...)       -> True (code input seen) | False (page seen, no code input) | None (cannot see). Re-reads a no-input page a few times.
 """
 import os, re, time
+from urllib.parse import urlparse
 
 # the fields the collector returns for each input (all strings/bools/ints; no value, no page text)
 COLLECT_JS = """() => {
@@ -24,7 +25,11 @@ COLLECT_JS = """() => {
 }"""
 
 TEXTY_TYPES = ("text", "tel", "number", "password", "search", "")
-NAMED = re.compile(r"(?i)(code|otp|verif)")
+# t_00a83602 review round 1: a token allowlist, not a substring match. A label is split on case changes, _ - spaces and punctuation.
+OTP_WORDS = frozenset(("otp", "totp", "passcode"))
+CODE_PARTNERS = frozenset(("verification", "verify", "security", "confirmation", "confirm", "sms", "auth", "authentication", "time", "onetime"))
+COMPOUNDS = frozenset(("verificationcode", "verifycode", "securitycode", "smscode", "authcode", "confirmationcode", "confirmcode", "otpcode", "onetimecode"))
+SPLIT = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|[^A-Za-z0-9]+")
 NOT_A_CODE = re.compile(r"(?i)(zip|postal|phone|\btel|promo|coupon|referral|invite|country|area|card|cvc|cvv|ssn|year|\bexp)")
 ROW_MIN, ROW_MAX = 4, 8
 READS, READ_GAP_S = 3, 1.0
@@ -49,11 +54,27 @@ def rule_one_time_code(i, row=None):
 
 def rule_numeric_maxlen(i, row=None):
     m = _maxlen(i)
-    return i.get("inputmode") in ("numeric", "decimal") and m is not None and ROW_MIN <= m <= ROW_MAX and not NOT_A_CODE.search(_label(i))
+    return i.get("inputmode") in ("numeric", "decimal") and m is not None and ROW_MIN <= m <= ROW_MAX and not NOT_A_CODE.search(_label(i)) and "captcha" not in _label(i).lower()
+
+
+def _tokens(text):
+    return [t.lower() for t in SPLIT.split(str(text or "")) if t]
+
+
+def _field_is_code(text, exact_ok):
+    toks = _tokens(text)
+    if any(t in OTP_WORDS or t in COMPOUNDS for t in toks): return True
+    if exact_ok and toks == ["code"]: return True
+    return any(t == "code" and ((k > 0 and toks[k - 1] in CODE_PARTNERS) or (k + 1 < len(toks) and toks[k + 1] in CODE_PARTNERS)) for k, t in enumerate(toks))
 
 
 def rule_named_code(i, row=None):
-    return bool(NAMED.search(_label(i))) and not NOT_A_CODE.search(_label(i))
+    """name/id/aria-label/placeholder reads as a code field: otp/totp/passcode, `code` next to verification/verify/security/confirmation/sms/auth/one-time,
+    or a name/id that is exactly `code`. Never with `captcha` in the label; a password box only with otp/passcode."""
+    label = _label(i)
+    if "captcha" in label.lower(): return False
+    if (i.get("type") or "") == "password" and not any(t in ("otp", "totp", "passcode") for t in _tokens(label)): return False
+    return any(_field_is_code(i.get(k), k in ("name", "id")) for k in ("name", "id", "aria", "placeholder"))
 
 
 def rule_single_char_row(i, row=None):
@@ -62,6 +83,20 @@ def rule_single_char_row(i, row=None):
 
 
 RULES = {"one_time_code": rule_one_time_code, "numeric_maxlen": rule_numeric_maxlen, "named_code": rule_named_code, "single_char_row": rule_single_char_row}
+
+
+def host_on(url, domains):
+    """True when the URL's host is one of `domains` or a subdomain of one."""
+    try: h = (urlparse(str(url or "")).hostname or "").lower().rstrip(".")
+    except ValueError: return False
+    return bool(h) and any(h == d or h.endswith("." + d) for d in (str(x).lower().strip(".") for x in (domains or ())) if d)
+
+
+def scope(snapshot, domains):
+    """-> (items on pages of `domains`, pages seen, pages matched). Items with no page url never match."""
+    pages = {i.get("page") for i in (snapshot or []) if isinstance(i, dict)}
+    mine = {p for p in pages if host_on(p, domains)}
+    return [i for i in (snapshot or []) if isinstance(i, dict) and i.get("page") in mine], len(pages), len(mine)
 
 
 def has_code_input(snapshot, rules=None):
@@ -85,12 +120,14 @@ def snapshot_inputs(cdp_url):
         out, n = [], 0
         for c in b.contexts:
             for pg in c.pages:
+                pu = pg.url or ""
                 for fr in pg.frames:
                     try: items = fr.evaluate(COLLECT_JS)
                     except Exception: continue
                     n += 1
+                    out.append({"page": pu, "frame": id(fr)})   # a page with no inputs still counts as seen
                     for it in items or []:
-                        it["frame"] = id(fr); out.append(it)
+                        it["frame"] = id(fr); it["page"] = pu; out.append(it)
         return out if n else None
     except Exception:
         return None
@@ -111,12 +148,17 @@ def tenant_cdp(client_id):
         return None
 
 
-def check(cdp_url, snap=snapshot_inputs, sleep=time.sleep, reads=READS, gap=READ_GAP_S, rules=None):
-    """True: a visible code input is on the page. False: the page was read `reads` times and never showed one. None: the browser cannot be read."""
+LAST = {"pages": 0, "matched": 0}   # of the last check(): pages seen, pages on the Directory's domain (for the refusal log)
+
+
+def check(cdp_url, domains=(), snap=snapshot_inputs, sleep=time.sleep, reads=READS, gap=READ_GAP_S, rules=None):
+    """True: a visible code input is on a page of `domains`. False: those pages were read `reads` times and never showed one (or no page is on the
+    domain). None: the browser cannot be read. Pages of other hosts are never counted."""
     if not cdp_url: return None
     for n in range(reads):
         s = snap(cdp_url)
         if s is None: return None
-        if has_code_input(s, rules): return True
+        mine, LAST["pages"], LAST["matched"] = scope(s, domains)
+        if has_code_input(mine, rules): return True
         if n + 1 < reads: sleep(gap)
     return False

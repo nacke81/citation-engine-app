@@ -33,7 +33,7 @@ AGENT_DIR = "agentdir.example"
 
 def inp(**kw):
     d = {"type": "text", "autocomplete": "", "inputmode": "", "maxlength": None, "name": "", "id": "", "aria": "", "placeholder": "",
-         "visible": True, "disabled": False, "readonly": False, "group": 1, "frame": 1}
+         "visible": True, "disabled": False, "readonly": False, "group": 1, "frame": 1, "page": "https://agentdir.example/login"}
     d.update(kw); return d
 
 # one fixture per rule, each satisfying ONLY that rule
@@ -82,11 +82,12 @@ CARD_STRINGS = ["Press the button to send your verification code", "Choose how t
                 "Verify by text message: enter phone to receive a security code", "Sending verification code..."]
 SIX_DIGIT = "A 6-digit code is on its way to your phone"
 
+DOMS = []
 def run(text, snap, calls=None, check_fn=None):
     p = portal_()
-    def fake_check(url, **kw):
-        if calls is not None: calls.append(url)
-        return VD.check(url, snap=lambda u: snap, sleep=lambda s: None, **kw)
+    def fake_check(url, domains=(), **kw):
+        if calls is not None: calls.append(url); DOMS.append(list(domains))
+        return VD.check(url, domains, snap=lambda u: snap, sleep=lambda s: None, **kw)
     old = ST.DOM_CHECK; ST.DOM_CHECK = check_fn or fake_check
     try: r, out = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=text)
     finally: ST.DOM_CHECK = old
@@ -97,7 +98,7 @@ if not ONLY_MUT:
         r, st, out = run(t, NOT_CODE["phone box"])
         check("11c card string refused when the DOM shows no code input [%s]" % t[:36], r == ST.REFUSED and st == "starting", (r, st))
         check("11c ... and the log says why [%s]" % t[:36], "dom shows no visible code input" in out and "text said landed" in out, out.strip()[-120:])
-        r, st, out = run(t, None, check_fn=lambda url: None)
+        r, st, out = run(t, None, check_fn=lambda url, d=(): None)
         check("11d no CDP session: falls back to the text gate (today's behaviour, pinned) [%s]" % t[:36], r == 0 and st == "code_sent" and "dom unavailable" in out, (r, st))
         r, st, _ = run(t, RULE_FIX["named_code"])
         check("11e the same string with a visible code input records [%s]" % t[:36], r == 0 and st == "code_sent", (r, st))
@@ -105,9 +106,9 @@ if not ONLY_MUT:
     check("11e '%s' records when the DOM shows a code input" % SIX_DIGIT, r == 0 and st == "code_sent", (r, st))
     r, st, out = run(SIX_DIGIT, [])
     check("11c ... and is refused with an empty DOM (text did not say landed)", r == ST.REFUSED and st == "starting" and "text did not say landed" in out, (r, st))
-    r, st, out = run(SIX_DIGIT, None, check_fn=lambda url: None)
+    r, st, out = run(SIX_DIGIT, None, check_fn=lambda url, d=(): None)
     check("11d no CDP: the text gate still refuses it (main did too)", r == ST.REFUSED and st == "starting", (r, st))
-    def boom(url): raise RuntimeError("cdp exploded")
+    def boom(url, d=()): raise RuntimeError("cdp exploded")
     r, st, out = run("Enter the verification code we texted you", None, check_fn=boom)
     check("11d a probe exception falls back to the text, nothing raised", r == 0 and st == "code_sent" and "dom check failed" in out, (r, st))
     for name, snap in RULE_FIX.items():
@@ -123,17 +124,87 @@ if not ONLY_MUT:
     check("11g an unknown client id has no browser", VD.tenant_cdp("00000000-0000-4000-8000-000000000000") is None and VD.tenant_cdp(None) is None)
     check("11g the SCC client maps to 9333", VD.tenant_cdp(P.ALLOWED["SCC"]) == "http://127.0.0.1:9333")
     # no-input page is re-read before it is refused; an unreadable browser is not retried
-    n = []; res = VD.check("http://127.0.0.1:9334", snap=lambda u: (n.append(1), [])[1], sleep=lambda s: None)
+    n = []; res = VD.check("http://127.0.0.1:9334", [AGENT_DIR], snap=lambda u: (n.append(1), [])[1], sleep=lambda s: None)
     check("11h a no-input page is read 3 times then reads False", res is False and len(n) == 3, (res, len(n)))
     n = []; seq = iter([[], [], RULE_FIX["named_code"]])
-    res = VD.check("http://127.0.0.1:9334", snap=lambda u: (n.append(1), next(seq))[1], sleep=lambda s: None)
+    res = VD.check("http://127.0.0.1:9334", [AGENT_DIR], snap=lambda u: (n.append(1), next(seq))[1], sleep=lambda s: None)
     check("11h a code box that renders on the 3rd read counts", res is True and len(n) == 3, (res, len(n)))
-    n = []; res = VD.check("http://127.0.0.1:9334", snap=lambda u: (n.append(1), None)[1], sleep=lambda s: None)
+    n = []; res = VD.check("http://127.0.0.1:9334", [AGENT_DIR], snap=lambda u: (n.append(1), None)[1], sleep=lambda s: None)
     check("11h an unreadable browser is None after one read", res is None and len(n) == 1, (res, len(n)))
     check("11h CE_NO_CDP makes the real probe return None without Playwright", VD.snapshot_inputs("http://127.0.0.1:9") is None)
 
+# ---- review round 1 (Nate): named-code token allowlist
+LEAKS = [dict(name="postcode"), dict(name="state_code"), dict(name="stateCode"), dict(name="captcha_code"), dict(placeholder="Enter the code shown above"),
+         dict(name="dialCode"), dict(name="verify_email"), dict(name="discountCode"), dict(name="naics_code"), dict(name="sic_code"), dict(name="access_code"),
+         dict(name="currency_code"), dict(aria="Language code"), dict(type="password", placeholder="Verify password"), dict(type="password", name="verification_code"),
+         dict(name="captcha_otp"), dict(placeholder="Enter the verification code from the captcha image"), dict(name="code_verified_by_email_flag"),
+         dict(inputmode="numeric", maxlength="6", name="captcha")]
+REAL = [dict(name="otp"), dict(name="verificationCode"), dict(name="sms_code"), dict(name="security-code"), dict(name="code"), dict(id="code"),
+        dict(placeholder="Enter verification code"), dict(name="totp"), dict(name="passcode"), dict(aria="Security code"), dict(name="smscode"),
+        dict(name="one-time-code"), dict(type="password", name="otp"), dict(name="confirmation_code"), dict(name="authCode")]
+if not ONLY_MUT:
+    for kw in LEAKS:
+        check("13a named-code leak refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
+    for kw in REAL:
+        check("13b real OTP shape recorded: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
+    check("13b a name that is not exactly `code` does not count by itself (placeholder code)", VD.has_code_input([inp(placeholder="code")]) is False)
+
+# ---- review round 1 (Nate): only pages on the request's Directory domain count
+OTHER = "https://www.thumbtack.com/verify"
+def two_pages(code_page): return [inp(page=OTHER, name="x"), inp(page="https://agentdir.example/login", name="y"), inp(page=code_page, name="otp")]
+if not ONLY_MUT:
+    D = [AGENT_DIR]
+    chk = lambda snap, doms=D: VD.check("u", doms, snap=lambda u: snap, sleep=lambda s: None)
+    check("14a a code input only on another host is refused", chk([inp(page=OTHER, name="otp"), inp(page="https://agentdir.example/login", name="email", type="email")]) is False)
+    check("14a ... and the log counters say 2 pages seen, 1 matched", (VD.LAST["pages"], VD.LAST["matched"]) == (2, 1), VD.LAST)
+    for host in ("https://agentdir.example/v", "https://www.agentdir.example/v", "https://login.agentdir.example/v?x=1"):
+        check("14b the same input on %s is recorded" % host, chk([inp(page=host, name="otp")]) is True)
+    for host in ("https://notagentdir.example/v", "https://agentdir.example.evil.com/v", "https://evil.com/agentdir.example", "about:blank", ""):
+        check("14c lookalike host is not the Directory: %r" % host, chk([inp(page=host, name="otp")]) is False)
+    check("14d no page on the domain: refused, 0 matched", chk([inp(page=OTHER, name="otp")]) is False and VD.LAST["matched"] == 0)
+    check("14d no domains known (unlisted Directory): nothing is in scope, refused", chk([inp(name="otp")], []) is False)
+    check("14e an alias domain is accepted", chk([inp(page="https://www.cylex.us.com/signin/", name="otp")], ["cylex.us", "cylex.us.com"]) is True)
+    check("14f a snapshot item with no page url never counts", chk([{k: v for k, v in inp(name="otp").items() if k != "page"}]) is False)
+    # end to end: the code box is on thumbtack, the request is for agentdir.example
+    r, st, out = run("Enter the verification code we texted you", [inp(page=OTHER, name="otp")])
+    check("14g step_sent: code box on another tab is refused, nothing recorded, log says pages seen", r == ST.REFUSED and st == "starting" and "1 page(s) seen, 0 on its domain" in out, (r, st, out.strip()[-140:]))
+    r, st, _ = run("Enter the verification code we texted you", [inp(page="https://www.agentdir.example/v", name="otp")])
+    check("14g step_sent: code box on www. of the Directory records", r == 0 and st == "code_sent", (r, st))
+    DOMS.clear(); run("Enter the verification code", RULE_FIX["named_code"], calls=[])
+    check("14h the Directory's domain (plus aliases) is what step_sent hands the probe", DOMS and DOMS[-1][0] == AGENT_DIR, DOMS)
+
 # ---- mutations: every one must be caught
 def caught(label, cond, d=""): check("12 MUTATION %s" % label, cond, d)
+
+# review round 1 mutations
+orig_named = VD.rule_named_code
+import re as _re
+def substring_named(i, row=None):
+    return bool(_re.search(r"(?i)(code|otp|verif)", VD._label(i))) and not VD.NOT_A_CODE.search(VD._label(i))
+VD.RULES["named_code"] = substring_named
+caught("substring+denylist named-code rule put back: postcode/state_code/etc. are seen, so 13a catches it", any(VD.has_code_input([inp(**kw)]) for kw in LEAKS))
+def no_captcha(i, row=None): return orig_named(dict(i, name=i.get("name", "").replace("captcha", ""), id="", aria=i.get("aria", "").replace("captcha", ""), placeholder=i.get("placeholder", "").replace("captcha", "")))
+VD.RULES["named_code"] = no_captcha
+caught("captcha exclusion removed from the named rule: captcha_code/captcha_otp are seen, so 13a catches it", VD.has_code_input([inp(name="captcha_code")]) and VD.has_code_input([inp(name="captcha_otp")]))
+def no_pw(i, row=None): return orig_named(dict(i, type="text"))
+VD.RULES["named_code"] = no_pw
+caught("password guard removed: a password box named verification_code is seen, so 13a catches it", VD.has_code_input([inp(type="password", name="verification_code")]) is True)
+def any_partner(i, row=None): return any("code" in VD._tokens(i.get(k)) for k in ("name", "id", "aria", "placeholder"))
+VD.RULES["named_code"] = any_partner
+caught("bare `code` token accepted without a partner word: state_code/access_code are seen, so 13a catches it", VD.has_code_input([inp(name="state_code")]) and VD.has_code_input([inp(name="access_code")]))
+VD.RULES["named_code"] = orig_named
+orig_nm = VD.rule_numeric_maxlen
+VD.RULES["numeric_maxlen"] = lambda i, row=None: orig_nm(dict(i, name="", id="", aria="", placeholder=""))   # label ignored, so no captcha/zip exclusion
+caught("captcha exclusion removed from the numeric rule: a numeric maxlength 6 box named captcha is seen, so 13a catches it", VD.has_code_input([inp(inputmode="numeric", maxlength="6", name="captcha")]))
+VD.RULES["numeric_maxlen"] = orig_nm
+orig_host = VD.host_on
+VD.host_on = lambda url, domains: True
+caught("host filter removed: the code input on another host records, so 14a catches it", VD.check("u", [AGENT_DIR], snap=lambda u: [inp(page=OTHER, name="otp")], sleep=lambda s: None) is True)
+VD.host_on = lambda url, domains: any(d in str(url) for d in domains)
+caught("host filter is a substring match: agentdir.example.evil.com records, so 14c catches it", VD.check("u", [AGENT_DIR], snap=lambda u: [inp(page="https://agentdir.example.evil.com/v", name="otp")], sleep=lambda s: None) is True)
+VD.host_on = lambda url, domains: str(url).split("/")[2:3] == [AGENT_DIR]
+caught("host filter is an exact match only: www.agentdir.example is refused, so 14b catches it", VD.check("u", [AGENT_DIR], snap=lambda u: [inp(page="https://www.agentdir.example/v", name="otp")], sleep=lambda s: None) is False)
+VD.host_on = orig_host
 
 for name, snap in RULE_FIX.items():
     rules = {k: v for k, v in VD.RULES.items() if k != name}
@@ -174,11 +245,11 @@ caught("DOM ignored (text gate only): the six-digit string is refused with a cod
 ST._page_landed = orig_pl
 
 orig_chk = VD.check
-def lenient(url, **kw): return None if orig_chk(url, snap=lambda u: NOT_CODE["phone box"], sleep=lambda s: None) is False else True
+def lenient(url, d=(), **kw): return None if orig_chk(url, [AGENT_DIR], snap=lambda u: NOT_CODE["phone box"], sleep=lambda s: None) is False else True
 r, st, _ = run(CARD_STRINGS[0], None, check_fn=lenient)
 caught("a no-input page treated as 'cannot see': the card string records, so 11c catches it", st == "code_sent", (r, st))
 seq = iter([[], RULE_FIX["named_code"]])
-caught("re-read count cut to 1: a late code box is missed (11h expects True at 3 reads)", orig_chk("u", snap=lambda u: next(seq), sleep=lambda s: None, reads=1) is False)
+caught("re-read count cut to 1: a late code box is missed (11h expects True at 3 reads)", orig_chk("u", [AGENT_DIR], snap=lambda u: next(seq), sleep=lambda s: None, reads=1) is False)
 
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

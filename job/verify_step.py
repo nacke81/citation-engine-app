@@ -174,7 +174,10 @@ def _page_landed(request_id, text, portal):
     try:
         req = B.request_row(portal, request_id)
         cdp = VD.tenant_cdp((req or {}).get("client_id"))
-        seen = DOM_CHECK(cdp) if cdp else None
+        row = B.verification_row(portal, (req or {}).get("citation_verification_id"))
+        ent = B.directory_entry((row or {}).get("directory"), (req or {}).get("channel")) or {}
+        doms = [d for d in [ent.get("domain")] + list(ent.get("aliases") or []) if d]
+        seen = DOM_CHECK(cdp, doms) if cdp else None
     except Exception as e:
         log("dom check failed (%s); falling back to the text" % type(e).__name__); seen = None
     if seen is None:
@@ -184,7 +187,8 @@ def _page_landed(request_id, text, portal):
         return ok
     if seen:
         log("dom: visible code input; send landed"); return True
-    log("sent refused: dom shows no visible code input (text %s landed)" % ("said" if landed(text) else "did not say")); return False
+    log("sent refused: dom shows no visible code input on the Directory's pages (%d page(s) seen, %d on its domain; text %s landed)"
+        % (VD.LAST["pages"], VD.LAST["matched"], "said" if landed(text) else "did not say")); return False
 
 
 def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):
