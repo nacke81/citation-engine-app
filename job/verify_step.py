@@ -116,10 +116,11 @@ EVIDENCE_MAX = 300
 ERROR_TEXT = re.compile(r"(?i)\b(not a (mobile|valid|cell)|invalid|error|couldn'?t|could not|can'?t|unable|try again|failed|incorrect|not recogni[sz]ed|too many)\b")
 # text and call path alike: the page must show a code-entry field or a sent/called text. A bare click or "we are calling you" with no code field never counts.
 _KIND = r"(verification |confirmation |security |sms |text )?code"
-LANDED_TEXT = re.compile(r"(?i)(\b%s (was |has been )?(sent|texted|emailed)\b|\b(we|i)('ve| have)? (sent|texted|emailed)\b[^.?!]{0,40}\bcode|\b(enter|type|input) (in )?(the |your |a |this )?(\d-digit |\d+ digit )?%s|\bcode (field|box|input)\b)" % (_KIND, _KIND))
+_ADV = r"(just |now |already |successfully )?"   # t_6168a061 round 2: "We just sent you a code", "A code was just sent"
+LANDED_TEXT = re.compile(r"(?i)(\b%s (was |has been )?%s(sent|texted|emailed)\b|\b(we|i)(['\u2019]ve| have)? %s(sent|texted|emailed)\b[^.?!]{0,40}\bcode|\b(enter|type|input) (in )?(the |your |a |this )?(\d-digit |\d+ digit )?%s|\bcode (field|box|input)\b)" % (_KIND, _ADV, _ADV, _KIND))
 # t_6168a061: a negation before sent/send/texted ("not sent", "haven't sent", "didn't send") is never a landed signal; that clause is cut before LANDED_TEXT looks.
 # A phrase led by send/get/request/text me ("Send verification code", "Text me a code") matches no landed alternative: a bare `verification code` no longer counts.
-NEGATED_SEND = re.compile(r"(?i)(\b(not|never|no|yet to)\b|n['\u2019]t\b)[^.?!]{0,25}?\b(sent|send|texted|emailed)\b[^.?!]*")
+NEGATED_SEND = re.compile(r"(?i)((\b(not|never)\b|n['\u2019]t\b)(\s+(yet|been|be|have|has|had|was|were|is|are|do|does|did|ever|really|currently))*\s+(sent|send|texted|text|emailed)\b|\byet to (send|text|email)\b|\bno\b[^.?!]{0,25}?\bcode (has been |was |is )?(yet )?(sent|texted|emailed)\b)[^.?!]*")   # only a negation that governs the verb: "No worries, we sent a code" stays landed
 def landed(text): return bool(LANDED_TEXT.search(NEGATED_SEND.sub(" ", text)))
 # t_4ee21e60 rework: ONLY a refusal of the send itself may finish the request failed. Help text on a landed code page ("Didn't receive it? Try again", "Invalid code will lock...")
 # is not a refusal; it refuses `sent` with nothing recorded and the agent quotes only the code text. "too many" counts only when no code field shows.

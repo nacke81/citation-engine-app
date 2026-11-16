@@ -306,7 +306,7 @@ if not ONLY_MUT:
         check("10a button label / negated send is refused (5), nothing recorded, request stays starting [%s]" % t[:40], r == ST.REFUSED and st == "starting", (r, st))
     p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=LIVE_THUMBTACK)
     check("10b the live Thumbtack modal text still records code_sent", r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
-    for t in ("Enter the verification code", "Your verification code was sent", "We texted you a confirmation code", "Type the security code", "Enter the code we sent."):
+    for t in ("Enter the verification code", "Your verification code was sent", "We texted you a confirmation code", "Type the security code", "Enter the code we sent.", "We just sent you a code", "We've just texted you a 6-digit code", "A code was just sent to your phone", "No worries, we sent a code to your phone", "Don't close this window, we texted you a code"):
         p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=t)
         check("10c landed context with a named code is recorded [%s]" % t[:40], r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
     p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Enter the verification code. " + ALIGNABLE_ERR)
@@ -322,6 +322,11 @@ ST.NEGATED_SEND = __import__("re").compile(r"(?!x)x")   # mutation: negation is 
 mut = label_outcomes()
 check("10g MUTATION negation ignored: 'No verification code sent yet' is recorded, so 10a catches it", any(st == "code_sent" for _r, st in mut), mut)
 ST.NEGATED_SEND = orig_neg
+orig_ld4 = ST.LANDED_TEXT
+ST.LANDED_TEXT = __import__("re").compile(orig_ld4.pattern.replace(ST._ADV, ""))   # mutation: the adverb slot is removed
+p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We just sent you a code")
+check("10i MUTATION adverb slot removed: 'We just sent you a code' is refused, so 10c catches it", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting", (r, p.requests[F.RID]["status"]))
+ST.LANDED_TEXT = orig_ld4
 QL = 'Quote ONLY the code-box or code-sent text; do not copy help text like \\"Didn\'t get it? Try again\\" into the evidence, it makes `sent` refuse. '
 mm = mutant(QL, "")
 pm = mm.build_prompt(F.RID, REQ, ROW, ENTRY, TEN, MASK, "x", playbook={"steps": PB.validate_steps(good), "send_is_signup": False, "version": 4})
