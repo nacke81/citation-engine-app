@@ -90,7 +90,7 @@ check("3 NM sms park from queued: verification row + allowlist", r3["verificatio
 # 4 dry run prints the exact portal write and writes nothing
 p4 = nm_queue(); h = sha(p4); n_local = len(local_rows()); fp4 = FP("mapquest.com")
 r4 = T.record_transition("NM", "nm-fix-mapquest", "needs-human", None, "n", queue_path=p4, today=DAY, portal=fp4, verify_type="phone-call", observation=YO.obs("phone-call", DAY), reason_code="phone_verify", dry_run=True, allowlist_path=LOCAL)
-vr = r4["verification_request"]
+vr = r4["verification_request"][0]   # t_fd2f38d0: a list, [POST upsert, PATCH retype] for phone-call
 check("4 dry run: exact citation_verification upsert for the NM client, allowlist plan, snapshot skipped",
       vr["method"] == "POST" and vr["path"] == T.VERIFY_UPSERT_PATH and vr["body"][0]["client_id"] == NM and vr["body"][0]["verification_type"] == "phone-call"
       and r4["allowlist_request"]["tenant"] == "NM" and r4["tenant"]["slug"] == SLUG and str(r4["portal_request"]).startswith("skipped"), r4["verification_request"])
