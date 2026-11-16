@@ -143,7 +143,28 @@ class Portal:
         return rows[0]
 
 
-def write_run(checks, captured_day, portal=None, queue_rows=None, authority=None):
+def count_proof(rows, proof_by_dir=None):
+    """t_9d36198a: {domain: proof} the count basis uses. `proof_by_dir` (injected, tests) replaces the prod read; None reads ce_directory_status
+    (read-only GET) and, when that sink is off (CE_DIRECTORIES_WRITE=0), uses only the queue rows' own proof. A failed read raises
+    PortalWriteError('proof read failed: ...'), which refuses the SCC write: never publish an unproven number. portal_publish logs PORTAL WRITE FAILED with this text."""
+    import transitions as T
+    if proof_by_dir is None:
+        try: proof_by_dir = T.db_proof_by_directory()
+        except Exception as e: raise PortalWriteError("proof read failed: %s: %s" % (type(e).__name__, e))
+    proof = {}
+    for r in rows or []:
+        if r.get("state") == "live" and r.get("directory") and isinstance(r.get("proof"), dict): proof[r["directory"]] = r["proof"]
+    for k, v in (proof_by_dir or {}).items():
+        if not T.proof_problems(v): proof[k] = v
+    return proof
+
+
+def _apply_count_basis(p, rows, proof_by_dir=None):
+    import snapshot as SN, transitions as T
+    return SN.apply_count_basis(p, count_proof(rows, proof_by_dir), T.proof_problems)
+
+
+def write_run(checks, captured_day, portal=None, queue_rows=None, authority=None, proof_by_dir=None):
     """Write both businesses. Validates every id BEFORE the first network call. Returns {biz: readback summary}."""
     by = {b: [c for c in checks if c["biz"] == b] for b in ALLOWED}
     for b in {c["biz"] for c in checks}:
@@ -157,7 +178,9 @@ def write_run(checks, captured_day, portal=None, queue_rows=None, authority=None
         p = build_payload(cs, captured_day)
         if b == "SCC":  # fix/create queue state is shown on SCC only
             import buildqueue
-            p = buildqueue.overlay_directories(p, queue_rows if queue_rows is not None else buildqueue.load_all_rows(), captured_day)
+            qrows = queue_rows if queue_rows is not None else buildqueue.load_all_rows()
+            p = buildqueue.overlay_directories(p, qrows, captured_day)
+            p = _apply_count_basis(p, qrows, proof_by_dir)
         import snapshot as SN
         p = SN.apply_authority(p, authority)   # t_295208a6: Moz DA only (da_source='moz'), else null
         row = portal.upsert_snapshot(ids[b], captured_day, p)

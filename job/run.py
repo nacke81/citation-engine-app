@@ -453,11 +453,11 @@ def moz_step():
         return False
 
 
-def portal_publish(checks, day, portal=None):
+def portal_publish(checks, day, portal=None, proof_by_dir=None):
     """Portal write AFTER the build-DB write. A failure is loud in the run log (PORTAL WRITE FAILED) and never touches build-DB rows."""
     import portal as P
     try:
-        res = P.write_run(checks, day, portal, authority=moz_authority(portal))
+        res = P.write_run(checks, day, portal, authority=moz_authority(portal), proof_by_dir=proof_by_dir)
         print("PORTAL WRITE OK", json.dumps(res), flush=True)
         return True
     except Exception as e:
