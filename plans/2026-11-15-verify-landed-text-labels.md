@@ -14,3 +14,8 @@ No portal write, deploy, or live read.
 - LANDED_TEXT: one optional adverb slot (`just|now|already|successfully`) in the `we sent` and `code (was|has been) sent` forms; curly apostrophe accepted in `we've`.
 - NEGATED_SEND now cuts only a negation that governs the verb: `not/never/n't` + optional auxiliaries/`yet`/`been` + sent/send/texted, `yet to send`, and `no ... code (was|has been)? sent`. "No worries, we sent a code" and "Don't close this window, we texted you a code" stay landed.
 - Tests: 5 more landed strings in 10c; mutation 10i removes the adverb slot and fails 10c's "We just sent you a code".
+
+## Round 3 (Nate ruling, PR #127 head 1742b06)
+- LANDED_TEXT is main's, byte for byte (test 10j pins it). The round 1-2 rewrite is dropped.
+- Two narrow pre-checks in `landed()`: SEND_LABEL_ONLY drops a segment that is only a send label (Send/Resend/Text me/Call me/Get/Request ... code, no past-tense verb); NEGATED_SEND cuts a clause a negation directly governs (not/never/n't + aux + sent/send/texted/received, `yet to send`, `no <X> code (was) sent`), ending at . ? ! ;.
+- Tests: 10c lists every landed string from both review rounds that main records; 10a adds "No code has been sent yet", "We didn't send a code", "Resend code"; mutations 10f (label pre-check removed), 10g (negation removed), 10i (generic `sent ... code` form dropped). "A code was just sent" is refused by main too, so it is not claimed.

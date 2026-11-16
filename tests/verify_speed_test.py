@@ -293,7 +293,8 @@ if not ONLY_MUT:
     check("9c a queued row clicked 500 s ago still arms (go); the same row at 541 s is stopped: the window is the click's, as the portal shows it", arm_gate(True, 500)[0] == 0 and arm_gate(True, 541)[0] == ST.REFUSED)
 
 # ---- 10 t_6168a061: a send button label or a negated send is not a landed send; the prompt keeps the quote-only line -------------------------------
-NOT_LANDED = ["Send verification code", "Get verification code", "We have not sent a code yet", "Text me a code", "Get code", "No verification code sent yet", "We haven't sent a code. Request a security code"]
+MAIN_LANDED_PATTERN = r"(?i)(code (was |has been )?(sent|texted|emailed)|\b(sent|texted)\b[^.?!]{0,40}\bcode|verification code|enter (the |your |a )?(\d-digit )?code|confirmation code|security code|code (field|box|input))"
+NOT_LANDED = ["Send verification code", "Get verification code", "We have not sent a code yet", "Text me a code", "Get code", "No verification code sent yet", "We haven't sent a code. Request a security code", "No code has been sent yet", "We didn't send a code", "Resend code"]
 LIVE_THUMBTACK = "Enter the verification code we texted you. / The code will expire after 10 minutes. / Didn\u2019t get the code? / Back / Verify"
 def label_outcomes():
     out = []
@@ -306,27 +307,30 @@ if not ONLY_MUT:
         check("10a button label / negated send is refused (5), nothing recorded, request stays starting [%s]" % t[:40], r == ST.REFUSED and st == "starting", (r, st))
     p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=LIVE_THUMBTACK)
     check("10b the live Thumbtack modal text still records code_sent", r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
-    for t in ("Enter the verification code", "Your verification code was sent", "We texted you a confirmation code", "Type the security code", "Enter the code we sent.", "We just sent you a code", "We've just texted you a 6-digit code", "A code was just sent to your phone", "No worries, we sent a code to your phone", "Don't close this window, we texted you a code"):
+    for t in ("Enter the verification code", "Your verification code was sent", "We texted you a confirmation code", "Type the security code", "Enter the code we sent.", "We just sent you a code", "We've just texted you a 6-digit code", "No worries, we sent a code to your phone", "Don't close this window, we texted you a code",
+              "A text message has been sent to your phone with a verification code", "SMS sent with your code", "Thumbtack sent a code to your phone", "No problem, a code was sent to your phone",
+              "Do not send this code to anyone; enter the code we texted you", "Send verification code. Enter the verification code we texted you"):
         p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=t)
         check("10c landed context with a named code is recorded [%s]" % t[:40], r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
     p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Enter the verification code. " + ALIGNABLE_ERR)
     check("10d Alignable 'not a mobile phone' still ends failed/send_failed", p.requests[F.RID]["status"] == "failed" and p.requests[F.RID].get("fail_code") == "send_failed", p.requests[F.RID]["status"])
     check("10e the prompt carries the 'Quote ONLY the code-box or code-sent text' line (sign-in and marked variants)", "Quote ONLY the code-box or code-sent text" in p_strict and "Quote ONLY the code-box or code-sent text" in p_flag)
-orig_ld3 = ST.LANDED_TEXT
-ST.LANDED_TEXT = __import__("re").compile(r"(?i)(verification code|" + orig_ld3.pattern[len("(?i)"):] + ")")   # mutation: the bare `verification code` alternative is back
+orig_lab = ST.SEND_LABEL_ONLY
+ST.SEND_LABEL_ONLY = __import__("re").compile(r"(?!x)x")   # mutation: the send-label pre-check is removed (main's LANDED_TEXT then takes the bare `verification code`)
 mut = label_outcomes()
-check("10f MUTATION bare `verification code` alternative restored: 'Send verification code' / 'Get verification code' are recorded, so 10a catches it", any(st == "code_sent" for _r, st in mut), mut)
-ST.LANDED_TEXT = orig_ld3
+check("10f MUTATION send-label pre-check removed: 'Send verification code' / 'Get verification code' are recorded, so 10a catches it", any(st == "code_sent" for _r, st in mut), mut)
+ST.SEND_LABEL_ONLY = orig_lab
 orig_neg = ST.NEGATED_SEND
 ST.NEGATED_SEND = __import__("re").compile(r"(?!x)x")   # mutation: negation is ignored
 mut = label_outcomes()
 check("10g MUTATION negation ignored: 'No verification code sent yet' is recorded, so 10a catches it", any(st == "code_sent" for _r, st in mut), mut)
 ST.NEGATED_SEND = orig_neg
 orig_ld4 = ST.LANDED_TEXT
-ST.LANDED_TEXT = __import__("re").compile(orig_ld4.pattern.replace(ST._ADV, ""))   # mutation: the adverb slot is removed
-p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="We just sent you a code")
-check("10i MUTATION adverb slot removed: 'We just sent you a code' is refused, so 10c catches it", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting", (r, p.requests[F.RID]["status"]))
+ST.LANDED_TEXT = __import__("re").compile(r"(?i)(code (was |has been )?(sent|texted|emailed)|code (field|box|input))")   # mutation: main's generic `sent ... code` form dropped
+p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="SMS sent with your code")
+check("10i MUTATION generic `sent ... code` form dropped from LANDED_TEXT: 'SMS sent with your code' is refused, so 10c catches it", r == ST.REFUSED and p.requests[F.RID]["status"] == "starting", (r, p.requests[F.RID]["status"]))
 ST.LANDED_TEXT = orig_ld4
+check("10j LANDED_TEXT is main's, unchanged", ST.LANDED_TEXT.pattern == MAIN_LANDED_PATTERN)
 QL = 'Quote ONLY the code-box or code-sent text; do not copy help text like \\"Didn\'t get it? Try again\\" into the evidence, it makes `sent` refuse. '
 mm = mutant(QL, "")
 pm = mm.build_prompt(F.RID, REQ, ROW, ENTRY, TEN, MASK, "x", playbook={"steps": PB.validate_steps(good), "send_is_signup": False, "version": 4})

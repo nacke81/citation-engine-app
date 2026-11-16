@@ -115,13 +115,15 @@ def step_arm(request_id, portal, now_dt=None, sleep=time.sleep):
 EVIDENCE_MAX = 300
 ERROR_TEXT = re.compile(r"(?i)\b(not a (mobile|valid|cell)|invalid|error|couldn'?t|could not|can'?t|unable|try again|failed|incorrect|not recogni[sz]ed|too many)\b")
 # text and call path alike: the page must show a code-entry field or a sent/called text. A bare click or "we are calling you" with no code field never counts.
-_KIND = r"(verification |confirmation |security |sms |text )?code"
-_ADV = r"(just |now |already |successfully )?"   # t_6168a061 round 2: "We just sent you a code", "A code was just sent"
-LANDED_TEXT = re.compile(r"(?i)(\b%s (was |has been )?%s(sent|texted|emailed)\b|\b(we|i)(['\u2019]ve| have)? %s(sent|texted|emailed)\b[^.?!]{0,40}\bcode|\b(enter|type|input) (in )?(the |your |a |this )?(\d-digit |\d+ digit )?%s|\bcode (field|box|input)\b)" % (_KIND, _ADV, _ADV, _KIND))
-# t_6168a061: a negation before sent/send/texted ("not sent", "haven't sent", "didn't send") is never a landed signal; that clause is cut before LANDED_TEXT looks.
-# A phrase led by send/get/request/text me ("Send verification code", "Text me a code") matches no landed alternative: a bare `verification code` no longer counts.
-NEGATED_SEND = re.compile(r"(?i)((\b(not|never)\b|n['\u2019]t\b)(\s+(yet|been|be|have|has|had|was|were|is|are|do|does|did|ever|really|currently))*\s+(sent|send|texted|text|emailed)\b|\byet to (send|text|email)\b|\bno\b[^.?!]{0,25}?\bcode (has been |was |is )?(yet )?(sent|texted|emailed)\b)[^.?!]*")   # only a negation that governs the verb: "No worries, we sent a code" stays landed
-def landed(text): return bool(LANDED_TEXT.search(NEGATED_SEND.sub(" ", text)))
+LANDED_TEXT = re.compile(r"(?i)(code (was |has been )?(sent|texted|emailed)|\b(sent|texted)\b[^.?!]{0,40}\bcode|verification code|enter (the |your |a )?(\d-digit )?code|confirmation code|security code|code (field|box|input))")
+# t_6168a061 (round 3, Nate ruling): LANDED_TEXT above is main's, unchanged, so every landed text main records stays recorded. Two narrow pre-checks refuse only the card's false positives.
+# (a) a segment (split at . ? ! ; / | newline) that is only a send-control label (Send/Resend/Text me/Call me/Get/Request ... code, no past-tense verb) is a click, not a send.
+SEND_LABEL_ONLY = re.compile(r"(?i)^\W*(send|resend|text me|call me|get|request)\b(?:(?!\b(sent|texted|called|emailed|received)\b)[\w'\u2019 -]){0,40}\bcodes?\W*$")
+# (b) a negation that directly governs the send verb (not/never/n't + optional auxiliaries + sent/send/texted/received, `yet to send`, `no <X> code (was) sent`) cuts its clause (to . ? ! ;) before the search.
+NEGATED_SEND = re.compile(r"(?i)((\b(not|never)\b|n['\u2019]t\b)(\s+(yet|been|be|have|has|had|was|were|is|are|do|does|did|ever|really|currently))*\s+(sent|send|texted|text|emailed|received)\b|\byet to (send|text|email)\b|\bno (verification |confirmation |security |sms |text )?codes? (has been |was |is )?(yet )?(sent|texted|emailed|received)\b)[^.?!;]*")
+def landed(text):
+    kept = [seg for seg in re.split(r"[.?!;\n/|]+", text) if not SEND_LABEL_ONLY.search(seg.strip())]   # a segment that is only a send label is dropped; the rest is searched
+    return bool(LANDED_TEXT.search(NEGATED_SEND.sub(" ", ". ".join(kept))))
 # t_4ee21e60 rework: ONLY a refusal of the send itself may finish the request failed. Help text on a landed code page ("Didn't receive it? Try again", "Invalid code will lock...")
 # is not a refusal; it refuses `sent` with nothing recorded and the agent quotes only the code text. "too many" counts only when no code field shows.
 SEND_REFUSAL = re.compile(r"(?i)\b(not an? (mobile|valid|cell)( phone)?( number)?|invalid (phone|number)|(couldn'?t|could not|unable to|failed to) send)\b")
