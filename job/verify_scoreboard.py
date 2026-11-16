@@ -129,6 +129,29 @@ def set_note(rid, text):
         _log("note skipped: %s" % type(e).__name__); return False
 
 
+REFUSAL_MAX = 300
+
+
+def set_refusal(rid, text):
+    """t_4ee21e60: the page text shown when the Directory refused the send (e.g. 'The number entered is not a mobile phone.'), kept in the stage file
+    and copied into the scoreboard row. The caller validates the text. -> bool."""
+    try:
+        rid = _clean_rid(rid)
+        if not rid or not isinstance(text, str): return False
+        f = _stage_file(rid)
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        cur = {}
+        if os.path.exists(f):
+            with open(f, encoding="utf-8") as h: cur = json.load(h)
+        cur["refusal_text"] = text[:REFUSAL_MAX]
+        tmp = f + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as h: json.dump(cur, h)
+        os.replace(tmp, f)
+        return True
+    except Exception as e:
+        _log("refusal skipped: %s" % type(e).__name__); return False
+
+
 def take_note(rid):
     """Read the note once and drop what is left of the stage file (a finalized `verified` run leaves only the note). -> text or None."""
     try:
@@ -158,6 +181,7 @@ def finalize(rid, outcome, at=None):
         row["verified_at"] = _at(at) if str(outcome) == "verified" else None
         row["outcome"] = str(outcome)
         row["send_mode"] = cur.get("send_mode")
+        if cur.get("refusal_text"): row["refusal_text"] = cur["refusal_text"]   # t_4ee21e60: the page text the Directory showed when the send was refused
         p = path()
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "a", encoding="utf-8") as h: h.write(json.dumps(row, separators=(",", ":")) + "\n")

@@ -239,10 +239,22 @@ def clear_started(rid):
     except OSError: pass
 
 
+def _vault_marker(rid): return os.path.join(lock_dir(), "vault-ok-%s" % rid)
+
+
+def mark_vault_ok(rid):
+    """t_4ee21e60: the send run's vault identity check (the login item exists and its username is the expected listings address) passed. The agent starts before
+    this check ends (it is the slowest step of the start); `verify_step.py arm` refuses to go until this marker exists."""
+    with open(_vault_marker(rid), "wb"): pass
+
+
+def vault_ok(rid): return os.path.exists(_vault_marker(rid))
+
+
 def prune_markers(max_age_s=86400):
     d = lock_dir()
     for n in os.listdir(d):
-        if n.startswith("started-"):
+        if n.startswith(("started-", "vault-ok-")):
             try:
                 if time.time() - os.path.getmtime(os.path.join(d, n)) > max_age_s: os.remove(os.path.join(d, n))
             except OSError: pass
@@ -529,17 +541,47 @@ def run_check(portal=None, out=print):
     return 0
 
 
+LOOP_MAX_S = 300   # a loop longer than this is a typo, not a setting
+
+
+def run_loop(loop_s, every_s, passer=None, sleep=time.sleep, clock=time.monotonic):
+    """t_4ee21e60: several passes inside one scheduled tick. The 60 s task tick alone cost up to 60 s per click (measured pickup 32-45 s); a pass every
+    `every_s` brings that to <= every_s. Passes start at 0, every_s, 2*every_s ... while they fit in `loop_s`, so the next tick (MultipleInstancesPolicy
+    IgnoreNew drops one that lands on a running pass) finds the task free. A pass that raises ends the loop (the caller reports it). -> list of pass results."""
+    passer = passer or run_pass
+    loop_s, every_s = min(float(loop_s), LOOP_MAX_S), max(1.0, float(every_s))
+    t0 = clock(); out = []
+    while True:
+        out.append(passer())
+        nxt = t0 + every_s * len(out)
+        if nxt - t0 > loop_s: break
+        wait = nxt - clock()
+        if wait > 0: sleep(wait)
+    return out
+
+
+def _arg(argv, name, default):
+    if name in argv:
+        i = argv.index(name)
+        try: return float(argv[i + 1])
+        except (IndexError, ValueError): raise SystemExit("bad %s" % name)
+    return default
+
+
 def main(argv=None):
-    if "--check" in (argv if argv is not None else sys.argv[1:]):
+    argv = list(argv if argv is not None else sys.argv[1:])
+    if "--check" in argv:
         try: return run_check()
         except Exception as e:
             print("VERIFY DIRECTORIES CHECK FAILED: " + type(e).__name__, file=sys.stderr, flush=True); return 1
     try:
-        r = run_pass()
+        loop_s, every_s = _arg(argv, "--loop-s", 0), _arg(argv, "--every-s", 15)
+        results = run_loop(loop_s, every_s)
     except Exception as e:
         print("VERIFY BRIDGE FAILED: " + type(e).__name__, file=sys.stderr, flush=True)
         return 1
-    print("VERIFY BRIDGE OK swept=%d started=%d refused=%d deferred=%d first_use=%d" % (len(r["swept"]), len(r["started"]), len(r["refused"]), len(r["deferred"]), len(r["first_use"])), flush=True)
+    for r in results:
+        print("VERIFY BRIDGE OK swept=%d started=%d refused=%d deferred=%d first_use=%d" % (len(r["swept"]), len(r["started"]), len(r["refused"]), len(r["deferred"]), len(r["first_use"])), flush=True)
     return 0
 
 

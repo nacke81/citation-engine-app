@@ -2,7 +2,8 @@
 process reads it from the portal env pointer, the agent only sees stdout and the exit code).
 
   python job/verify_step.py arm    --request-id X                                 pre-send fence, run right BEFORE the send click: nonzero (5) = STOP, do not click
-  python job/verify_step.py sent   --request-id X --masked "(629) ***-2578"   the code was just sent to that number
+  python job/verify_step.py sent   --request-id X --masked "(629) ***-2578" --evidence "<page text>"   the code was just sent to that number; the evidence is the short page text after the click (code box / code-sent text, no error). Missing evidence = refused (5)
+  python job/verify_step.py fail   --request-id X --reason directory_refused_phone --evidence "<page text>"   the Directory refused the send: the request ends failed, the text is kept in the stage file
   python job/verify_step.py code   --request-id X [--wait-s 540]               waits up to --wait-s (max 540) per call, prints the code ONLY on stdout
   python job/verify_step.py result --request-id X --outcome accepted|rejected  the Directory accepted or rejected the typed code
   python job/verify_step.py stage  --request-id X --name signed_in             scoreboard: the sign-in just finished (before the send)
@@ -84,12 +85,21 @@ def _late_reopen(portal, request_id, now_dt=None):
         log("late_sent failed: %s" % type(e).__name__); return None, None
 
 
-def step_arm(request_id, portal, now_dt=None):
+VAULT_WAIT_S, VAULT_POLL_S = 120, 2
+
+
+def step_arm(request_id, portal, now_dt=None, sleep=time.sleep):
     """t_c6eee3cb pre-send fence: the agent runs this immediately before the send click. 0 = go; REFUSED (5) = STOP, do not click: the request is not
     `starting` (swept, superseded, already sent), fails the bridge fence, has no readable requested_at, or is past SWEEP_AFTER_S - ARM_MARGIN_S (540 s) old
     (the portal shows could_not_start from SWEEP_AFTER_S = its START_LIMIT_MS, so a later send is a text the client was told never started). Read-only: no stamp, no RPC."""
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
+    waited = 0   # t_4ee21e60: the agent starts while the send run still checks the vault item; no send until that check passed (it fails closed and kills the agent)
+    while not B.vault_ok(request_id):
+        if waited >= VAULT_WAIT_S: log("arm refused %s: the vault identity check has not passed" % request_id); return REFUSED
+        sleep(VAULT_POLL_S); waited += VAULT_POLL_S
+        req, _row = _claimed(portal, request_id, ("starting",))   # the check may have failed and closed the request meanwhile
+        if not req: return REFUSED
     t0 = B._parse(req.get("requested_at"))
     if t0 is None:
         log("arm refused %s: no requested_at" % request_id); return REFUSED
@@ -102,7 +112,50 @@ def step_arm(request_id, portal, now_dt=None):
     return OK
 
 
-def step_sent(request_id, masked, portal, rpc, now_dt=None):
+EVIDENCE_MAX = 300
+ERROR_TEXT = re.compile(r"(?i)\b(not a (mobile|valid|cell)|invalid|error|couldn'?t|could not|can'?t|unable|try again|failed|incorrect|not recogni[sz]ed|too many)\b")
+# text and call path alike: the page must show a code-entry field or a sent/called text. A bare click or "we are calling you" with no code field never counts.
+LANDED_TEXT = re.compile(r"(?i)(code (was |has been )?sent|(we|i)('ve| have)? (sent|texted|called)|texted (you|a)|called (you|your)|verification code|enter (the |your |a )?(\d-digit )?code|enter the code|confirmation code|security code|code (field|box|input))")
+NO_ERROR_PHRASE = re.compile(r"(?i)\b(no|without|not any|zero) (visible |inline )?(error|errors|error text|error message|error messages)\b")   # an agent's own "no error" report is not an error
+FAIL_REASONS = {"directory_refused_phone": "send_failed", "send_failed": "send_failed"}
+
+
+def clean_evidence(text):
+    """t_4ee21e60: -> (one-line page text, None) or (None, why). Short, no value in it (email, phone, 6+ digit run, code assignment)."""
+    import playbook as PB
+    if not isinstance(text, str): return None, "missing"
+    t = re.sub(r"\s+", " ", text).strip()
+    if not t: return None, "missing"
+    if len(t) > EVIDENCE_MAX: return None, "too long"
+    try: PB._check_text("evidence", t.replace("{", "(").replace("}", ")"))
+    except PB.PlaybookError: return None, "carries a value"
+    return t, None
+
+
+def step_fail(request_id, reason, evidence, portal, rpc):
+    """t_4ee21e60: the Directory refused the send (an error shows near the phone field). Stores the page text, finishes the request failed/send_failed so the
+    portal shows a failed row and no code box. Only while the request is `starting` (nothing was recorded as sent). -> OK | REFUSED | BAD_ARGS."""
+    if reason not in FAIL_REASONS: return BAD_ARGS
+    text, why = clean_evidence(evidence)
+    if text is None: log("fail refused: evidence %s" % why); return BAD_ARGS
+    req, _row = _claimed(portal, request_id, ("starting",))
+    if not req: return REFUSED
+    SB.set_refusal(request_id, text)
+    try: rpc.finish(request_id, "failed", FAIL_REASONS[reason])
+    except B.BridgeError as e:
+        log(str(e)); return REFUSED
+    log("fail recorded for %s: %s" % (request_id, reason))
+    return OK
+
+
+def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):
+    """t_4ee21e60: `sent` needs page evidence that the send LANDED (a code box or a 'code sent' text) and no error text. No evidence, evidence that carries a
+    value, evidence without a landed signal = REFUSED (nothing recorded). Evidence that reads as an error = the failure path (request finished failed)."""
+    text, why = clean_evidence(evidence)
+    if text is None: log("sent refused: evidence %s" % why); return REFUSED
+    if ERROR_TEXT.search(NO_ERROR_PHRASE.sub(" ", text)):
+        log("sent refused: the page shows an error; recording the refusal"); step_fail(request_id, "directory_refused_phone", text, portal, rpc); return REFUSED
+    if not LANDED_TEXT.search(text): log("sent refused: evidence shows no code box or code-sent text"); return REFUSED
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req and B.MASK_RE.match(str(masked or "")): req, _row = _late_reopen(portal, request_id, now_dt)   # t_c6eee3cb (b): a real send after the sweep still reaches the code box
     if not req: return REFUSED
@@ -299,13 +352,14 @@ def _closed_by_portal(portal, request_id):
 def main(argv=None, portal=None, rpc=None, out=None):
     a = argparse.ArgumentParser(description="Verify Now agent helper")
     sub = a.add_subparsers(dest="cmd", required=True)
-    for name in ("arm", "sent", "code", "result", "stage", "trace", "note"):
+    for name in ("arm", "sent", "code", "result", "stage", "trace", "note", "fail"):
         s = sub.add_parser(name); s.add_argument("--request-id", required=True)
         if name == "stage": s.add_argument("--name", required=True, choices=tuple(STAGE_NAMES))
         if name == "trace":
             s.add_argument("--action", required=True, choices=TRACE_ACTIONS); s.add_argument("--url", required=True); s.add_argument("--selector", default="")
         if name == "note": s.add_argument("--text", required=True)
-        if name == "sent": s.add_argument("--masked", required=True)
+        if name == "sent": s.add_argument("--masked", required=True); s.add_argument("--evidence", default=None)   # t_4ee21e60: missing = refused by step_sent, not an argparse error
+        if name == "fail": s.add_argument("--reason", required=True, choices=tuple(FAIL_REASONS)); s.add_argument("--evidence", required=True)
         if name == "code": s.add_argument("--wait-s", type=int, default=WAIT_DEFAULT_S)
         if name == "result": s.add_argument("--outcome", required=True, choices=("accepted", "rejected"))
     try:
@@ -319,7 +373,8 @@ def main(argv=None, portal=None, rpc=None, out=None):
         log("portal env unavailable: %s" % type(e).__name__); return REFUSED
     rpc = rpc or B.VerifyRpc(portal)
     if n.cmd == "arm": return step_arm(n.request_id, portal)
-    if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc)
+    if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc, evidence=n.evidence)
+    if n.cmd == "fail": return step_fail(n.request_id, n.reason, n.evidence, portal, rpc)
     if n.cmd == "stage": return step_stage(n.request_id, n.name, portal)
     if n.cmd == "note": return step_note(n.request_id, n.text, portal)
     if n.cmd == "trace": return step_trace(n.request_id, n.action, n.url, n.selector, portal)

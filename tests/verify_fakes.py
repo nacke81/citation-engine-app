@@ -180,6 +180,7 @@ class FakeRuntime:
     def vault_fill(self, tenant, url, cdp): self.vault_fills += 1; return True
     def login_username(self, tenant):
         import verify_send as S
+        if not self.vault_ok: return None   # t_4ee21e60: the one vault read (lookup-only is gone from the agent path)
         return self.username if self.username is not None else S.EXPECTED_LOGIN[tenant[0]]
     def business_phone_masked(self, tenant): return "(502) ***-0101"
     def write_prompt(self, request_id, text):
@@ -214,3 +215,17 @@ class FakeAgent:
         if self.steps: self.steps.pop(0)()
         return None if (self.steps or self.hang) else 0
     def kill(self): self.kills += 1
+
+
+EVIDENCE = "The page shows a box to enter the verification code we texted you."
+
+
+def default_evidence(ST):
+    """t_4ee21e60: `sent` now needs page evidence. Older suites that exercise the rest of the flow call step_sent without it; this wraps the module's
+    step_sent so they pass a clean one. The evidence rules themselves are tested in tests/verify_speed_test.py against the unwrapped function."""
+    orig = getattr(ST.step_sent, "_orig", ST.step_sent)
+    def wrapped(*a, **kw):
+        kw.setdefault("evidence", EVIDENCE)
+        return orig(*a, **kw)
+    wrapped._orig = orig
+    ST.step_sent = wrapped
