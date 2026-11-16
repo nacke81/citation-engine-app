@@ -116,6 +116,18 @@ EVIDENCE_MAX = 300
 ERROR_TEXT = re.compile(r"(?i)\b(not a (mobile|valid|cell)|invalid|error|couldn'?t|could not|can'?t|unable|try again|failed|incorrect|not recogni[sz]ed|too many)\b")
 # text and call path alike: the page must show a code-entry field or a sent/called text. A bare click or "we are calling you" with no code field never counts.
 LANDED_TEXT = re.compile(r"(?i)(code (was |has been )?(sent|texted|emailed)|\b(sent|texted)\b[^.?!]{0,40}\bcode|verification code|enter (the |your |a )?(\d-digit )?code|confirmation code|security code|code (field|box|input))")
+# t_6168a061 (round 4, Nate ruling): LANDED_TEXT above is main's, unchanged. landed() splits the evidence into clauses and drops a clause that is a click, a future promise, or a negated send; the rest is searched.
+CLAUSE = re.compile(r"[.?!;,\n/|]+|\s[-\u2013\u2014]+\s")
+# a clause that starts with a send control (optionally "I clicked/tapped ...") names a button, not a landed send
+SEND_CONTROL = re.compile(r"(?i)^\W*(?:(?:i |we )?(?:click(?:ed)?|tap(?:ped)?|press(?:ed)?|hit)\s+(?:the\s+|on\s+)?['\"\u201c\u2018]?\s*)?(send|resend|text me|call me|get|request)\b")
+# pre-click copy ("We'll send a verification code") is a promise, not a send
+FUTURE_SEND = re.compile(r"(?i)(\bwill|['\u2019]ll|\bgoing to)\s+(now\s+)?(send|text|email|call)\b")
+PAST = re.compile(r"(?i)\b(sent|texted|called|emailed|received)\b")
+# a negation that directly governs the send verb (not/never/n't + optional auxiliaries + sent/send/texted/received, `yet to send`, `no <X> code (was) sent`)
+NEGATED_SEND = re.compile(r"(?i)((\b(not|never)\b|n['\u2019]t\b)(\s+(yet|been|be|have|has|had|was|were|is|are|do|does|did|ever|really|currently))*\s+(sent|send|texted|text|emailed|received)\b|\byet to (send|text|email)\b|\bno (verification |confirmation |security |sms |text )?codes? (has been |was |is )?(yet )?(sent|texted|emailed|received)\b)")
+def landed(text):
+    kept = [c for c in CLAUSE.split(text) if not (NEGATED_SEND.search(c) or ((SEND_CONTROL.search(c) or FUTURE_SEND.search(c)) and not PAST.search(c)))]
+    return bool(LANDED_TEXT.search(". ".join(kept)))
 # t_4ee21e60 rework: ONLY a refusal of the send itself may finish the request failed. Help text on a landed code page ("Didn't receive it? Try again", "Invalid code will lock...")
 # is not a refusal; it refuses `sent` with nothing recorded and the agent quotes only the code text. "too many" counts only when no code field shows.
 SEND_REFUSAL = re.compile(r"(?i)\b(not an? (mobile|valid|cell)( phone)?( number)?|invalid (phone|number)|(couldn'?t|could not|unable to|failed to) send)\b")
@@ -158,12 +170,12 @@ def step_sent(request_id, masked, portal, rpc, now_dt=None, evidence=None):
     text, why = clean_evidence(evidence)
     if text is None: log("sent refused: evidence %s" % why); return REFUSED
     clean = NO_ERROR_PHRASE.sub(" ", text)
-    if SEND_REFUSAL.search(clean) or (TOO_MANY.search(clean) and not LANDED_TEXT.search(clean)):
+    if SEND_REFUSAL.search(clean) or (TOO_MANY.search(clean) and not landed(clean)):
         log("sent refused: the page refuses the send; recording the refusal"); step_fail(request_id, "directory_refused_phone", text, portal, rpc); return REFUSED
     if ERROR_TEXT.search(clean):
         log("sent refused: the evidence has an error word but not a send refusal; nothing recorded. If the page shows a real error near the phone field run `fail`; "
             "if the send landed, run `sent` again quoting only the code-box or code-sent text"); return REFUSED
-    if not LANDED_TEXT.search(text): log("sent refused: evidence names no code field or code-sent text"); return REFUSED
+    if not landed(text): log("sent refused: evidence names no code field or code-sent text"); return REFUSED
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req and B.MASK_RE.match(str(masked or "")): req, _row = _late_reopen(portal, request_id, now_dt)   # t_c6eee3cb (b): a real send after the sweep still reaches the code box
     if not req: return REFUSED
