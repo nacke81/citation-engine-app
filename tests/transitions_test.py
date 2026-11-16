@@ -186,7 +186,24 @@ check("T12 re-park: every upsert is ignore-duplicates (existing deadline and liv
       len(posts) == 2 and all("ignore-duplicates" in pr and "merge-duplicates" not in pr for _, pr in posts))
 p, rid, d = fresh("submitted"); fp = portal_with(d); b0 = open(p, "rb").read()
 r = rec(p, rid, "needs-human", fp=fp, verify_type="postcard", dry_run=True)
-check("T11 dry run shows verification request, writes nothing", open(p, "rb").read() == b0 and not fp.calls and r["verification_request"]["body"][0]["deadline"] == "2026-11-19")
+check("T11 dry run shows verification request, writes nothing", open(p, "rb").read() == b0 and not fp.calls and r["verification_request"][0]["body"][0]["deadline"] == "2026-11-19" and len(r["verification_request"]) == 1)
+# t_fd2f38d0: dry run lists the retype PATCH the write sends (one builder), postcard has none, the PATCH clears the postcard/id-check-only fields
+for vt in ("sms", "phone-call"):
+    p, rid, d = fresh("submitted"); fpw = portal_with(d); rec(p, rid, "needs-human", fp=fpw, verify_type=vt)
+    p, rid, d = fresh("submitted"); fpd = portal_with(d); b0 = open(p, "rb").read()
+    r = rec(p, rid, "needs-human", fp=fpd, verify_type=vt, dry_run=True)
+    vr, wcalls = r["verification_request"], vcalls(fpw)
+    strip = lambda b: {k: v for k, v in b.items() if k != "updated_at"}   # updated_at is the call time
+    check("T15 %s dry run: [POST upsert, PATCH retype], same path and body as the write" % vt,
+          isinstance(vr, list) and [v["method"] for v in vr] == ["POST", "PATCH"] and len(wcalls) == 2 and [c[0] for c in wcalls] == ["POST", "PATCH"]
+          and vr[0]["path"] == wcalls[0][1] and vr[0]["body"] == wcalls[0][2] and vr[1]["path"] == wcalls[1][1] and strip(vr[1]["body"]) == strip(wcalls[1][2])
+          and vr[1]["body"]["updated_at"] and "verification_type=neq." + vt in vr[1]["path"] and "state=eq.requires_verification" in vr[1]["path"])
+    check("T15 %s retype PATCH body: type + deadline/steps/directory_url set to null" % vt,
+          vr[1]["body"]["verification_type"] == vt and all(k in vr[1]["body"] and vr[1]["body"][k] is None for k in ("deadline", "steps", "directory_url")))
+    check("T15 %s dry run writes nothing" % vt, open(p, "rb").read() == b0 and not fpd.calls)
+p, rid, d = fresh("submitted"); fp = portal_with(d)
+r = rec(p, rid, "needs-human", fp=fp, verify_type="postcard", dry_run=True)
+check("T15 postcard dry run: POST only, no PATCH", [v["method"] for v in r["verification_request"]] == ["POST"])
 
 # t_ac6e82a6: golden copy + approval
 for st in T.ACTIVITY_STATES:
@@ -327,9 +344,9 @@ for label, kw, state in (("unknown reason", dict(park_reason="whatever"), "submi
 for vt in ("phone-call", "sms"):
     p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type=vt)
     pv = [c for c in vcalls(fp) if c[0] == "PATCH"]
-    check("T14 %s park: one scoped retype PATCH (client + directory + requires_verification + type differs), type and updated_at only" % vt,
+    check("T14 %s park: one scoped retype PATCH (client + directory + requires_verification + type differs), type and updated_at set, deadline/steps/directory_url nulled" % vt,
           len(pv) == 1 and ("client_id=eq." + SCC) in pv[0][1] and ("directory=eq." + d) in pv[0][1] and "state=eq.requires_verification" in pv[0][1]
-          and ("verification_type=neq." + vt) in pv[0][1] and set(pv[0][2]) == {"verification_type", "updated_at"} and pv[0][2]["verification_type"] == vt)
+          and ("verification_type=neq." + vt) in pv[0][1] and set(pv[0][2]) == {"verification_type", "updated_at", "deadline", "steps", "directory_url"} and pv[0][2]["deadline"] is None and pv[0][2]["steps"] is None and pv[0][2]["directory_url"] is None and pv[0][2]["verification_type"] == vt)
 p, rid, d = fresh("submitted"); fp = portal_with(d); rec(p, rid, "needs-human", fp=fp, verify_type="postcard")
 check("T14 postcard park: no retype PATCH (deadline and steps untouched)", not [c for c in vcalls(fp) if c[0] == "PATCH"])
 p, rid, d = fresh("submitted"); fp = portal_with(d); b0 = open(p, "rb").read()

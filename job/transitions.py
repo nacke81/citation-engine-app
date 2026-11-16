@@ -441,8 +441,20 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
 
 
 def retype_path(client_id, directory, verify_type):
-    """t_5148d0b9: PATCH scope for a re-park that changes sms <-> phone-call: this client + directory, still requires_verification, type differs."""
+    """t_5148d0b9: PATCH scope for a re-park to sms/phone-call over a row of any other type: this client + directory, still requires_verification, type differs."""
     return "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification&verification_type=neq.%s" % (client_id, directory, verify_type)
+
+
+RETYPE_CLEARS = ("deadline", "steps", "directory_url")   # t_fd2f38d0: postcard/id-check-only columns; all nullable in the portal schema
+
+
+def retype_request(client_id, directory, verify_type, now=None):
+    """t_fd2f38d0: the ONE builder of the retype PATCH (path, body), used by the write and the dry run so they cannot drift.
+    A row retyped to sms/phone-call also loses the postcard/id-check-only fields build_verification_record never sets for it."""
+    t = (now or datetime.datetime.now(datetime.timezone.utc)).isoformat()
+    body = {"verification_type": verify_type, "updated_at": t}
+    body.update({k: None for k in RETYPE_CLEARS})
+    return retype_path(client_id, directory, verify_type), body
 
 
 def set_verification_live(portal, verification_id, client_id, now=None):
@@ -562,7 +574,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
         out["activities_request"] = ({"method": "POST", "path": "deliverables?on_conflict=client_id,source_ref", "body": [rec]} if use_act
                                      else "skipped: %s=0 or state %s is not client news" % (FLAG, new_state))
         out["verification_request"] = (
-            {"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]} if ver_rec else
+            ([{"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]}] + (   # t_fd2f38d0: a list; sms/phone-call add the retype PATCH the write also sends
+                [dict(zip(("method", "path", "body"), ("PATCH",) + retype_request(client_id, row["directory"], verify_type)))] if verify_type in AL.AUTO_TYPES else [])) if ver_rec else
             {"method": "PATCH", "path": ver_patch_path, "body": {"state": "live", "verified_at": "<now>"}} if new_state == "live"
             else "skipped: no verification step")
         out["allowlist_request"] = ({"directory": row["directory"], "channel": verify_type, "tenant": client, "vault_item": vault_item or "<resolved from the vault at write time; no guess>"}
@@ -612,8 +625,8 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             ver = verification or portal or P.Portal(*P.load_portal_env())
             if ver_rec:
                 ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=ignore-duplicates,return=minimal")  # existing row untouched: no deadline restart, a live row is not flipped back
-                if verify_type in AL.AUTO_TYPES:   # t_5148d0b9: ignore-duplicates left an existing row's type stale (a25e00ff stayed sms after a phone-call re-park). Retype only a still-waiting row whose type differs; deadline, parked_at and live rows stay untouched.
-                    ver.call("PATCH", retype_path(client_id, row["directory"], verify_type), {"verification_type": verify_type, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, prefer="return=minimal")
+                if verify_type in AL.AUTO_TYPES:   # t_5148d0b9: ignore-duplicates left an existing row's type stale (a25e00ff stayed sms after a phone-call re-park). Retype only a still-waiting row whose type differs; parked_at and live rows stay untouched; a retyped row loses deadline/steps/directory_url (RETYPE_CLEARS).
+                    ver.call("PATCH", *retype_request(client_id, row["directory"], verify_type), prefer="return=minimal")
             else:
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 ver.call("PATCH", ver_patch_path, {"state": "live", "verified_at": now, "updated_at": now}, prefer="return=minimal")
