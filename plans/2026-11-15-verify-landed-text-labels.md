@@ -19,3 +19,8 @@ No portal write, deploy, or live read.
 - LANDED_TEXT is main's, byte for byte (test 10j pins it). The round 1-2 rewrite is dropped.
 - Two narrow pre-checks in `landed()`: SEND_LABEL_ONLY drops a segment that is only a send label (Send/Resend/Text me/Call me/Get/Request ... code, no past-tense verb); NEGATED_SEND cuts a clause a negation directly governs (not/never/n't + aux + sent/send/texted/received, `yet to send`, `no <X> code (was) sent`), ending at . ? ! ;.
 - Tests: 10c lists every landed string from both review rounds that main records; 10a adds "No code has been sent yet", "We didn't send a code", "Resend code"; mutations 10f (label pre-check removed), 10g (negation removed), 10i (generic `sent ... code` form dropped). "A code was just sent" is refused by main too, so it is not claimed.
+
+## Round 4 (Nate ruling, PR #127 head 8c60199)
+Cites lesson docs/lessons/2026-11-15-quote-the-page-not-the-button.md. Plan written after the source edit (same slip as round 1, disclosed). Apply the reviewer clause-split landed() as written; LANDED_TEXT stays main's (10j).
+- landed() splits at . ? ! ; , newline / | and a spaced dash; drops a clause with a governing negation, or (send-control start or future send) with no past-tense verb; searches the rest with LANDED_TEXT.
+- Tests: 10 leak strings into 10a; 5 strings into 10c; mutations 10k (FUTURE_SEND removed), 10l (split only at . ? !); 10f re-pointed at SEND_CONTROL.

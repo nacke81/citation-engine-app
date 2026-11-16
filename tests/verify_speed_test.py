@@ -294,7 +294,10 @@ if not ONLY_MUT:
 
 # ---- 10 t_6168a061: a send button label or a negated send is not a landed send; the prompt keeps the quote-only line -------------------------------
 MAIN_LANDED_PATTERN = r"(?i)(code (was |has been )?(sent|texted|emailed)|\b(sent|texted)\b[^.?!]{0,40}\bcode|verification code|enter (the |your |a )?(\d-digit )?code|confirmation code|security code|code (field|box|input))"
-NOT_LANDED = ["Send verification code", "Get verification code", "We have not sent a code yet", "Text me a code", "Get code", "No verification code sent yet", "We haven't sent a code. Request a security code", "No code has been sent yet", "We didn't send a code", "Resend code"]
+NOT_LANDED = ["Send verification code", "Get verification code", "We have not sent a code yet", "Text me a code", "Get code", "No verification code sent yet", "We haven't sent a code. Request a security code", "No code has been sent yet", "We didn't send a code", "Resend code",
+              "Verification code has not been sent", "Verification code not sent", "Your verification code was not sent", "Security code hasn't been sent yet",
+              "Get a verification code by text", "Tap 'Send verification code'", "Click Send to get your verification code", "I clicked Send verification code",
+              "We'll send a verification code to this number", "We will text you a security code"]
 LIVE_THUMBTACK = "Enter the verification code we texted you. / The code will expire after 10 minutes. / Didn\u2019t get the code? / Back / Verify"
 def label_outcomes():
     out = []
@@ -309,17 +312,30 @@ if not ONLY_MUT:
     check("10b the live Thumbtack modal text still records code_sent", r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
     for t in ("Enter the verification code", "Your verification code was sent", "We texted you a confirmation code", "Type the security code", "Enter the code we sent.", "We just sent you a code", "We've just texted you a 6-digit code", "No worries, we sent a code to your phone", "Don't close this window, we texted you a code",
               "A text message has been sent to your phone with a verification code", "SMS sent with your code", "Thumbtack sent a code to your phone", "No problem, a code was sent to your phone",
-              "Do not send this code to anyone; enter the code we texted you", "Send verification code. Enter the verification code we texted you"):
+              "Do not send this code to anyone; enter the code we texted you", "Send verification code. Enter the verification code we texted you",
+              "Do not send this code to anyone, enter the code we texted you", "We sent you a verification code, if you haven't received it in 2 minutes tap resend",
+              "We texted you a code - do not send it to anyone", "We texted you a code and will send another in 60s if needed", "We'll never share your number. Enter the verification code we texted you"):
         p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence=t)
         check("10c landed context with a named code is recorded [%s]" % t[:40], r == 0 and p.requests[F.RID]["status"] == "code_sent", (r, p.requests[F.RID]["status"]))
     p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Enter the verification code. " + ALIGNABLE_ERR)
     check("10d Alignable 'not a mobile phone' still ends failed/send_failed", p.requests[F.RID]["status"] == "failed" and p.requests[F.RID].get("fail_code") == "send_failed", p.requests[F.RID]["status"])
     check("10e the prompt carries the 'Quote ONLY the code-box or code-sent text' line (sign-in and marked variants)", "Quote ONLY the code-box or code-sent text" in p_strict and "Quote ONLY the code-box or code-sent text" in p_flag)
-orig_lab = ST.SEND_LABEL_ONLY
-ST.SEND_LABEL_ONLY = __import__("re").compile(r"(?!x)x")   # mutation: the send-label pre-check is removed (main's LANDED_TEXT then takes the bare `verification code`)
+orig_lab = ST.SEND_CONTROL
+ST.SEND_CONTROL = __import__("re").compile(r"(?!x)x")   # mutation: the send-control check is removed (main's LANDED_TEXT then takes the bare `verification code`)
 mut = label_outcomes()
 check("10f MUTATION send-label pre-check removed: 'Send verification code' / 'Get verification code' are recorded, so 10a catches it", any(st == "code_sent" for _r, st in mut), mut)
-ST.SEND_LABEL_ONLY = orig_lab
+ST.SEND_CONTROL = orig_lab
+orig_fut = ST.FUTURE_SEND
+ST.FUTURE_SEND = __import__("re").compile(r"(?!x)x")   # mutation: future send ("We'll send a verification code") is no longer refused
+mut = label_outcomes()
+check("10k MUTATION future-send check removed: \"We'll send a verification code to this number\" is recorded, so 10a catches it", any(st == "code_sent" for _r, st in mut), mut)
+ST.FUTURE_SEND = orig_fut
+orig_cl = ST.CLAUSE
+ST.CLAUSE = __import__("re").compile(r"[.?!]+")   # mutation: clauses split only at . ? ! (the comma and ; no longer end a negated or label clause)
+mut = label_outcomes()
+p = portal(); r, _ = quiet(ST.step_sent, F.RID, MASK, p, B.VerifyRpc(p), F.NOW, evidence="Do not send this code to anyone, enter the code we texted you")
+check("10l MUTATION clause split only at . ? ! : 'Do not send this code to anyone, enter the code we texted you' is refused, and a label before a comma leaks, so 10c/10a catch it", r == ST.REFUSED or any(st == "code_sent" for _r, st in mut), (r, mut))
+ST.CLAUSE = orig_cl
 orig_neg = ST.NEGATED_SEND
 ST.NEGATED_SEND = __import__("re").compile(r"(?!x)x")   # mutation: negation is ignored
 mut = label_outcomes()
