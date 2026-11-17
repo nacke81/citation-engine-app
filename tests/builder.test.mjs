@@ -175,3 +175,21 @@ test("created-unlisted (t_f707b644): exists but not public yet / no full NAP -> 
   const row = builderRows([nf("a.com")], [st("a.com", { queue_state: "created-unlisted" })], [])[0];
   assert.equal(row.state, "waiting"); assert.equal(row.queue, "created-unlisted");
 });
+
+test("existing (t_dc4ffd67): a live listing with full Proof is a result row, counted in NO new/claimed/fixed card", () => {
+  const rows = builderRows([found("n49.com")], [st("n49.com", { queue_state: "live", queue_kind: "fix", build_action: "existing", ...PROOF })]);
+  assert.equal(rows[0].state, "result"); assert.equal(rows[0].action, "existing");
+  const s = builderStats(rows);
+  assert.equal(s.existing, 1); assert.equal(s.newLive + s.claimed + s.fixed, 0);
+  assert.equal(s.toBuild + s.waiting + s.needsPerson, 0);
+});
+test("existing: without full Proof it is Waiting, never a result", () => {
+  const s = stats([found("n49.com")], [st("n49.com", { queue_state: "live", build_action: "existing", ...PROOF, proof_nap_match: false })]);
+  assert.equal(s.existing, 0); assert.equal(s.waiting, 1);
+});
+test("existing does not leak into the real result cards next to it", () => {
+  const s = stats([nf("a.com"), found("b.com"), found("c.com", ERR), found("d.com")], [
+    st("a.com", { queue_state: "live", build_action: "new", ...PROOF }), st("b.com", { queue_state: "live", build_action: "claim", ...PROOF }),
+    st("c.com", { queue_state: "live", build_action: "fix", ...PROOF }), st("d.com", { queue_state: "live", build_action: "existing", ...PROOF })]);
+  assert.deepEqual([s.newLive, s.claimed, s.fixed, s.existing], [1, 1, 1, 1]);
+});

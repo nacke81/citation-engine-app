@@ -93,5 +93,10 @@ lines = []; DR.run(pf, None, out=lines.append)
 check("dry run without a queue file says the basis is not applied", any("count basis NOT applied" in l for l in lines))
 check("write_run NM unaffected by the SCC rule", not any(d.get("reason") == "unproven" for d in fp.rows[P.ALLOWED["NM"]]["directories"]))
 
+# existing (t_dc4ffd67): a proofed pre-existing listing counts as live like any proofed row
+PR_EX = dict(PR); PR_EX["maps.apple.com"] = dict(proof("maps.apple.com"), build_action="existing"); PR_EX["n49.com"] = dict(proof("n49.com"), build_action="existing")
+ox = SN.apply_count_basis(payload, PR_EX, T.proof_problems)
+check("existing rows with complete proof count live: 23 + GBP + 2 existing = 26", ox["summary"]["live"] == 26 and LIVE(ox) == 26, str(ox["summary"]))
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

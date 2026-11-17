@@ -56,7 +56,7 @@ function foundCard(c) {
   return `<div class="row found-card ${c.errors.length ? 'has-errors' : 'is-correct'}" data-testid="found-${esc(c.directory)}"><h3>${esc(c.directory)} <span class="chip found">${esc(LABEL.found)}</span></h3>${body}${link}</div>`;
 }
 
-const fmtAction = (a) => ({ new: 'New', claim: 'Claim', fix: 'Fix' }[a] || '');
+const fmtAction = (a) => ({ new: 'New', claim: 'Claim', fix: 'Fix', existing: 'Existing' }[a] || '');
 function flightRow(r) {
   const l = r.link ? `<a href="${esc(r.link)}" rel="noopener noreferrer" target="_blank">${esc(r.link)}</a>` : '';
   return `<div class="row flight" id="dir-${esc(r.directory)}" data-dir="${esc(r.directory)}" data-testid="flight-${esc(r.directory)}"><h3>${esc(r.name)} ${r.state === 'needsPerson' && r.reason ? reasonBadge(r.reason, esc) : `${r.action ? `<span class="chip act" data-testid="action">${esc(fmtAction(r.action))}</span> ` : ''}<span class="chip q-${esc(r.queue || 'queued')}${r.proofPending ? ' q-proof' : ''}" data-testid="queue">${esc(r.queueLabel || '')}</span>`}</h3>

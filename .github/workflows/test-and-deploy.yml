@@ -197,6 +197,8 @@ jobs:
         run: node --test vendor/vaultwarden-cli-write/tests/mkpayload.test.js
       - name: No live row without Proof (one live writer, fail closed, guard, backfill)
         run: python tests/proof_gap_test.py
+      - name: Existing listing proof (--record-existing, refusals, recheck keeps existing)
+        run: python tests/existing_listing_test.py
       - name: Mirror DB Proof into live queue rows (fill missing, never overwrite complete, sink off skips)
         run: python tests/mirror_proof_test.py
       - name: reCAPTCHA v3 pageAction + inject + logged CLI wrapper (fake CapSolver, no spend)

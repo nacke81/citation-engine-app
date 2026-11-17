@@ -43,7 +43,9 @@ def verdict(c):
 
 
 def build_action(row_kind, row, claim_status):
-    """new | claim | fix from queue_kind and this run's claim status."""
+    """new | claim | fix from queue_kind and this run's claim status. A row whose stored proof says `existing` (a listing NM did not build, t_dc4ffd67) keeps it:
+    a re-proof never rewrites it to new/claim/fix."""
+    if isinstance(row, dict) and (row.get("proof") or {}).get("build_action") == "existing": return "existing"
     if row_kind == "create": return "new"
     if row_kind == "claim" or (claim_status == "claimed" and not row.get("wrong_field")): return "claim"
     return "fix"
