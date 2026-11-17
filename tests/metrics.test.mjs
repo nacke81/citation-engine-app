@@ -104,3 +104,13 @@ test("pointsFor: one business, sorted by week, junk dropped", () => {
   const rows = [{ biz: "SCC", week_index: 1, captured_on: "2026-10-18", metrics: { found: 1 }, run_id: "x" }, { biz: "SCC", week_index: 0, captured_on: "2026-10-16", metrics: { found: 2 } }, { biz: "NM", week_index: 0, captured_on: "2026-10-16", metrics: {} }, { biz: "SCC", week_index: "z", metrics: {} }];
   assert.deepEqual(pointsFor(rows, "SCC").map((p) => [p.week, p.date]), [[0, "2026-10-16"], [1, "2026-10-18"]]);
 });
+
+test("existing (t_dc4ffd67): weekly metrics count it in no New listings live / Claimed / Fixed line", () => {
+  const P = { proof_url: "https://n49.com/l/1", proof_nap: "SCC 222", proof_at: "2026-10-22T10:00:00Z", proof_nap_match: true };
+  const checks = [{ biz: "SCC", directory: "n49.com", result: "found", diffs: null, url: "https://n49.com/l/1" }];
+  const dirs = [{ domain: "n49.com", name: "n49", agent_access: "ok" }];
+  const m = weeklyMetrics(checks, [{ domain: "n49.com", biz: "SCC", queue_state: "live", queue_kind: "fix", build_action: "existing", ...P }], dirs);
+  assert.equal(m.newLive + m.claimed + m.fixed, 0); assert.equal(m.waiting, 0); assert.equal(m.toBuild, 0); assert.equal(m.found, 1);
+  const m2 = weeklyMetrics(checks, [{ domain: "n49.com", biz: "SCC", queue_state: "live", queue_kind: "fix", build_action: "fix", ...P }], dirs);
+  assert.equal(m2.fixed, 1);   // the same row as a fix WOULD count: the gap above is the action, not the proof
+});

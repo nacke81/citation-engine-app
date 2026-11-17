@@ -71,7 +71,7 @@ export function builderStats(rows) {
   return {
     toBuild: n('toBuild'), toBuildNew: n('toBuild', 'new'), toBuildClaim: n('toBuild', 'claim'), toBuildFix: n('toBuild', 'fix'),
     waiting: n('waiting'), needsPerson: n('needsPerson'),
-    newLive: n('result', 'new'), claimed: n('result', 'claim'), fixed: n('result', 'fix'),
+    newLive: n('result', 'new'), claimed: n('result', 'claim'), fixed: n('result', 'fix'), existing: n('result', 'existing'), // existing (t_dc4ffd67): a proofed live listing NM did not build; no result card, no weekly line
   };
 }
 

@@ -58,7 +58,7 @@ def run(path, checks, reader=None):
 def counts_as_result(s):
     """Mirror of the page rule (PR #14): live + http(s) proof_url + proof_nap + proof_at + proof_nap_match true + build_action."""
     return (s.get("queue_state") == "live" and str(s.get("proof_url", "")).startswith(("http://", "https://")) and bool(s.get("proof_nap"))
-            and bool(s.get("proof_at")) and s.get("proof_nap_match") is True and s.get("build_action") in ("new", "claim", "fix"))
+            and bool(s.get("proof_at")) and s.get("proof_nap_match") is True and s.get("build_action") in T.BUILD_ACTIONS)
 
 def qstate(path, key="fix_queue"): return json.load(open(path))[key][0]["state"]
 

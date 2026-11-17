@@ -109,11 +109,11 @@ class TransitionRefused(Exception):
 
 
 PROOF_FIELDS = ("proof_url", "proof_nap", "proof_at", "proof_nap_match", "build_action")
-BUILD_ACTIONS = ("new", "claim", "fix")
+BUILD_ACTIONS = ("new", "claim", "fix", "existing")   # existing (t_dc4ffd67): a listing NM did not build, found by scan, NAP verified by a read. Never counted as new/claim/fix.
 
 
 def proof_problems(proof):
-    """Pure. [] when `proof` is a complete Proof (t_d660babc): http(s) proof_url, non-empty proof_nap, proof_at, proof_nap_match True, build_action new|claim|fix."""
+    """Pure. [] when `proof` is a complete Proof (t_d660babc): http(s) proof_url, non-empty proof_nap, proof_at, proof_nap_match True, build_action new|claim|fix|existing."""
     if not isinstance(proof, dict): return ["no proof"]
     bad = []
     u = str(proof.get("proof_url") or "")
@@ -699,6 +699,59 @@ def create_row(client, domain, kind, *, queue_path=None, today=None, dry_run=Fal
     return out
 
 
+def _host_ok(url, domain):
+    """proof_url host is the domain or a subdomain of it (www.n49.com ok for n49.com). Exact label match: evil-n49.com and n49.com.evil.com are not."""
+    try: host = (urlsplit(str(url or "")).hostname or "").lower()
+    except ValueError: return False
+    return host == domain or host.endswith("." + domain)
+
+
+def record_existing(client, domain, *, proof_url=None, proof_nap=None, proof_at=None, proof_nap_match=True, queue_path=None, today=None, dry_run=False, db=None):
+    """t_dc4ffd67: ONE live row for a listing NM did not build (the scan found it, a signed-out read matched NAP). build_action `existing`.
+    SCC only. Refused: another client, a bad domain, ANY row for the directory (queue file, any list; or a ce_directory_status row with a queue_state),
+    a proof_url off the domain, an incomplete proof, proof_nap_match not True. Status first (same writer as every live move), then backup + atomic queue write.
+    dry_run: no network, no write; returns the row and the status body."""
+    if client != "SCC": raise TransitionRefused("--record-existing is for SCC only (got %r)" % (client,))
+    domain = str(domain or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9\-]*(\.[a-z0-9][a-z0-9\-]*)+", domain): raise TransitionRefused("domain %r is not a bare domain like example.com" % (domain,))
+    proof = check_proof(dict(proof_url=proof_url, proof_nap=proof_nap, proof_at=proof_at, proof_nap_match=proof_nap_match, build_action="existing"))
+    if not _host_ok(proof["proof_url"], domain): raise TransitionRefused("proof_url host must be %s or a subdomain of it, got %r" % (domain, proof["proof_url"]))
+    t = tenant_of(client)
+    path = queue_path or t["queue_default"]()
+    day = today or datetime.date.today().isoformat()
+    rid = "scc-existing-%s" % domain.replace(".", "-")
+    _tenant_lock(client, rid, path)
+    q = _read(path)
+    Q.parse_rows(q)
+    have = {r.get("directory") for _k, _kd, rows in _row_lists(q) for r in rows}
+    if domain in have: raise TransitionRefused("%s already has a queue row; use --proof-live (job/recheck.py) or move it with --row, not --record-existing" % domain)
+    taken = {r.get("id") for _k, _kd, rows in _row_lists(q) for r in rows}
+    if rid in taken: raise TransitionRefused("row id %s would collide" % rid)
+    note = "pre-existing listing, proof recorded (--record-existing)"
+    row = {"id": rid, "group": "D-existing", "kind": "fix", "directory": domain, "state": "live", "cost": "free", "mike_approval": None,   # kind fix: ce_directory_status.queue_kind allows fix|create only
+           "evidence_url": proof["proof_url"], "listing_url": proof["proof_url"], "proof": dict(proof),
+           "build_note": "listing NM did not build; found by the scan, NAP verified by a read (t_dc4ffd67)",
+           "history": [{"at": day, "from": None, "to": "live", "evidence_url": proof["proof_url"], "note": note}]}
+    out = {"dry_run": bool(dry_run), "client": client, "queue": path, "row": row, "backup": None, "directories_written": False}
+    if dry_run:
+        out["status_body"] = dict({"owner": getattr(db, "owner", None) or "<owner>", "biz": "SCC", "directory": domain, "updated_at": day + "T00:00:00Z"},
+                                  queue_state="live", queue_row_id=rid, queue_kind="fix", queue_note=None, queue_state_at=day, **proof)
+        out["status_request"] = "POST ce_directory_status?on_conflict=owner,biz,directory (resolution=merge-duplicates)"
+        return out
+    db = db or (D.DirDB() if D.enabled() else None)
+    if db is not None:
+        cur = db.call("GET", "ce_directory_status?biz=eq.SCC&owner=eq.%s&directory=eq.%s&select=directory,queue_state" % (D._owner(db), domain), None, "return=representation") or []
+        if any(r.get("queue_state") for r in cur): raise TransitionRefused("%s already has a ce_directory_status queue row; use --proof-live (job/recheck.py), not --record-existing" % domain)
+        D.sync_transition("SCC", row, "live", note, day, kind="fix", db=db, proof=proof)   # status first: a failed write leaves the queue unchanged
+        out["directories_written"] = True
+    import nm_transitions as NMT   # shared per-write backup
+    out["backup"] = NMT.backup_before_write(path, day)
+    q.setdefault("fix_queue", []).append(row)
+    _write_atomic(path, q)
+    NMT.prune_backups(path, keep_path=out["backup"])
+    return out
+
+
 def main(argv=None):
     import argparse
     a = argparse.ArgumentParser(description="Record a citation state transition (queue + Local SEO + gated Activities)")
@@ -733,7 +786,16 @@ def main(argv=None):
     a.add_argument("--create-row", action="store_true", dest="create_row", help="t_cb7bad04: add ONE queued row for a Directory that has no row yet (needs --domain and --kind; NM only; --dry-run prints the row)")
     a.add_argument("--domain", default=None, help="with --create-row: the Directory domain, e.g. foursquare.com")
     a.add_argument("--kind", default=None, choices=("fix", "create"), help="with --create-row: fix (a wrong listing exists) or create (no listing yet)")
+    a.add_argument("--record-existing", action="store_true", dest="record_existing", help="t_dc4ffd67: ONE live row (build_action existing) for a listing NM did not build; SCC only; needs --domain --proof-url --proof-nap --proof-at; --dry-run prints the row and the status write")
+    a.add_argument("--proof-url", default=None, dest="proof_url")
+    a.add_argument("--proof-nap", default=None, dest="proof_nap")
+    a.add_argument("--proof-at", default=None, dest="proof_at")
     n = a.parse_args(argv)
+    if n.record_existing:
+        try: res = record_existing(n.client, n.domain, proof_url=n.proof_url, proof_nap=n.proof_nap, proof_at=n.proof_at, queue_path=n.queue, today=n.today, dry_run=n.dry_run)
+        except (TransitionRefused, Q.QueueError) as e:
+            print("REFUSED: %s" % e, file=sys.stderr); return 1
+        print(json.dumps(res, indent=2)); return 0
     if n.create_row:
         if not n.domain or not n.kind: a.error("--create-row needs --domain and --kind")
         try: res = create_row(n.client, n.domain, n.kind, queue_path=n.queue, today=n.today, dry_run=n.dry_run, note=n.note)
