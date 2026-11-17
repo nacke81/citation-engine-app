@@ -9,8 +9,8 @@ Cites lesson `docs/lessons/2026-11-17-count-it-but-do-not-claim-it.md` (latest a
 Trap counts on base: bridge 5, agent 1.
 
 ## Change (tests only; no job/ change, prod behavior untouched)
-1. Fence: `os.environ["CE_PORTAL_ENV"] = <TMP>/no-such.env` before the first portal/verify_bridge import, in both files and in every other tests/*.py that imports portal / verify_bridge / verify_now (so the real client fails closed at open(), before any request). verify_agent_test already passes it to a subprocess only.
-2. Guard: new `tests/no_prod_portal_sink_test.py` (sibling of #131's scan, added to CI): ast scan; a file importing portal / verify_bridge / verify_now must set CE_PORTAL_ENV to an expression containing a `no-such` string constant before the first such import, and may never pop/delete it. Synthetic negative paths test the scanner.
+1. Fence: `os.environ["CE_PORTAL_ENV"] = <tests dir>/no-such-portal.env` (a file that does not exist; the code builds it with os.path.join(dirname(abspath(__file__)), "no-such-portal.env")) before the first sink import, in both files and in every other tests/*.py that imports a sink (so the real client fails closed at open(), before any request). verify_agent_test already passes it to a subprocess only.
+2. Guard (round 2: transitive): the sink set is the closure over job/*.py imports (ast, fixpoint): portal / verify_bridge / verify_now plus every job module importing one of them directly or through another job module (transitions, run, ... build `portal or P.Portal(*P.load_portal_env())`). New `tests/no_prod_portal_sink_test.py` (sibling of #131's scan, added to CI): ast scan; a file importing any module in that closure must set CE_PORTAL_ENV to an expression containing a `no-such` string constant before the first such import, and may never pop/delete it. Synthetic negative paths test the scanner, incl. `import transitions` unfenced and a synthetic chain c -> a -> b -> portal, plus a mutation check (direct-only set misses transitions).
 3. Proof: both tests under the trap at head -> 0 requests; base -> 5 + 1. Scan on base copy -> names both files. Whole portal-importing set under trap, head.
 4. Read-only prod check: GET citation_code_request state=starting rows, report only.
 
@@ -22,3 +22,5 @@ No prod write, no cleanup of any claimed row (needs-mike if found).
 - Trap over all 106 CI commands at head: 0 non-loopback requests. verify_bridge_test rc0, 0 requests (base 5 incl POST rpc/claim_code_request). verify_agent_test 0 requests (base 1); its rc1 (prompt-holds-no-code, 2 FAILs) is identical on base, pre-existing, not touched here.
 - Read-only prod GET citation_code_request: 3 rows total (failed 2, could_not_start 1), none requested/starting/code_sent/checking. No row claimed by a local run is visible.
 - Lesson: `docs/lessons/2026-11-17-creds-outside-the-env-need-a-fence.md`.
+
+- Round 2 (changes requested: scan saw only direct imports): closure sink set, 64 more tests fenced (99 total), checks P11-P18 added; trap re-run over all 106 CI commands at head.

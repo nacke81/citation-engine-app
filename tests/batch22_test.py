@@ -5,6 +5,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 JOB = os.path.join(HERE, '..', 'job')
 os.environ['CE_IDENTITY'] = os.path.join(HERE, 'test_identity.json')
 sys.path.insert(0, JOB)
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import mail_scan as M, workable as W, recheck as R, formspec as F
 
 ok = []

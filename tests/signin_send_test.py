@@ -3,6 +3,7 @@ import io, json, os, sys, types, contextlib, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'job'))
 os.environ['CE_IDENTITY'] = os.path.join(HERE, 'test_identity.json')
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import signin_send as S
 
 ok = []

@@ -11,6 +11,7 @@ sys.path.insert(0, JOB); sys.path.insert(0, os.path.join(JOB, "playbooks"))
 def _no_net(*a, **k): raise AssertionError("network call attempted")
 REAL_URLOPEN = urllib.request.urlopen
 urllib.request.urlopen = _no_net
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import pagekit as PK, captcha_route as CR, formspec as F, build_runner as B, build_core as C, recheck as R, mail_scan as MS, transitions as T, build_shot as BS, claim as CL
 
 ok = []

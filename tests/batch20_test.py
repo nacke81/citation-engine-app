@@ -16,6 +16,7 @@ urllib.request.urlopen = _no_net
 subprocess.run = _no_proc
 if sys.platform != 'win32':   # CI is Linux: owned_chrome needs ctypes.WinDLL. --stop only needs the pure netstat / taskkill functions (runner injected)
     _oc = types.ModuleType('owned_chrome'); _oc.OwnedChrome = object; _oc.window_count = lambda *a, **k: 0; sys.modules['owned_chrome'] = _oc
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import formspec as F, recheck as R, transitions as T, mail_scan as MS, build_chrome as BC, lookup as LK
 import buildqueue as Q
 

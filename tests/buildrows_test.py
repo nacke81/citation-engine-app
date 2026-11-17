@@ -20,6 +20,7 @@ os.environ["CE_RUNS"] = tempfile.mkdtemp()
 os.environ["CE_ACTIVITIES_WRITE"] = "0"
 os.environ["CE_DIRECTORIES_WRITE"] = "0"
 sys.path.insert(0, os.path.join(ROOT, "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import buildrows as B
 import buildqueue as Q
 

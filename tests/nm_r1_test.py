@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "nm_r1_identity.json")
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import core, judge, fixlist, cfg
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import buildqueue as Q
 import release as R
 

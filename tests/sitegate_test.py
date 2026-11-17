@@ -10,6 +10,7 @@ os.environ["CE_LOGS"] = os.path.join(TMP, "logs")
 os.environ["CE_SITE_GAP"] = "0"
 os.environ.pop("CE_ACTIVITIES_WRITE", None)
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import recheck as R
 import sitegate as SG
 import workable as WK

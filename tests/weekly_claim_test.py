@@ -19,6 +19,7 @@ os.environ["CE_ROWS"] = str(Path(TEMP.name) / "rows.jsonl")
 os.environ["CE_SITE_GUARD"] = str(Path(TEMP.name) / "site-guard.json")   # t_e34fc55c: discover_live puts the fetchers behind the site guard; never the real ledger
 os.environ["CE_LOGS"] = str(Path(TEMP.name) / "logs")
 os.environ["CE_SITE_GAP"] = "0"
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import run as R
 import claim as C
 import core

@@ -13,6 +13,7 @@ def _no_net(*a, **k): raise AssertionError("network call attempted")
 def _no_proc(*a, **k): raise AssertionError("subprocess attempted: %r" % (a[:1],))
 urllib.request.urlopen = _no_net
 subprocess.run = _no_proc
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import recheck as R, transitions as T, mail_scan as MS, workable as WK, walls as W, moz, count_capsolver_builds as CC
 import directories as D
 D._upsert_status = lambda *a, **k: None

@@ -101,6 +101,7 @@ check("G5 old street -> field address", [d["field"] for d in d_old] == ["address
 check("G5 name variant on the page -> field name", [d["field"] for d in fixlist.diffs_for("1. Alder Care Conslting-Solutions\n100 Example\n", dict(EV_OK), IDENT, "SCC")] == ["name"])
 check("G5 exact name -> no name diff", fixlist.diffs_for("1. Birch Media\n", dict(EV_OK), IDENT, "NM") == [])
 # only found rows get diffs in the job output; couldn't-check / absent / unsearchable rows carry none
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import run as jobrun  # noqa: E402
 fr = [row(biz="NM", dir=DIRS[0], status="found", url="https://www.google.com/maps/place/Birch+Media", ev=EV_STALE, method="chrome-pattern"),
       row(biz="NM", dir=DIRS[1], status="noresult"), row(biz="NM", dir=DIRS[2], status="couldnt")]
