@@ -56,6 +56,7 @@ check("input payload not mutated", payload == before)
 check("finalize after the rule keeps 24", SN.finalize(out)["summary"]["live"] == 24)
 
 # write path: write_run (SCC) publishes the counted number, via a fake portal
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P  # noqa: E402
 class FakePortal:
     def __init__(self): self.rows = {}

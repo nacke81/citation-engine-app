@@ -159,6 +159,7 @@ for mode in ('get-item', 'send-create'):
 # (2) record_transition behavior with stub portal, verification and runner
 import copy, tempfile, shutil, json as _json
 os.environ['CE_DIRECTORIES_WRITE'] = '0'   # Directory sink off: this suite never touches it
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import transitions as T, portal as P
 SRCQ = os.path.join(HERE, 'fixtures', 'test_queue.json')
 class FP:

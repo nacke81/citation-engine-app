@@ -15,6 +15,7 @@ os.environ["CE_QUEUE"] = os.path.join(HERE, "fixtures", "test_queue.json")
 os.environ["CE_RUNS"] = tempfile.mkdtemp(prefix="ce-runs-")
 os.environ.pop("MOZ_API_TOKEN", None); os.environ.pop("MOZ_MAX_ROWS", None)
 sys.path.insert(0, os.path.join(ROOT, "job")); sys.path.insert(0, HERE)
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import moz as M, portal as P, snapshot as SN  # noqa: E402
 
 ok = []

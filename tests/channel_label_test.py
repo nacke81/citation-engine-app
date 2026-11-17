@@ -9,6 +9,7 @@ os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ.pop("CE_ACTIVITIES_WRITE", None)
 os.environ["CE_DIRECTORIES_WRITE"] = "0"  # Directory sink OFF: this test must never make a Directory call
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P  # noqa: E402
 import transitions as T  # noqa: E402
 

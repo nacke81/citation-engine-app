@@ -6,6 +6,7 @@ os.environ.pop("CE_ACTIVITIES_WRITE", None)
 os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_e2db63f0: the Your turn gate reads the Directory DB; tests never touch it
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import buildqueue as Q
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P
 import transitions as T
 sys.path.insert(0, HERE); import yt_obs as YO

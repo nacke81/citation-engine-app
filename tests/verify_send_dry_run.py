@@ -8,6 +8,7 @@ os.environ["CE_LOGS"] = os.path.join(TMP, "logs"); os.environ["CE_SITE_GUARD"] =
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json"); os.environ["CE_RUNS"] = tempfile.mkdtemp()
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import verify_fakes as F
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import verify_bridge as B
 import verify_send as S
 

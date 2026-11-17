@@ -14,6 +14,7 @@ os.environ["CE_ACTIVITIES_WRITE"] = "1"
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json"); os.environ["CE_RUNS"] = tempfile.mkdtemp()
 os.environ.pop("CE_SIGNIN_SEND_WRITE", None)
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(ROOT, "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P
 import transitions as T
 import yt_obs as YO
