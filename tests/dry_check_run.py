@@ -7,6 +7,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 import tempfile as _tf; os.environ["CE_RUNS"] = _tf.mkdtemp(prefix="ce-runs-")  # run.py makes dirs on import; never the real runs folder
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import run as jobrun  # noqa: E402
 import judge  # noqa: E402
 from cfg import DIRS, IDENT  # noqa: E402

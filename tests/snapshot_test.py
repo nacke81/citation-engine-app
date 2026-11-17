@@ -5,6 +5,7 @@ os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ.pop("CE_ACTIVITIES_WRITE", None)
 os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (a local run left a.example/b.example rows there)
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P
 import transitions as T
 import snapshot as P_SN

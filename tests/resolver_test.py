@@ -19,6 +19,7 @@ def check(name, cond, detail=""):
 
 import html as H
 from urllib.parse import urljoin
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import core, resolver, permalink, listing, judge, run as jobrun  # noqa: E402
 from cfg import IDENT, DIRS  # noqa: E402
 FX = os.path.join(HERE, "fixtures", "resolver")

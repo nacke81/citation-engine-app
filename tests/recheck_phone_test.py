@@ -5,6 +5,7 @@ import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write 
 import os, sys, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import recheck as R
 import claim
 

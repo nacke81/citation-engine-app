@@ -10,6 +10,7 @@ os.environ["CE_VERIFY_DIRECTORIES"] = os.path.join(HERE, "verify_directories_fix
 os.environ["CE_VERIFY_DIRECTORIES_LOCAL"] = os.path.join(TMP, "outside", "v.local.json")
 os.environ["CE_NO_CARDS"] = "1"; os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ["CE_DIRECTORIES_WRITE"] = "0"   # the default sink is off; every test hands its fake DB in
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import directories as D, playbook as PB, transitions as T
 
 ok = []

@@ -13,6 +13,7 @@ os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ["CE_QUEUE"] = os.path.join(HERE, "fixtures", "test_queue.json")
 os.environ["CE_RUNS"] = tempfile.mkdtemp(prefix="ce-runs-")
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import snapshot as SN, buildqueue as Q, portal as P, recheck as RC, transitions as T  # noqa: E402
 
 ok = []

@@ -3,6 +3,7 @@ import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write 
 import os, sys, json, io, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__)); JOB = os.path.join(os.path.dirname(HERE), "job")
 sys.path.insert(0, JOB)
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import directories as D
 
 ok = []

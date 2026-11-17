@@ -17,6 +17,7 @@ os.environ["CE_QUEUE"] = os.path.join(TMP, "queue.json")
 os.environ.pop("CE_ACTIVITIES_WRITE", None)
 os.environ["CE_DIRECTORIES_WRITE"] = "1"
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import transitions as T
 import buildrows as B
 import create_discovery as CD

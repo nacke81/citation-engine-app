@@ -9,6 +9,7 @@ sys.path.insert(0, str(HERE.parent / "job"))
 TEMP = tempfile.TemporaryDirectory(prefix="weekly-all-", dir=HERE)
 os.environ["CE_RUNS"] = TEMP.name
 os.environ["CE_ROWS"] = str(Path(TEMP.name) / "rows.jsonl")
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import run as R, dirlist, judge, listing, portal
 from cfg import DIRS
 

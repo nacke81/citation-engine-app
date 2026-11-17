@@ -4,6 +4,7 @@ import os, sys, json, copy, tempfile, io, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 JOB = os.path.join(os.path.dirname(HERE), "job")
 sys.path.insert(0, JOB); sys.path.insert(0, os.path.join(JOB, "playbooks"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import walls as W
 import transitions as T
 import build_runner as B
@@ -126,6 +127,7 @@ check("W8 no HTTP status (timeout/err) -> 'blocked: no-response'", W.blocked_not
 check("W8 no blocked line -> bare 'blocked' (cause not recorded)", W.blocked_note([]) == "blocked" and W.blocked_note(["search:ok:200:u"]) == "blocked")
 check("W8 page text cannot set the kind: a log line quoting Cloudflare/CAPTCHA with no blocked token is ignored", W.wall_kind(["note: Cloudflare absent, No CAPTCHA solve spent"]) is None)
 check("W8 is_blocked_note matches both shapes and nothing else", W.is_blocked_note("blocked") and W.is_blocked_note("blocked: http-403") and not W.is_blocked_note("no usable result") and not W.is_blocked_note(None) and not W.is_blocked_note("unblocked"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P, listing as LST, directories as DIRS_
 check("W8 portal status treats 'blocked: http-403' as blocked", P._status({"result": "couldnt_check", "note": "blocked: http-403"}) == "blocked" and P._status({"result": "couldnt_check", "note": "no usable result"}) == "unavailable")
 check("W8 listing reason treats 'blocked: http-403' as a bot wall", LST.reason_for("zz.example", "couldnt_check", "blocked: http-403")[0] == "bot wall")

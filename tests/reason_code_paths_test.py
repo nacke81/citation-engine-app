@@ -4,6 +4,7 @@ import os, sys, json, copy, tempfile, io, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 JOB = os.path.join(os.path.dirname(HERE), "job")
 sys.path.insert(0, JOB); sys.path.insert(0, os.path.join(JOB, "playbooks"))
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import walls as W
 import transitions as T
 import buildrows as BR

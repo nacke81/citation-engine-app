@@ -20,6 +20,7 @@ import imaplib
 class _NoImap:
     def __init__(s, *a, **k): raise AssertionError("real IMAP attempted")
 imaplib.IMAP4_SSL = _NoImap
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import build_runner as B, formspec as F, recheck as R, mail_scan as MS, transitions as T, proof as PR, walls as W
 import buildqueue as Q, vault_item as VI, imap_vault as IV, description_long as DL, hotfrog as H
 

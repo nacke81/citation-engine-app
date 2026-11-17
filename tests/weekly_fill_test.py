@@ -7,6 +7,7 @@ import tempfile
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 _T = tempfile.TemporaryDirectory(prefix="weekly-fill-", dir=HERE)
 os.environ["CE_RUNS"] = _T.name; os.environ["CE_ROWS"] = os.path.join(_T.name, "rows.jsonl")
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import directories as D, run as R
 
 ok = []

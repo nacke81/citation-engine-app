@@ -9,6 +9,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import claim as C  # noqa: E402
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P  # noqa: E402
 from cfg import IDENT  # noqa: E402
 

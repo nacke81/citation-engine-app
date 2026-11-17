@@ -109,6 +109,7 @@ check("P4 google/apple/bing /place rows stay found", all(c["result"] == "found" 
 check("P4 slug rows on YP/SP/DK flip", all(c["result"] == "couldnt_check" for c in out if c["directory"] in ("yellowpages.com", "superpages.com", "dexknows.com")))
 
 # P5 build() end to end (offline)
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import run as jobrun  # noqa: E402
 from cfg import DIRS  # noqa: E402
 def row(**k):

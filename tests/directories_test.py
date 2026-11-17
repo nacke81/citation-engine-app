@@ -14,7 +14,9 @@ os.environ.pop("CE_ACTIVITIES_WRITE", None)
 os.environ["CE_DIRECTORIES_WRITE"] = "1"   # t_be2150cd: sink ON on purpose; every writer call below hands in a fake db (tests/no_prod_directory_sink_test.py)
 sys.path.insert(0, os.path.join(ROOT, "job"))
 import cfg
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import directories as D
+import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(_fo.path.abspath(__file__)), "no-such-portal.env")  # t_2ddc7067: fail closed, never the prod portal
 import portal as P
 import transitions as T
 
