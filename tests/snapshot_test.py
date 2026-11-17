@@ -3,6 +3,7 @@ import os, sys, copy, json, tempfile, shutil
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ.pop("CE_ACTIVITIES_WRITE", None)
+os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (a local run left a.example/b.example rows there)
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
 import portal as P
 import transitions as T
