@@ -1,5 +1,6 @@
 """NAP reader (t_69102cc9, review rounds 1-2): the state/ZIP check must hold for BOTH canonical spellings, `street, City, ST zip` and `street, City ST zip`, and a visible wrong
 locality UNDER the street must never be overridden by JSON-LD. Run: python tests/nap_locality_forms_test.py (CI). No network."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, re, sys, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

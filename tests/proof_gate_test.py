@@ -1,4 +1,5 @@
 """Proof gate tests (t_5871cdf9): proof_step may move a row live only when recheck's comparator says `match` on the proof_url page. Run: python tests/proof_gate_test.py. No network."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

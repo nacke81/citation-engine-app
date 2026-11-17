@@ -11,6 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
 os.environ.pop("CE_ACTIVITIES_WRITE", None)
+os.environ["CE_DIRECTORIES_WRITE"] = "1"   # t_be2150cd: sink ON on purpose; every writer call below hands in a fake db (tests/no_prod_directory_sink_test.py)
 sys.path.insert(0, os.path.join(ROOT, "job"))
 import cfg
 import directories as D
@@ -152,9 +153,9 @@ r = T.record_transition("SCC", "fix-a", "submitted", None, None, queue_path=p, t
 check("D4 a database failure is reported and never loses the queue write", r["directories_written"] is False and any("directories" in e for e in r["errors"]) and json.load(open(p))["fix_queue"][0]["state"] == "submitted")
 os.environ["CE_DIRECTORIES_WRITE"] = "0"
 p = qfile(copy.deepcopy(SRC)); r = T.record_transition("SCC", "fix-a", "submitted", None, None, queue_path=p, today=DAY, portal=portal_with("a.example"))
-os.environ.pop("CE_DIRECTORIES_WRITE")
+os.environ["CE_DIRECTORIES_WRITE"] = "1"
 check("D4 CE_DIRECTORIES_WRITE=0 switches the sink off (no network)", r["directories_written"] is False and not r["errors"], r["errors"])
-dr = T.record_transition("SCC", "fix-a", "submitted", None, None, queue_path=qfile(copy.deepcopy(SRC)), today=DAY, dry_run=True)
+dr = T.record_transition("SCC", "fix-a", "submitted", None, None, queue_path=qfile(copy.deepcopy(SRC)), today=DAY, dry_run=True, directories=FakeDB())
 check("D4 dry run touches no database", "directories_written" not in dr)
 
 # D5 the create-row bug

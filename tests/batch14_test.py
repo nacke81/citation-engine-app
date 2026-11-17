@@ -1,6 +1,7 @@
 """Batch 14 fix tests (t_6b1e01ff): CapSolver CLI path (a missing CLI logs 0 tries), chamberofcommerce formspec, getlistedusa Show / listyourbusiness prose street,
 listings@ approval scan, foursquare edit spec + recheck_due, showmelocal_claim guard, build Chrome screenshot helper.
 No network, no browser, no vault, no CapSolver, no real mailbox, no queue write: fakes and temp files only. Run: python tests/batch14_test.py (CI)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, shutil, datetime, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

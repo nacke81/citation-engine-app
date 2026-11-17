@@ -1,5 +1,6 @@
 """Batch 9 fix tests (t_d7a907d5): exact-name recheck, entry pages + search fallback, fit homepage flag, pagekit.select / overlays / frames,
 formspec (data-driven sites), Chrome keepalive + lease. No network, no browser, no real Chrome: fakes everywhere. Run: python tests/batch9_test.py (CI)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, types, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

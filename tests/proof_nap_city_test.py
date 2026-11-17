@@ -1,4 +1,5 @@
 """t_f2bc28d2: the proof nap quotes the city/state/zip line when the page puts it on its own line. Placeholder identities only."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "job"))
 import recheck as R

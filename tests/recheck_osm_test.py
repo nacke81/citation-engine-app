@@ -1,4 +1,5 @@
 """OSM reader + Chrome-route (manta) + Proof for rows already live (t_1c503c7f). No network, no browser: urlopen and the Chrome fetcher are fakes."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, copy, json, io, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

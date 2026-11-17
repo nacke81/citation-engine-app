@@ -1,6 +1,7 @@
 """build_action `existing` (kanban t_dc4ffd67): proof for a listing NM did not build. Run: python tests/existing_listing_test.py (CI).
 No network, no browser: DirDB is an in-memory fake that enforces the ce_directory_status.build_action check (as db/019 widens it);
 urlopen is poisoned, so no Directory call and no portal seed can happen."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, re, tempfile, shutil, urllib.request, io, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

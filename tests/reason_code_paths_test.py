@@ -1,4 +1,5 @@
 """Every job path that parks needs-human carries a reason_code (t_8d61ef01). Weekly path stays code-free (t_93ae9b6b)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, copy, tempfile, io, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 JOB = os.path.join(os.path.dirname(HERE), "job")

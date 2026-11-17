@@ -1,6 +1,7 @@
 """Batch 13 fix tests (t_3ac43137): signed-out reader (own Chrome, never 9333), hidden phone reveal, hidden banner = nap-incomplete, not-public verdict,
 vault item resolution by domain, --row lookup across all queue lists, listing URL captured at submit. No network, no browser, no vault.
 Run: python tests/batch13_test.py (CI)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, shutil, tempfile, types, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

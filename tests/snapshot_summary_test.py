@@ -6,6 +6,7 @@ G3 needs-human is split: listing -> nap-fix, none -> blocked; the queue state ma
 G4 live-row NAP read: every outcome stored; unread = null + reason, never False.
 G5 no frozen field survives; no portal seed / Directory path in the new code.
 """
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import copy, json, os, random, sys, tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

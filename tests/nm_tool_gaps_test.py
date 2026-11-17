@@ -4,6 +4,7 @@
   G3 recheck on an NM queue uses the NM identity (R1): passes its phone gate, refuses an SCC-phone canonical, refuses a mixed queue, records as NM
   G4 recheck on an SCC queue is unchanged (SCC identity, record as SCC)
 """
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import contextlib, io, json, os, sys, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "nm_r1_identity.json")

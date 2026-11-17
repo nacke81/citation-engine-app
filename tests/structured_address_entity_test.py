@@ -1,5 +1,6 @@
 """t_ff6ed622: structured_address picks the business's own PostalAddress, never the directory's sitewide Organization block (the storeboard false mismatch).
 Fixture shape: anonymized storeboard listing page, test identity (tests/test_identity.json). Run: python tests/structured_address_entity_test.py. No network."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

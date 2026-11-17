@@ -1,6 +1,7 @@
 """Recheck phone-reading regression tests (t_032083dc). Run: python tests/recheck_phone_test.py (CI). No network: saved copies of the real pages
 (tests/fixtures/recheck/*) fed to recheck.compare. hotfrog + freelistingusa are the raw HTML of the public page (text derived with claim.html_to_text);
 foursquare is the rendered text from the build Chrome (the plain page is a JS login shell)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "job"))

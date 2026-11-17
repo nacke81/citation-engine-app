@@ -1,4 +1,5 @@
 """Real yellowpagecity page stays match, street-only text stays nap-incomplete after #68 (t_57178c17). Pure, no network."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

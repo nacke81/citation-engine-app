@@ -11,6 +11,7 @@ old streets 900 Old + 44 Prior, old phone 615-555-0112. It mirrors the real R1 s
   N5 release command: stamps only the named NM rows, backs up, leaves state/history/mike_approval alone; refuses wrong file, SCC id, unknown id, bad card,
      another card's release; same card again is a no-op; --dry-run writes nothing; the stamped row passes submit_row
 """
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import copy, hashlib, json, os, re, sys, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "nm_r1_identity.json")
