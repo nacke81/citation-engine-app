@@ -1,4 +1,5 @@
 """Site guard, quota wall, one read per row, replay (t_e34fc55c). No network, no browser: fetchers are fakes, urlopen is poisoned. Run: python tests/sitegate_test.py"""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, copy, json, io, subprocess, tempfile, time, contextlib, urllib.request, datetime
 HERE = os.path.dirname(os.path.abspath(__file__))
 TMP = tempfile.mkdtemp(prefix="ce-sitegate-")

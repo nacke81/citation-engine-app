@@ -1,6 +1,7 @@
 """NAP reader: a visible street must not suppress the same entity's JSON-LD city/state/ZIP (t_69102cc9). Run: python tests/nap_structured_locality_test.py (CI). No network.
 The page is the live Nextdoor listing shape saved 2026-11-13 (tests/fixtures/nextdoor-live-shape-20261113.html, sanitized to the test identity): the text shows the
 street, phone and site but no city / state / ZIP; the page's own JSON-LD LocalBusiness carries the full PostalAddress."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, re, sys, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

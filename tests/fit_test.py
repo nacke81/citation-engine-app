@@ -1,4 +1,5 @@
 """Category-fit filter tests (t_d13bd638). Run: python tests/fit_test.py (CI). No network: urlopen is poisoned, fetch and record are fakes."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, shutil, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

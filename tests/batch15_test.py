@@ -1,6 +1,7 @@
 """Batch 15 fix tests (t_bbc32230): hidden-banner = not-public, mail URL -> permalink gate -> listing_url -> recheck reads it, formspec `login` + acompio_owner spec,
 foursquare unreadable-public, citylocalpro search log. (Item 1, the walls try counter, is in tests/walls_test.py W7.)
 No network, no browser, no vault, no CapSolver, no real mailbox, no real queue: fakes and temp files only. Run: python tests/batch15_test.py (CI)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, copy, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

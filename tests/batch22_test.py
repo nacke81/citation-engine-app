@@ -1,4 +1,5 @@
 """Batch 22 regressions: no browser, network, secrets, Directory writes or production queue."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import copy, io, json, os, sys, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 JOB = os.path.join(HERE, '..', 'job')

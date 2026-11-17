@@ -1,5 +1,6 @@
 """t_0227a3ce (PR #105 round 4): the WHOLE city is compared (Fort Wayne != Fort Worth), a visible state is read in any case, and same-name JSON-LD blocks that disagree
 are never a match. One city comparator serves the supplement and the structured-address path. Offline: no network, no prod env."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import json, os, re, sys, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))

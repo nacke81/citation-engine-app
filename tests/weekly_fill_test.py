@@ -1,4 +1,5 @@
 """Weekly job calls the fill-only reason_code fill AFTER sync_run (t_c3087efc follow-up). Fake db; no network."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__)); JOB = os.path.join(os.path.dirname(HERE), "job")
 sys.path.insert(0, JOB)

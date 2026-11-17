@@ -98,5 +98,25 @@ PR_EX = dict(PR); PR_EX["maps.apple.com"] = dict(proof("maps.apple.com"), build_
 ox = SN.apply_count_basis(payload, PR_EX, T.proof_problems)
 check("existing rows with complete proof count live: 23 + GBP + 2 existing = 26", ox["summary"]["live"] == 26 and LIVE(ox) == 26, str(ox["summary"]))
 
+# DB-proof precedence (t_be2150cd): count_proof merges queue proof and ce_directory_status proof; proof_by_dir is always explicit (never prod)
+d0 = proofed[0]
+q_nokey = [{"id": "create-" + d, "directory": d, "state": "live"} for d in proofed]          # pre-guard rows: no proof key in the queue
+fp4 = FakePortal()
+r4 = P.write_run(scan, "2026-11-16", fp4, queue_rows=q_nokey, proof_by_dir={d: proof(d) for d in proofed})
+w4 = fp4.rows[P.ALLOWED["SCC"]]
+check("DB-only proof: queue live rows with NO proof key stay live via proof_by_dir (24)", LIVE(w4) == 24 and r4["SCC"]["summary"]["live"] == 24, str(r4["SCC"]["summary"]))
+check("DB-only proof: no proofed row is re-stated to couldnt_check", not any(d["state"] == "couldnt_check" and d["domain"] in proofed for d in w4["directories"]))
+fp5 = FakePortal(); P.write_run(scan, "2026-11-16", fp5, queue_rows=q_nokey, proof_by_dir={})
+check("no proof in queue or DB: the same rows are re-stated (GBP only live)", LIVE(fp5.rows[P.ALLOWED["SCC"]]) == 1)
+badproof = dict(proof(d0), proof_nap_match=False)
+fp6 = FakePortal(); P.write_run(scan, "2026-11-16", fp6, queue_rows=qrows, proof_by_dir={d0: badproof})
+check("incomplete DB proof does not override a complete queue proof (stays live, 24)", LIVE(fp6.rows[P.ALLOWED["SCC"]]) == 24)
+check("count_proof keeps the queue proof when the DB proof is incomplete", P.count_proof(qrows, {d0: badproof})[d0] == proof(d0))
+fp7 = FakePortal(); P.write_run(scan, "2026-11-16", fp7, queue_rows=q_nokey, proof_by_dir=dict({d: proof(d) for d in proofed}, **{d0: badproof}))
+check("incomplete DB proof and no queue proof: that row is re-stated (23 live)", LIVE(fp7.rows[P.ALLOWED["SCC"]]) == 23)
+db_other = dict(proof(d0), proof_url="https://%s/db" % d0)
+check("complete DB proof wins over the queue proof for the same directory", P.count_proof(qrows, {d0: db_other})[d0] == db_other)
+check("count_proof with proof_by_dir={} uses queue proof only", P.count_proof(qrows, {}) == {d: proof(d) for d in proofed})
+
 print("%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

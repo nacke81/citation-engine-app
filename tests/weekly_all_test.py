@@ -1,4 +1,5 @@
 """Weekly finder covers every Directory in ce_directories (t_716fc9cd). Scrubbed identity, no network, no write."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import json, os, sys, tempfile
 from pathlib import Path
 

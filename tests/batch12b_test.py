@@ -1,5 +1,6 @@
 """Batch 12 resume fixes (t_f707b644): recheck nap-incomplete, created-unlisted recording, acompio/tupalo/showmelocal formspecs, playbook_write.
 No network, no browser, no CapSolver, no vault, no queue write: fake page, fake runner, temp files."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, copy, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

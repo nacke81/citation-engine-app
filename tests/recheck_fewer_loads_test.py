@@ -1,4 +1,5 @@
 """Fewer, spaced Directory loads (t_0c4ebee8). Offline: fake readers, fake pages, fake clock, poisoned urlopen. Run: python tests/recheck_fewer_loads_test.py"""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, io, tempfile, contextlib, urllib.request, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 TMP = tempfile.mkdtemp(prefix="ce-fewer-loads-")

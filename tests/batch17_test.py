@@ -2,6 +2,7 @@
 citylocalpro re-send result, bbb/businessyab owner specs, mail-only rows.
 No network, no browser, no vault, no CapSolver, no real mailbox, no real queue: fakes and temp files only. Run: python tests/batch17_test.py (CI).
 Lesson applied: urlopen / subprocess.run / imaplib are blocked FIRST, so a test that forgets a fake fails loudly."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, json, tempfile, io, subprocess, urllib.request, contextlib, types
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

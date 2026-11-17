@@ -2,6 +2,7 @@
 L1 match / wrong phone / unreadable page / not public / no listing URL: each stored as nap_check on the queue row, state and history untouched.
 L2 after the run the snapshot overlay shows no live row with an unexplained null: each is True/False or null + a reasonText; summary recounted.
 """
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import json, os, sys, tempfile, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")

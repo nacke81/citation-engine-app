@@ -1,5 +1,6 @@
 """No live row without Proof (kanban t_d660babc). Run: python tests/proof_gap_test.py (CI).
 No network, no browser: db and portal are in-memory fakes; urlopen is poisoned (so no Directory call and no portal seed can happen)."""
+import os; os.environ["CE_DIRECTORIES_WRITE"] = "0"   # t_be2150cd: never write the prod Directory DB (tests/no_prod_directory_sink_test.py)
 import os, sys, copy, json, re, tempfile, shutil, urllib.request, io, contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json")
