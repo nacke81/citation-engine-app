@@ -109,6 +109,8 @@ jobs:
         run: python tests/nap_structured_locality_test.py
       - name: NAP reader - a complete Full Address row beats a partial Address Details block; a wrong row is a mismatch (t_59f339e5)
         run: python tests/localstar_full_address_test.py
+      - name: Saved-page fixtures carry no Google API key; the save-time scrub strips one (t_6df6203a)
+        run: python tests/fixture_scrub_test.py
       - name: NAP reader - state/ZIP checks hold for both canonical spellings; wrong visible locality under the street is never overridden (t_69102cc9)
         run: python tests/nap_locality_forms_test.py
       - name: NAP reader - whole-city compare, case-insensitive visible state, disagreeing same-name JSON-LD never matches (t_0227a3ce)
