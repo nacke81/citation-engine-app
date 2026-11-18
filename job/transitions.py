@@ -433,6 +433,44 @@ def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now
             "channel_label": ACTIVITY_CHANNEL_LABEL}, now=now)
 
 
+EXISTING_TITLE = "Your %s listing is confirmed live"   # t_d9ed56f5: a listing we did NOT build. Never "added", "built" or "submitted".
+
+
+def build_existing_activity(client_id, row, now=None):
+    """t_d9ed56f5: the ONE client-feed row for a pre-existing listing (build_action existing). None unless the row is live, existing and its NAP match is literally True
+    (a wrong-NAP listing is not news we can confirm). Goes out only through P.write_deliverables. date_completed is the confirmed (proof) date, so the feed order stays true."""
+    pf = row.get("proof") or {}
+    if row.get("state") != "live" or pf.get("build_action") != "existing" or pf.get("proof_nap_match") is not True: return None
+    day = str(pf.get("proof_at") or "")[:10] or (row.get("history") or [{}])[-1].get("at")
+    return P.deliverable_row({"client_id": client_id, "deliverable_type": "citation", "title": EXISTING_TITLE % row["directory"],
+            "date_completed": day, "in_scope": True, "units": 1, "evidence_url": pf.get("proof_url") or row.get("evidence_url"),
+            "source_ref": "citation-existing:%s:live" % row["id"],
+            "channel_label": ACTIVITY_CHANNEL_LABEL}, now=now)
+
+
+def post_existing_activity(client, row_id, *, queue_path=None, portal=None, activities=None, dry_run=False):
+    """t_d9ed56f5: post (or, dry_run, describe) the confirmed-live row for one existing queue row. Idempotent: same source_ref upserts. Also the backfill path."""
+    tenant = tenant_of(client)
+    if not tenant["activities"]: raise TransitionRefused("%s has no client activity feed" % client)
+    q = _read(queue_path or tenant["queue_default"]())
+    row = _find(q, row_id)
+    rec = build_existing_activity(P.client_for(client), row) if row else None
+    out = {"row_id": row_id, "activity_record": rec, "activities_written": False, "errors": []}
+    if rec is None:
+        out["skipped"] = "row missing, not live, not build_action existing, or NAP match not true: nothing posted"; return out
+    if dry_run:
+        out["activities_request"] = P.deliverables_request([rec]); return out
+    if not activities_enabled():
+        out["skipped"] = "%s=0" % FLAG; return out
+    try:
+        act = activities or portal or P.Portal(*P.load_portal_env())
+        P.write_deliverables(act, [rec], now=rec["approved_at"])
+        out["activities_written"] = True
+    except Exception as e:
+        out["errors"].append("activities: %s" % e)
+    return out
+
+
 def retype_path(client_id, directory, verify_type):
     """t_5148d0b9: PATCH scope for a re-park to sms/phone-call over a row of any other type: this client + directory, still requires_verification, type differs."""
     return "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification&verification_type=neq.%s" % (client_id, directory, verify_type)
@@ -699,7 +737,7 @@ def _host_ok(url, domain):
     return host == domain or host.endswith("." + domain)
 
 
-def record_existing(client, domain, *, proof_url=None, proof_nap=None, proof_at=None, proof_nap_match=True, queue_path=None, today=None, dry_run=False, db=None):
+def record_existing(client, domain, *, proof_url=None, proof_nap=None, proof_at=None, proof_nap_match=True, queue_path=None, today=None, dry_run=False, db=None, portal=None, activities=None):
     """t_dc4ffd67: ONE live row for a listing NM did not build (the scan found it, a signed-out read matched NAP). build_action `existing`.
     SCC only. Refused: another client, a bad domain, ANY row for the directory (queue file, any list; or a ce_directory_status row with a queue_state),
     a proof_url off the domain, an incomplete proof, proof_nap_match not True. Status first (same writer as every live move), then backup + atomic queue write.
@@ -730,6 +768,9 @@ def record_existing(client, domain, *, proof_url=None, proof_nap=None, proof_at=
         out["status_body"] = dict({"owner": getattr(db, "owner", None) or "<owner>", "biz": "SCC", "directory": domain, "updated_at": day + "T00:00:00Z"},
                                   queue_state="live", queue_row_id=rid, queue_kind="fix", queue_note=None, queue_state_at=day, **proof)
         out["status_request"] = "POST ce_directory_status?on_conflict=owner,biz,directory (resolution=merge-duplicates)"
+        rec = build_existing_activity(P.client_for(client), row)   # t_d9ed56f5: the client row the real path would post
+        out["activity_record"] = rec
+        out["activities_request"] = P.deliverables_request([rec]) if rec and activities_enabled() else "skipped: no confirmable row or %s=0" % FLAG
         return out
     db = db or (D.DirDB() if D.enabled() else None)
     if db is not None:
@@ -742,6 +783,10 @@ def record_existing(client, domain, *, proof_url=None, proof_nap=None, proof_at=
     q.setdefault("fix_queue", []).append(row)
     _write_atomic(path, q)
     NMT.prune_backups(path, keep_path=out["backup"])
+    out["activities_written"], out["errors"] = False, []   # t_d9ed56f5: client activity AFTER the queue is safe; a failure here never undoes the status or queue write
+    if activities_enabled():
+        res = post_existing_activity(client, rid, queue_path=path, portal=portal, activities=activities)
+        out["activity_record"], out["activities_written"], out["errors"] = res["activity_record"], res["activities_written"], res["errors"]
     return out
 
 
@@ -779,11 +824,17 @@ def main(argv=None):
     a.add_argument("--create-row", action="store_true", dest="create_row", help="t_cb7bad04: add ONE queued row for a Directory that has no row yet (needs --domain and --kind; NM only; --dry-run prints the row)")
     a.add_argument("--domain", default=None, help="with --create-row: the Directory domain, e.g. foursquare.com")
     a.add_argument("--kind", default=None, choices=("fix", "create"), help="with --create-row: fix (a wrong listing exists) or create (no listing yet)")
+    a.add_argument("--existing-activity", action="store_true", dest="existing_activity", help="t_d9ed56f5: post the one 'confirmed live' client row for an existing queue row (needs --row; backfill; --dry-run prints the request)")
     a.add_argument("--record-existing", action="store_true", dest="record_existing", help="t_dc4ffd67: ONE live row (build_action existing) for a listing NM did not build; SCC only; needs --domain --proof-url --proof-nap --proof-at; --dry-run prints the row and the status write")
     a.add_argument("--proof-url", default=None, dest="proof_url")
     a.add_argument("--proof-nap", default=None, dest="proof_nap")
     a.add_argument("--proof-at", default=None, dest="proof_at")
     n = a.parse_args(argv)
+    if n.existing_activity:
+        try: res = post_existing_activity(n.client, n.row, queue_path=n.queue, dry_run=n.dry_run)
+        except TransitionRefused as e:
+            print("REFUSED: %s" % e, file=sys.stderr); return 1
+        print(json.dumps(res, indent=2)); return 1 if res["errors"] else 0
     if n.record_existing:
         try: res = record_existing(n.client, n.domain, proof_url=n.proof_url, proof_nap=n.proof_nap, proof_at=n.proof_at, queue_path=n.queue, today=n.today, dry_run=n.dry_run)
         except (TransitionRefused, Q.QueueError) as e:
