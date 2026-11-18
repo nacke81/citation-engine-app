@@ -4,7 +4,7 @@ Only two portal clients can ever be written (ALLOWED, in code). The client id co
 and is checked before any network call. The prod service-role key is read in place from the portal repo's .env.prod.local; it is never
 copied, printed or logged, and error text is scrubbed of it. No Directory traffic, no portal-seed call, no other table.
 """
-import json, os, re, urllib.request
+import datetime, json, os, re, urllib.request
 
 PORTAL_ENV_PTR = os.path.expandvars("%LOCALAPPDATA%/citation-engine/portal_env_path.txt")  # one line: path of the portal repo's .env.prod.local (outside this repo)
 SOURCE = "citation_engine"  # underscore: the key the prod portal reader uses (Nate 2026-10-19)
@@ -29,6 +29,26 @@ def check_client(client_id):
     if client_id not in ALLOWED.values():
         raise PortalWriteError("client id is not on the SCC + NM allow-list")
     return client_id
+
+
+DELIVERABLES_PATH = "deliverables?on_conflict=client_id,source_ref"   # t_25000cbd: the ONE place this table name is written in code (tests/deliverables_helper_test.py scans for any other)
+
+
+def deliverable_row(fields, now=None):
+    """t_25000cbd: the ONE builder of a client-feed `deliverables` row. Always source=citation_engine and approved_at=created time, whatever the caller passed
+    (even approved_at=None): the portal hides a citation_engine row with approved_at NULL ("Held from client feed") and nobody approves rows any more."""
+    row = dict(fields)
+    row["source"] = SOURCE
+    row["approved_at"] = now or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return row
+
+
+def write_deliverables(portal, rows, now=None):
+    """t_25000cbd: the ONE writer of `deliverables`. Every row goes through deliverable_row; client id checked before any network call."""
+    out = [deliverable_row(r, now) for r in rows]
+    for r in out: check_client(r.get("client_id"))
+    portal.call("POST", DELIVERABLES_PATH, out, prefer="resolution=merge-duplicates,return=minimal")
+    return out
 
 
 def client_for(biz):

@@ -47,6 +47,8 @@ jobs:
         run: python tests/snapshot_count_basis_test.py
       - name: No test reaches the prod Directory DB (scan)
         run: python tests/no_prod_directory_sink_test.py
+      - name: Every deliverables write goes through the one helper that sets approved_at (guard + mutations)
+        run: python tests/deliverables_helper_test.py
       - name: No test reaches the prod portal (scan)
         run: python tests/no_prod_portal_sink_test.py
       - name: NM R1 identity + Nate release gate (city-only match, alias discovery, release command, SCC unchanged)

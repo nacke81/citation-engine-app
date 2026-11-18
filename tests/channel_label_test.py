@@ -26,7 +26,7 @@ for st in ("live", "submitted", "pending-verify", "rejected"):
     check("CL %s carries channel_label" % st, rec.get("channel_label") == LABEL, repr(rec.get("channel_label")))
     check("CL %s keeps in_scope/type/source_ref" % st, rec["in_scope"] is True and rec["deliverable_type"] == "citation" and rec["source_ref"] == "citation-transition:r1:%s" % st)
     held = T.build_activity_record(SCC, ROW, st, None, "2026-10-28", hold=True)
-    check("CL %s held row still labelled" % st, held.get("channel_label") == LABEL and held["approved_at"] is None)
+    check("CL %s hold arg ignored (t_25000cbd): still labelled and approved" % st, held.get("channel_label") == LABEL and bool(held["approved_at"]))
 
 check("CL constant is exactly the shared contract value", T.ACTIVITY_CHANNEL_LABEL == "SEO & Local SEO")
 
