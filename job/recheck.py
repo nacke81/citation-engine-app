@@ -622,6 +622,26 @@ def canon_state_zip(addr):
     return (m.group(1).upper(), m.group(2)) if m and m.group(1).upper() in {v.upper() for v in US_STATES.values()} else (None, None)   # "Dr" is not a state
 
 
+FULL_ADDR_RE = re.compile(r"(?i)^(.+?),\s*([A-Za-z][A-Za-z .'\-]*?),\s*([A-Za-z][A-Za-z ]*?)\.?\s+(\d{5})(?:-\d{4})?$")
+
+
+def full_address_row(text, canonical):
+    """t_59f339e5: the 'street, City, ST zip' under a line that says only 'Full Address', in a row whose Name is the exact canonical business name (<= 4 lines above;
+    never another entity's row). None when absent or not a complete street / city / state / ZIP. The caller compares every part; this only reads."""
+    lines = [l.strip() for l in (text or "").splitlines()]
+    for i, l in enumerate(lines):
+        if l.lower() != "full address" or i + 1 >= len(lines): continue
+        if not any(exact_name(x) == exact_name(canonical["name"]) for x in lines[max(0, i - 4):i] if x): continue
+        raw = lines[i + 1]
+        m = FULL_ADDR_RE.match(raw) if len(raw) <= 200 else None
+        if not m: continue
+        st = m.group(3).strip()
+        st = US_STATES.get(st.lower(), st).upper()
+        if len(st) != 2: continue
+        return {"street": m.group(1).strip(), "city": m.group(2).strip(), "state": st, "zip": m.group(4), "raw": raw}
+    return None
+
+
 def compare(text, canonical, html_=None):
     """-> {"verdict": match|mismatch|nap-incomplete|not-public|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
     nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
@@ -812,6 +832,23 @@ def compare(text, canonical, html_=None):
                 if len(wrong) == n0:
                     gaps.remove("address"); sa_used = True
                     got = ("%s, %s, %s %s" % (ent["street"], ent["city"], ent["state"], ent["zip"]), got[1], ent["zip"])
+    if got and cstreet and not sa_used and "address" in gaps and not any(f in ("address", "city", "state", "zip") for f, _v in wrong):
+        fa = full_address_row(text, canonical)   # t_59f339e5: a labelled "Full Address" row beats a partial Address Details block
+        if fa:
+            cst_s, cst_z = canon_state_zip(canonical["address"])
+            cparts = [x.strip() for x in canonical["address"].split(",")]
+            _bi = next((i for i, l in enumerate(block) if l and got[0].startswith(l) and F.parse_street(l)), None)
+            _under = block[_bi + 1:_bi + 3] if _bi is not None else []   # the 1-2 lines under the street in the partial block: a letters-only line there that is not the canonical city contradicts the row
+            _clash = any(re.fullmatch(r"[A-Za-z][A-Za-z .'\-]*", x) and len(x.split()) <= 4 and len(cparts) >= 2 and not city_same(x, cparts[1]) for x in _under)
+            if cst_s and cst_z and len(cparts) >= 2 and not _clash:
+                n0 = len(wrong)
+                fp = F.parse_street(fa["street"])
+                if not (fp and F.street_equal(fp, cstreet)): wrong.append(("address", fa["raw"]))
+                if not city_same(fa["city"], cparts[1]): wrong.append(("city", fa["city"]))
+                if fa["state"] != cst_s: wrong.append(("state", fa["state"]))
+                if fa["zip"] != cst_z: wrong.append(("zip", fa["zip"]))
+                if len(wrong) == n0:
+                    gaps.remove("address"); got = (fa["raw"], got[1], fa["zip"])
     street_txt = got[0] if got else None
     if got and segs and not sa_used and segs[0] not in got[0]:   # t_f2bc28d2: street and city/state/zip on separate lines -> quote both (display only; verdict logic unchanged)
         _zr = r"\b\d{5}(?:-\d{4})?\b"
