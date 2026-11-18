@@ -6,6 +6,7 @@ HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.abspath(os.pat
 DENY = set(json.load(open(os.path.join(HERE, "denylist.json"))))
 SKIP_DIRS = {".git", "node_modules", "vendor", "__pycache__"}
 SKIP_FILES = {"denylist.json", "package-lock.json"}
+GOOGLE_KEY = re.compile("AI" + "za[0-9A-Za-z_-]{35}")   # split so this file holds no key-shaped string
 
 def scan_text(text):
     hits = []
@@ -17,6 +18,7 @@ def scan_text(text):
     for m in re.finditer(r"\(?(\d{3})\)?[\s.\-]*(\d{3})[\s.\-]*(\d{4})", text):
         if hashlib.sha256((m.group(1) + m.group(2) + m.group(3)).encode()).hexdigest() in DENY: hits.append("phone")
     if re.search(r"sb_" + r"secret_|service" + r"_role|e" + r"yJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{30,}\.", text): hits.append("secret-shape")
+    if GOOGLE_KEY.search(text): hits.append("google-key-shape")   # whole-repo walk: scan_repo runs scan_text on every file (t_6df6203a)
     return hits
 
 def scan_repo():
@@ -40,6 +42,9 @@ caught = scan_text("harmless line then " + probe)
 print(("PASS " if caught else "FAIL ") + "planted control is caught", caught)
 clean = not scan_text("a clean sentence about nothing")
 print(("PASS " if clean else "FAIL ") + "clean text is not flagged")
+gprobe = "AI" + "za" + "Sy" + "Q" * 33   # planted Google-key control, assembled at runtime; must be caught
+gcaught = "google-key-shape" in scan_text('<script src="https://maps.google.com/maps/api/js?key=' + gprobe + '"></script>')
+print(("PASS " if gcaught else "FAIL ") + "planted Google-key control is caught")
 bad = scan_repo()
 print(("PASS " if not bad else "FAIL ") + "repo has no real identity token or secret", bad)
-sys.exit(0 if (caught and clean and not bad) else 1)
+sys.exit(0 if (caught and clean and gcaught and not bad) else 1)

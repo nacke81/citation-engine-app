@@ -4,6 +4,8 @@ and after scrubbing, and writes the hash denylist used by the leak check. Usage:
 import json, os, re, sys, hashlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "job"))
+sys.path.insert(0, HERE)
+from fixture_scrub import write_fixture   # every fixture write goes through the Google-key scrub (t_6df6203a)
 run_dir = sys.argv[1]
 real = json.load(open(os.path.expandvars("%LOCALAPPDATA%/citation-engine/identity.json"), encoding="utf-8"))
 test = json.load(open(os.path.join(HERE, "test_identity.json"), encoding="utf-8"))
@@ -53,7 +55,7 @@ for i, p in enumerate(pages):
         text = scrub(p["text"], b); kind = "listing"
     text = text[:6000]
     name = f"{kind}-{b.lower()}-{p['directory'].split('.')[0]}-{i}.txt"
-    open(os.path.join(fx, name), "w", encoding="utf-8").write(text)
+    write_fixture(os.path.join(fx, name), text)
     manifest.append(dict(file=name, kind=kind, biz=b, directory=p["directory"], real_verdict=verdict_real))
 json.dump(manifest, open(os.path.join(fx, "manifest.json"), "w"), indent=1)
 

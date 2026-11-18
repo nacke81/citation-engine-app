@@ -1,0 +1,1 @@
+A saved third-party page carries that site's own embedded keys (here a Maps key in a script URL), and this repo is public. Sanitizing the business identity is not enough: scrub keys at save time (`tests/fixture_scrub.py`) and let a guard walk the whole fixture tree, so the next saved page cannot leak one.
