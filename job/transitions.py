@@ -839,7 +839,10 @@ def main(argv=None):
         try: res = record_existing(n.client, n.domain, proof_url=n.proof_url, proof_nap=n.proof_nap, proof_at=n.proof_at, queue_path=n.queue, today=n.today, dry_run=n.dry_run)
         except (TransitionRefused, Q.QueueError) as e:
             print("REFUSED: %s" % e, file=sys.stderr); return 1
-        print(json.dumps(res, indent=2)); return 0
+        print(json.dumps(res, indent=2))
+        if res.get("errors"):   # t_9f3a9323: queue/status stay written; the client row did not post, so say so and print the retry
+            print("client row NOT posted; retry: python job/transitions.py --existing-activity --client %s --row %s" % (n.client, res["row"]["id"]), file=sys.stderr); return 1
+        return 0
     if n.create_row:
         if not n.domain or not n.kind: a.error("--create-row needs --domain and --kind")
         try: res = create_row(n.client, n.domain, n.kind, queue_path=n.queue, today=n.today, dry_run=n.dry_run, note=n.note)
