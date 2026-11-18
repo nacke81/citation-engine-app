@@ -511,6 +511,7 @@ class Runtime:
             err_path = os.path.join(d, "agent-%d-%d.txt" % (os.getpid(), int(time.time() * 1000)))
             with open(err_path, "wb") as err:   # a private file, not a pipe: only the `Session:` line is ever read (AgentProc), then it is deleted
                 kw = dict(stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err, env=env, cwd=REPO_ROOT)
+                if os.name == "nt": kw["creationflags"] = 0x08000000   # CREATE_NO_WINDOW (t_58ea23a5): the agent never gets a visible console
                 proc = (self._popen or subprocess.Popen)(argv, **kw)
         except BaseException:
             release(); raise   # the oneshot never started: do not leave the override on this tenant
