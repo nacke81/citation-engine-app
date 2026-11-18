@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as td:
     fake = lambda **k: msgs
     M.read_messages = fake
     rc, txt = run(["--presence", "--directory", "n49.com", "--days", "5"])
-    check("G2 default-mailbox run finds nothing for n49.com", rc == 0 and "mails from the Directory: 0" in txt, txt[:100])
+    check("G2 default-mailbox run REFUSES n49.com (t_2b13224d: unmapped, never a 0 count)", rc == 2 and "mails from the Directory" not in txt, txt[:100])
     del os.environ["NM_RELAY_FILE"]
 
 # ---- recheck

@@ -8,7 +8,7 @@ row | mail found (date + subject) | URL.
 
 find_approval() is pure: hand it message dicts and it needs no network.
 """
-import email, email.utils, html, imaplib, os, re, sys, datetime
+import email, email.utils, html, imaplib, json, os, re, sys, datetime
 import buildqueue as Q
 from email.header import decode_header, make_header
 from urllib.parse import urlparse
@@ -16,15 +16,31 @@ from urllib.parse import urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-# Directory -> the registrable domain its mails and listing URLs carry. These four have no account, so no permalink exists until the approval mail.
-SCAN_DIRECTORIES = {
-    "bbb.org": "bbb.org",
-    "loc8nearme.com": "loc8nearme.com",
-    "businessyab.com": "businessyab.com",
-    "discoverourtown.com": "discoverourtown.com",
-    "cylex.us": "cylex.us.com",
-    "cylex.us.com": "cylex.us.com",
-}
+# t_2b13224d: Directory -> the mail domain (+ alias sender domains) lives in config/mail_domains.json, so the operating seat adds a Directory without a code edit.
+# approval:true rows are the approval-mail scan set (SCAN_DIRECTORIES, read by recheck); the rest are presence/headers/verify/reset only. A missing or broken file raises at import: never an empty map that reads as "no mail".
+MAIL_DOMAINS_PATH = os.path.join(HERE, "..", "config", "mail_domains.json")
+_HOST_RE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
+
+
+def load_mail_domains(path=None):
+    """-> {directory: {"domain", "aliases", "approval"}}. Raises ValueError on an unreadable or malformed file."""
+    try:
+        with open(path or MAIL_DOMAINS_PATH, encoding="utf-8") as f: rows = json.load(f)["directories"]
+        out = {}
+        for r in rows:
+            d, dom = r["directory"].strip().lower(), r["domain"].strip().lower()
+            al = tuple(x.strip().lower() for x in r.get("aliases", []))
+            if not (_HOST_RE.fullmatch(d) and _HOST_RE.fullmatch(dom) and all(_HOST_RE.fullmatch(x) for x in al)):
+                raise ValueError("bad host in %r" % (r,))
+            out[d] = {"domain": dom, "aliases": al, "approval": bool(r.get("approval"))}
+        if not out: raise ValueError("no directories")
+        return out
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise ValueError("mail_domains.json unreadable: %s: %s" % (type(e).__name__, str(e)[:100]))
+
+
+MAIL_DOMAINS = load_mail_domains()
+SCAN_DIRECTORIES = {d: r["domain"] for d, r in MAIL_DOMAINS.items() if r["approval"]}
 APPROVED_RE = re.compile(r"(?i)\b(now live|is live|went live|has been (approved|published|activated|accepted)|was (approved|published|accepted)|(approved|published) and (is )?(now )?(live|visible|active)|"
                          r"listing (is )?(now )?(live|published|active|approved)|congratulations|accreditation is complete|profile is (now )?(live|published|active))\b")
 # "will be visible once approved" / "pending approval" are the submit receipt, not an approval.
@@ -82,10 +98,27 @@ NM_ALIASES = {"designrush.com": ("designrush.co",), "goodfirms.co": ("goodfirms.
 
 def _domain_of(directory):
     """t_5b3b4a3f: the domain a Directory's mail carries. SCC: only SCAN_DIRECTORIES. nm-relay: an unlisted dotted name is its own domain (matched by From domain and link host)."""
-    d = SCAN_DIRECTORIES.get(directory)
+    r = MAIL_DOMAINS.get((directory or "").strip().lower())
+    d = r["domain"] if r else None
     if d or not _OPEN_DOMAINS: return d
     d = (directory or "").strip().lower()
     return d if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", d) else None   # a bare host token only: 'yahoo.com (local.yahoo.com)' opens nothing
+
+
+def _alias_hosts(domain):
+    """Alias sender hosts the data file lists for `domain` (SCC mode)."""
+    return {a for r in MAIL_DOMAINS.values() if r["domain"] == domain for a in r["aliases"]}
+
+
+def _unmapped(directories):
+    """t_2b13224d: the Directories this scan cannot see. A 0 count for one of these would read as 'no mail'."""
+    return [d for d in directories if not _domain_of(d)]
+
+
+def _refuse_unmapped(directories):
+    bad = _unmapped(directories)
+    for d in bad: print("DIRECTORY NOT MAPPED: %s" % d, file=sys.stderr)
+    return bool(bad)
 
 
 def mail_is_from(msg, domain):
@@ -102,7 +135,9 @@ def mail_is_from(msg, domain):
         mixed = {h.rstrip(".") for h in re.findall(r"@([a-z0-9.-]+)", frm)} != {ph}   # a second @host anywhere in the From (display-name spoof) rejects it
         from_ok = ph != "-" and not mixed and any(own(ph, d) for d in (domain, *NM_ALIASES.get(domain, ())))   # domain, subdomain, or explicit alias host; no brand/TLD logic
         return from_ok or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
-    return (b in frm and not other_site) or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
+    ph = from_domain(msg.get("from") or "").lower().rstrip(".")   # t_2b13224d: an alias sender (usaonline.us for kentuckyonline.us) listed in config/mail_domains.json; the From ADDRESS host decides, no display-name spoof
+    alias_ok = ph != "-" and {h.rstrip(".") for h in re.findall(r"@([a-z0-9.-]+)", frm)} == {ph} and any(own(ph, a) for a in _alias_hosts(domain))
+    return alias_ok or (b in frm and not other_site) or any(host_ok(u, domain) for u in URL_RE.findall(msg.get("body") or "")[:40])
 
 
 def find_approval(directory, messages, name=None):
@@ -160,6 +195,7 @@ def presence(directory, messages):
 
 def presence_main(directories, days, messages=None, out=print, folders="all"):
     """`--presence`: yes/no only (t_89f4aebf): per Directory, how many mails exist, which folders, and 'code present: yes/no'. Never prints a code, link or body."""
+    if _refuse_unmapped(directories): return 2   # t_2b13224d
     try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
     except Exception as e:
         print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
@@ -195,6 +231,7 @@ def header_rows(directory, messages):
 
 def headers_main(directories, days, messages=None, out=print, folders="all"):
     """`--presence --headers`: per matching mail, one line: folder | date | From domain | To address | Subject. Batch 22 reads it to learn which address bbb writes to."""
+    if _refuse_unmapped(directories): return 2   # t_2b13224d
     try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
     except Exception as e:
         print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
@@ -207,6 +244,7 @@ def headers_main(directories, days, messages=None, out=print, folders="all"):
 
 def reset_main(directories, days, messages=None, out=print, folders="inbox"):
     """`--reset-link`: print the newest reset link / code per Directory to stdout. Read-only mail access. Exit 0 found, 1 none, 2 mailbox unreadable."""
+    if _refuse_unmapped(directories): return 2   # t_2b13224d
     try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
     except Exception as e:
         print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
@@ -244,7 +282,8 @@ def verify_urls(text, domain):
 
 def find_verify(directory, messages):
     """-> {"uid","date","subject","url","code"} for the NEWEST email-verification mail from `directory` (a verify link on its own domain, and/or a numeric code), else None. Pure."""
-    domain = SCAN_DIRECTORIES.get(directory) or directory
+    domain = _domain_of(directory)
+    if not domain: return None   # t_2b13224d: no raw-name fallback; the _main callers refuse an unmapped Directory first
     for m in sorted([x for x in messages if mail_is_from(x, domain)], key=lambda x: (x.get("date") or "", str(x.get("uid") or "")), reverse=True):
         subj, body = m.get("subject") or "", m.get("body") or ""
         if not (VERIFY_SUBJECT_RE.search(subj) or re.search(r"(?i)verify your|confirm your|verification code", body)): continue
@@ -257,6 +296,7 @@ def find_verify(directory, messages):
 
 def verify_main(directories, days, messages=None, out=print, folders="inbox"):
     """`--verify-link`: print the newest verification link / code per Directory to stdout. Read-only. Exit 0 found, 1 none, 2 mailbox unreadable."""
+    if _refuse_unmapped(directories): return 2   # t_2b13224d
     try: msgs = messages if messages is not None else read_messages(days=days, folders=folders)
     except Exception as e:
         print("MAILBOX NOT READ: %s" % (type(e).__name__ + ": " + str(e)[:100]), file=sys.stderr); return 2
@@ -451,6 +491,7 @@ def _main(argv=None):
     if n.presence: return presence_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     if n.reset_link: return reset_main(n.directory or ["bbb.org", "businessyab.com"], n.days, folders=n.folders)
     import buildqueue as Q
+    if n.directory and _refuse_unmapped(n.directory): return 2   # t_2b13224d
     wanted = set(n.directory) if n.directory else {"bbb.org", "loc8nearme.com", "businessyab.com", "discoverourtown.com"}
     import datetime
     today = datetime.date.today().isoformat()

@@ -261,7 +261,9 @@ FakeIMAP.logins = []
 orig_rm = MS.read_messages
 MS.read_messages = lambda days=30, **k: []
 with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
-    MS_main_rc = MS.main(["--queue", QP, "--directory", "bbb.org", "--directory", "citylocalpro.com"])
+    MS.MAIL_DOMAINS["citylocalpro.com"] = {"domain": "citylocalpro.com", "aliases": (), "approval": False}   # t_2b13224d: an unmapped --directory is refused now; this test is about due dates, so map it for the call
+    try: MS_main_rc = MS.main(["--queue", QP, "--directory", "bbb.org", "--directory", "citylocalpro.com"])
+    finally: MS.MAIL_DOMAINS.pop("citylocalpro.com", None)
 MS.read_messages = orig_rm
 check("4 mail_scan lists the due row and skips the not-yet-due one", "create-bbb" in buf.getvalue() and "create-citylocalpro" not in buf.getvalue(), buf.getvalue()[:200])
 check("4 Q.not_due: future = the date, today/past/none = None", Q.not_due({"recheck_due": "2026-10-29"}, "2026-10-28") == "2026-10-29" and Q.not_due({"recheck_due": "2026-10-28"}, "2026-10-28") is None and Q.not_due({}, "2026-10-28") is None)
