@@ -3,7 +3,7 @@
 Cites lesson `docs/lessons/2026-11-18-a-prompt-check-must-not-read-the-host.md` (latest at start): a check must not depend on what the host happens to hold. Here the "is it ours?" answer must not rest on a guess, and the guard must read the fixture tree itself, not a list we maintain.
 
 ## Finding
-GitHub secret-scanning alert #1 (google_api_key, publicly_leaked) points at `tests/fixtures/localstar-scc-20261118.html` line 740: `<script src="https://maps.google.com/maps/api/js?...&key=AIza...">`. That is localstar's own embedded browser Maps/Places key in the saved third-party page. No `AIza` string exists in any `.env*` / config under citation-engine, nacke-platform or this repo. (Hermes `.env` files were not readable from this seat: the harness blocks them; flagged in the handoff.)
+GitHub secret-scanning alert #1 (google_api_key, publicly_leaked) points at `tests/fixtures/localstar-scc-20261118.html` line 740: `<script src="https://maps.google.com/maps/api/js?...&key=AIza...">`. That is localstar's own embedded browser Maps/Places key in the saved third-party page. No `AIza` string exists in any `.env*` / config under the sibling repos or this repo. (Hermes `.env` files were not readable from this seat: the harness blocks them; flagged in the handoff.)
 
 ## Change
 - Fixture: replace the key with `REDACTED_GOOGLE_KEY` (one line; the test only reads the Full Address row and keeps the map script line).
