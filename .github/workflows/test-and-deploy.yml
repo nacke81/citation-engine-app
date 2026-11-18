@@ -233,6 +233,8 @@ jobs:
         run: python tests/verify_kill_fence_test.py
       - name: Verify Now auto-allowlist on park (local file outside repo, repo wins, idempotent, postcard adds nothing, bridge fence)
         run: python tests/verify_allowlist_test.py
+      - name: Verify Now send run starts without a visible console (flags; real window probe runs on Windows only)
+        run: python tests/verify_hidden_console_test.py
       - name: Register script writes UTF-16 task XML for schtasks (no schtasks run)
         run: python tests/register_verify_bridge_test.py
       - name: Verify Now Cylex send step dry run (fake page)

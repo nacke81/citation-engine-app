@@ -389,6 +389,11 @@ def sweep(portal, rpc, now=None, card_runner=None):
 
 
 # ---- start --------------------------------------------------------------------------------------------------------------------------
+# t_58ea23a5: DETACHED_PROCESS left the send run with NO console, so every console child it started (hermes agent, node, taskkill) opened its own visible blank window for the whole run.
+# CREATE_NO_WINDOW gives the send run one hidden console those children inherit. Still its own process group, so the run outlives the pass as before.
+NO_WINDOW_FLAGS = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200) | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)) if os.name == "nt" else 0
+
+
 def start_send(request_id, spawner=None):
     """Direct subprocess. argv holds the request id only (no client data, no code). Output goes to a run log under CE_LOGS."""
     import sitegate
@@ -396,7 +401,7 @@ def start_send(request_id, spawner=None):
     out = open(os.path.join(d, "verify-send-%s.log" % request_id), "ab")
     argv = [sys.executable, os.path.join(HERE, "verify_send.py"), "--request-id", request_id]
     kw = dict(stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, close_fds=True)
-    if os.name == "nt": kw["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    if os.name == "nt": kw["creationflags"] = NO_WINDOW_FLAGS
     try:
         return (spawner or _spawner or subprocess.Popen)(argv, **kw)
     finally:
