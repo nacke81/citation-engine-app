@@ -19,7 +19,8 @@ sys.path.insert(0, HERE)
 
 STAGES = ("requested_at", "bridge_pickup_at", "agent_start_at", "agent_ready_at", "signed_in_at", "send_clicked_at", "code_sent_at",
           "code_submitted_at", "code_entered_at")
-META = ("tenant", "domain", "channel", "send_mode")
+META = ("tenant", "domain", "channel", "send_mode", "signup", "reason")   # signup/reason: stage-file only (t_761c9558), never a row column of their own
+NO_CODE_REASONS = ("session_signed_out", "captcha")   # t_761c9558: the run stopped before any send; the platform fence must not count the request (row key fence_skip)
 FIELDS = ("request_id", "tenant", "domain", "channel") + STAGES + ("verified_at", "outcome", "send_mode")
 PICKUP_START_FLAG_S = 90
 SEND_MODES = ("agent", "script")
@@ -152,6 +153,27 @@ def set_refusal(rid, text):
         _log("refusal skipped: %s" % type(e).__name__); return False
 
 
+def add_evidence(rid, label, rel):
+    """t_761c9558: link one saved page capture ({"png": rel path, "txt": rel path}) in the stage file under its label (last write per label wins). -> bool."""
+    try:
+        rid = _clean_rid(rid)
+        if not rid or not isinstance(rel, dict): return False
+        f = _stage_file(rid)
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        cur = {}
+        if os.path.exists(f):
+            with open(f, encoding="utf-8") as h: cur = json.load(h)
+        ev = cur.get("evidence") if isinstance(cur.get("evidence"), dict) else {}
+        ev[str(label)] = {k: str(v) for k, v in rel.items() if k in ("png", "txt")}
+        cur["evidence"] = ev
+        tmp = f + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as h: json.dump(cur, h)
+        os.replace(tmp, f)
+        return True
+    except Exception as e:
+        _log("evidence skipped: %s" % type(e).__name__); return False
+
+
 def take_note(rid):
     """Read the note once and drop what is left of the stage file (a finalized `verified` run leaves only the note). -> text or None."""
     try:
@@ -180,6 +202,11 @@ def finalize(rid, outcome, at=None):
         for k in STAGES: row[k] = cur.get(k)
         row["verified_at"] = _at(at) if str(outcome) == "verified" else None
         row["outcome"] = str(outcome)
+        reason = cur.get("reason")
+        if reason and str(outcome).startswith("failed:"):   # t_761c9558: the specific stop (session_signed_out, captcha, send_unconfirmed), not the portal's coarse code
+            row["outcome"] = "failed:%s" % reason
+            if reason in NO_CODE_REASONS: row["fence_skip"] = True
+        if isinstance(cur.get("evidence"), dict) and cur["evidence"]: row["evidence"] = cur["evidence"]
         row["send_mode"] = cur.get("send_mode")
         if cur.get("refusal_text"): row["refusal_text"] = cur["refusal_text"]   # t_4ee21e60: the page text the Directory showed when the send was refused
         p = path()

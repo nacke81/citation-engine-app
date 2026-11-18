@@ -317,7 +317,7 @@ def helper_command():
 
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
-SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP. If sign-in shows a CAPTCHA or will not complete, NEVER solve or retry it: run %(helper)s fail --request-id %(rid)s --reason captcha (or --reason session_signed_out when the session is simply signed out) --evidence \"<a short line of the page text>\" and end the session.\n")
 PHONE_ON_ACCOUNT_STEP = "2. This page shows no phone; the playbook records the code goes to the phone on the account. Proceed.\n"
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
@@ -343,6 +343,8 @@ def playbook_block(playbook):
 
 ARM_STEP = ("   Pre-send fence (do not skip): in the same breath as the send click, immediately BEFORE it, run: %(helper)s arm --request-id %(rid)s\n"
             "   If it exits nonzero, STOP at once: the send step is cancelled, so make no send attempt and end the session. The request is closed or about to be, and a send after that is a real message nobody can use.\n")
+WATCH_STEP = ("   Right after the click (a click by any route counts), run: %(helper)s watch --request-id %(rid)s   It saves the page and waits up to 40 seconds for the code boxes.\n"
+              "   Exit 0: carry on. Exit 5: STOP at once, the request is closed (a CAPTCHA, or the page stayed on Loading with no code boxes = send_unconfirmed). Never click send again, never retry, end the session.\n")
 CONFIRM_LINE = ("   CONFIRM the send landed BEFORE `sent` (a click is not a send): read the page after the click. It must show a code-entry field or a \"code sent\" text AND no error text near the phone field (a phone-call send the same: the page must show the code field, a bare \"we are calling you\" is not enough) "
                 "(for example \"The number entered is not a mobile phone\"). Quote ONLY the code-box or code-sent text; do not copy help text like \"Didn't get it? Try again\" into the evidence, it makes `sent` refuse. Then pass the short page text as evidence: --evidence \"<what the page says, no numbers>\". "
                 "If any error shows, or no code box appears, do NOT run `sent`; run: %(helper)s fail --request-id %(rid)s --reason directory_refused_phone --evidence \"<the error text>\" and end the session.\n")
@@ -384,7 +386,8 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     helper = helper_command()
     step4 = (STEP4_MARKED if n else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
     step3 += ARM_STEP % {"helper": helper, "rid": request_id}   # t_c6eee3cb: the fence the agent runs right before the send click
-    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "org": tenant[1], "cdp": tenant_browser(biz)[2]}
+    step3 += WATCH_STEP % {"helper": helper, "rid": request_id}   # t_761c9558: right after the click
+    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "org": tenant[1], "cdp": tenant_browser(biz)[2], "helper": helper}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"
@@ -393,7 +396,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
         "0. FIRST command of the run, before anything else (it times your start): %(helper)s stage --request-id %(rid)s --name ready   If it exits nonzero, carry on.\n"
         "%(sign_in)s"
         "   Speed log (do not skip, it is how this step becomes a script): after each page action from sign-in to the send click, run: %(helper)s trace --request-id %(rid)s --action <goto, click, fill or press> --url <page url> --selector \"<css selector>\"\n"
-        "   (no values, never what you typed). When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. If either exits nonzero, carry on.\n"
+        "   (no values, never what you typed). If a trace call exits nonzero, carry on. When you are signed in, run: %(helper)s stage --request-id %(rid)s --name signed_in. That call reads the page itself: exit 5 means the session is signed out or a CAPTCHA shows and the request is already closed. STOP at once: never solve or click a CAPTCHA, never retry, end the session.\n"
         "%(phone_step)s"
         "%(step3)s"
         "%(step4)s"
@@ -851,6 +854,7 @@ def _agent_send(request_id, portal, rt, req, row, entry, tenant, username, end, 
 def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, masked, playbook, vault=None):
     if vault is None: B.mark_vault_ok(request_id)   # no background check (a caller that already checked the vault): the arm gate is open
     try:
+        if playbook and playbook.get("send_is_signup"): SB.stamp(request_id, None, signup="1")   # t_761c9558: a signup Directory is never "signed out" at pre-flight (a CAPTCHA still stops)
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
         agent = rt.launch_agent(rt.write_prompt(request_id, prompt), tenant_browser(tenant[0])[2])
         SB.stamp(request_id, "agent_start_at")

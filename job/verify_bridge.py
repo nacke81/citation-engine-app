@@ -164,6 +164,9 @@ class VerifyRpc:
         if status == "verified": fail_code = None
         elif fail_code not in FAIL_CODES: raise BridgeError("finish_code_request refused: fail code")
         self._rpc("finish_code_request", {"p_request_id": request_id, "p_status": status, "p_fail_code": fail_code})
+        try:   # t_761c9558: the end-of-run page (screenshot + text) is saved before the scoreboard row links it; never changes the result
+            import verify_evidence as VE; VE.capture_for(self.portal, request_id, "end", only_agent_runs=True)
+        except Exception as e: print("verify_bridge: end evidence skipped: %s" % type(e).__name__, file=sys.stderr, flush=True)
         SB.finalize(request_id, status if status == "verified" else "%s:%s" % (status, fail_code))   # the one scoreboard row; never raises
 
 

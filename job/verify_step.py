@@ -27,6 +27,7 @@ import portal as P
 import verify_bridge as B
 import verify_scoreboard as SB
 import verify_dom as VD
+import verify_evidence as VE
 
 LIVE_STATUSES = ("code_sent", "checking")
 POLL_EVERY_S = 10
@@ -89,10 +90,27 @@ def _late_reopen(portal, request_id, now_dt=None):
 VAULT_WAIT_S, VAULT_POLL_S = 120, 2
 
 
-def step_arm(request_id, portal, now_dt=None, sleep=time.sleep):
+PREFLIGHT_STOPS = ("captcha", "signed_out")
+
+
+def _preflight(request_id, portal, rpc, label):
+    """t_761c9558: read the tenant's Chrome (read-only), save the page as evidence under `label`, and decide. -> (verdict, page): verdict is
+    captcha | signed_out | signed_in | None (page not readable: no decision, nothing stamped). On captcha / signed_out the request is finished here:
+    failed, reason captcha / session_signed_out (portal code signin_failed, scoreboard fence_skip), and the caller must STOP. Never solves or clicks."""
+    page, signup = VE.request_page(portal, request_id)
+    VE.save(request_id, label, page)
+    verdict = VE.classify(page, signup)
+    if verdict in PREFLIGHT_STOPS:
+        reason = "captcha" if verdict == "captcha" else "session_signed_out"
+        log("pre-flight stop for %s: %s" % (request_id, reason))
+        step_fail(request_id, reason, STOP_TEXT[reason], portal, rpc)
+    return verdict, page
+
+
+def step_arm(request_id, portal, now_dt=None, sleep=time.sleep, rpc=None):
     """t_c6eee3cb pre-send fence: the agent runs this immediately before the send click. 0 = go; REFUSED (5) = STOP, do not click: the request is not
     `starting` (swept, superseded, already sent), fails the bridge fence, has no readable requested_at, or is past SWEEP_AFTER_S - ARM_MARGIN_S (540 s) old
-    (the portal shows could_not_start from SWEEP_AFTER_S = its START_LIMIT_MS, so a later send is a text the client was told never started). Read-only: no stamp, no RPC."""
+    (the portal shows could_not_start from SWEEP_AFTER_S = its START_LIMIT_MS, so a later send is a text the client was told never started). t_761c9558: it also reads the page (read-only) and stops on a CAPTCHA or a signed-out page (the request is finished failed, reason captcha / session_signed_out). It never stamps signed_in_at."""
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
     waited = 0   # t_4ee21e60: the agent starts while the send run still checks the vault item; no send until that check passed (it fails closed and kills the agent)
@@ -109,6 +127,7 @@ def step_arm(request_id, portal, now_dt=None, sleep=time.sleep):
     limit = B.SWEEP_AFTER_S - ARM_MARGIN_S   # 540 s. NOT the hard cap: the portal's START_LIMIT_MS (10 min) says could_not_start whatever the bridge holds
     if age >= limit:
         log("arm refused %s: request is %d s old (limit %d s); do not send" % (request_id, age, limit)); return REFUSED
+    if _preflight(request_id, portal, rpc or B.VerifyRpc(portal), "arm")[0] in PREFLIGHT_STOPS: return REFUSED   # t_761c9558: a CAPTCHA or a signed-out page is never clicked through
     log("armed %s: %d s old, %d s left before the cutoff" % (request_id, age, limit - age))
     return OK
 
@@ -134,7 +153,12 @@ def landed(text):
 SEND_REFUSAL = re.compile(r"(?i)\b(not an? (mobile|valid|cell)( phone)?( number)?|invalid (phone|number)|(couldn'?t|could not|unable to|failed to) send)\b")
 TOO_MANY = re.compile(r"(?i)\btoo many (requests|attempts)\b")
 NO_ERROR_PHRASE = re.compile(r"(?i)\b(no|without|not any|zero) (visible |inline )?(error|errors|error text|error message|error messages)\b")   # an agent's own "no error" report is not an error
-FAIL_REASONS = {"directory_refused_phone": "send_failed", "send_failed": "send_failed"}
+# reason -> the portal's fail_code (its enum is the platform's; session_signed_out/captcha ride signin_failed). The scoreboard row keeps the specific reason (t_761c9558).
+FAIL_REASONS = {"directory_refused_phone": "send_failed", "send_failed": "send_failed", "session_signed_out": "signin_failed", "captcha": "signin_failed", "send_unconfirmed": "send_failed"}
+SPECIFIC_REASONS = ("session_signed_out", "captcha", "send_unconfirmed")
+
+WATCH_S, WATCH_POLL_S = 40, 4
+STOP_TEXT = {"session_signed_out": "The Directory session is signed out; we need to sign in again.", "captcha": "The Directory showed a CAPTCHA; not attempted."}
 
 
 def clean_evidence(text):
@@ -157,6 +181,7 @@ def step_fail(request_id, reason, evidence, portal, rpc):
     if text is None: log("fail refused: evidence %s" % why); return BAD_ARGS
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
+    if reason in SPECIFIC_REASONS: SB.stamp(request_id, None, reason=reason)   # t_761c9558: the scoreboard shows the specific stop, not just the portal's code (the two old reasons keep failed:send_failed)
     SB.set_refusal(request_id, text)
     try: rpc.finish(request_id, "failed", FAIL_REASONS[reason])
     except B.BridgeError as e:
@@ -306,13 +331,46 @@ def _trace_file(request_id):
     return os.path.join(_trace_dir(), "%s.jsonl" % request_id)
 
 
-def step_stage(request_id, name, portal, now_dt=None):
+def step_stage(request_id, name, portal, now_dt=None, rpc=None):
     if name not in STAGE_NAMES: return BAD_ARGS
     req, _row = _claimed(portal, request_id, ("starting",))
     if not req: return REFUSED
     SB.stamp(request_id, "agent_ready_at", now_dt)   # any stage call is proof the agent is up (first write wins)
+    if name == "signed_in":   # t_761c9558: signed_in_at is stamped only after the pre-flight read confirms a signed-in page (not at arm, not on the agent's word)
+        verdict, _page = _preflight(request_id, portal, rpc or B.VerifyRpc(portal), "signin")
+        if verdict in PREFLIGHT_STOPS: return REFUSED
+        if verdict != "signed_in": log("signed_in not stamped: the page could not be read"); return OK
     if STAGE_NAMES[name]: SB.stamp(request_id, STAGE_NAMES[name], now_dt)
     return OK
+
+
+def step_watch(request_id, portal, rpc, now_dt=None, sleep=time.sleep, now=time.time, wait_s=WATCH_S):
+    """t_761c9558: run right AFTER the send click (a CDP click included). Stamps send_clicked_at, saves the page at once (after_send), then reads it every
+    WATCH_POLL_S for up to wait_s. A code box = exit 0 (go on to `sent`). A CAPTCHA = failed/captcha. Still 'Loading' with no code box at the end = failed/
+    send_unconfirmed (the text may never have gone out): evidence kept, exit 5, the agent must NOT click send again. Any other end (page not readable, or no
+    code box and no Loading) = exit 0: `sent` has its own landed gate and refuses a page that shows nothing."""
+    req, _row = _claimed(portal, request_id, ("starting",))
+    if not req: return REFUSED
+    SB.stamp(request_id, "send_clicked_at", now_dt)
+    deadline = now() + max(1, min(int(wait_s), 120)); first = True; page = None
+    while True:
+        page, _signup = VE.request_page(portal, request_id)
+        if first: VE.save(request_id, "after_send", page); first = False
+        if page is None:
+            log("watch: page not readable; `sent` decides"); return OK
+        if VE.classify(page, True) == "captcha":
+            VE.save(request_id, "after_send_wait", page); log("watch: CAPTCHA after the send click; not attempted")
+            step_fail(request_id, "captcha", STOP_TEXT["captcha"], portal, rpc); return REFUSED
+        if page.get("code_input"):
+            log("watch: code box showing; run `sent`"); return OK
+        if now() >= deadline: break
+        sleep(WATCH_POLL_S)
+    VE.save(request_id, "after_send_wait", page)
+    if not VE.is_loading(page):
+        log("watch: no code box and no Loading after %d s; `sent` decides" % wait_s); return OK
+    log("watch: still Loading with no code boxes after %d s; recording send_unconfirmed, do NOT click send again" % wait_s)
+    step_fail(request_id, "send_unconfirmed", "Loading shown %d s after the send click; no code boxes." % wait_s, portal, rpc)
+    return REFUSED
 
 
 NOTE_STATES = ("starting", "code_sent", "checking")
@@ -399,7 +457,7 @@ def _closed_by_portal(portal, request_id):
 def main(argv=None, portal=None, rpc=None, out=None):
     a = argparse.ArgumentParser(description="Verify Now agent helper")
     sub = a.add_subparsers(dest="cmd", required=True)
-    for name in ("arm", "sent", "code", "result", "stage", "trace", "note", "fail"):
+    for name in ("arm", "sent", "code", "result", "stage", "trace", "note", "fail", "watch"):
         s = sub.add_parser(name); s.add_argument("--request-id", required=True)
         if name == "stage": s.add_argument("--name", required=True, choices=tuple(STAGE_NAMES))
         if name == "trace":
@@ -408,6 +466,7 @@ def main(argv=None, portal=None, rpc=None, out=None):
         if name == "sent": s.add_argument("--masked", required=True); s.add_argument("--evidence", default=None)   # t_4ee21e60: missing = refused by step_sent, not an argparse error
         if name == "fail": s.add_argument("--reason", required=True, choices=tuple(FAIL_REASONS)); s.add_argument("--evidence", required=True)
         if name == "code": s.add_argument("--wait-s", type=int, default=WAIT_DEFAULT_S)
+        if name == "watch": s.add_argument("--wait-s", type=int, default=WATCH_S)
         if name == "result": s.add_argument("--outcome", required=True, choices=("accepted", "rejected"))
     try:
         n = a.parse_args(argv)
@@ -419,10 +478,11 @@ def main(argv=None, portal=None, rpc=None, out=None):
     except Exception as e:
         log("portal env unavailable: %s" % type(e).__name__); return REFUSED
     rpc = rpc or B.VerifyRpc(portal)
-    if n.cmd == "arm": return step_arm(n.request_id, portal)
+    if n.cmd == "arm": return step_arm(n.request_id, portal, rpc=rpc)
+    if n.cmd == "watch": return step_watch(n.request_id, portal, rpc, wait_s=n.wait_s)
     if n.cmd == "sent": return step_sent(n.request_id, n.masked, portal, rpc, evidence=n.evidence)
     if n.cmd == "fail": return step_fail(n.request_id, n.reason, n.evidence, portal, rpc)
-    if n.cmd == "stage": return step_stage(n.request_id, n.name, portal)
+    if n.cmd == "stage": return step_stage(n.request_id, n.name, portal, rpc=rpc)
     if n.cmd == "note": return step_note(n.request_id, n.text, portal)
     if n.cmd == "trace": return step_trace(n.request_id, n.action, n.url, n.selector, portal)
     if n.cmd == "code": return step_code(n.request_id, portal, rpc, out, wait_s=n.wait_s)
