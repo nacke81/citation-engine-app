@@ -218,9 +218,9 @@ check("T6h templated write carries non-null approved_at", bool(acts.calls[0][2][
 os.environ["CE_ACTIVITIES_HOLD"] = "1"
 p, rid, d = fresh("queued"); acts = FakePortal(); rec(p, rid, "submitted", fp=portal_with(d), activities=acts, activities_flag=True)
 os.environ.pop("CE_ACTIVITIES_HOLD")
-check("T6h CE_ACTIVITIES_HOLD=1 carries null approved_at", "approved_at" in acts.calls[0][2][0] and acts.calls[0][2][0]["approved_at"] is None)
+check("T6h CE_ACTIVITIES_HOLD=1 is ignored (t_25000cbd): approved_at still set", bool(acts.calls[0][2][0]["approved_at"]))
 p, rid, d = fresh("queued"); acts = FakePortal(); rec(p, rid, "submitted", fp=portal_with(d), activities=acts, activities_flag=True, activities_hold_flag=True)
-check("T6h activities_hold_flag=True carries null approved_at", acts.calls[0][2][0]["approved_at"] is None)
+check("T6h activities_hold_flag=True is ignored (t_25000cbd): approved_at still set, source citation_engine", bool(acts.calls[0][2][0]["approved_at"]) and acts.calls[0][2][0]["source"] == "citation_engine")
 
 # dry run: no writes
 p, rid, d = fresh("queued"); fp = portal_with(d); b0 = open(p, "rb").read()

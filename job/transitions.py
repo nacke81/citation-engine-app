@@ -13,8 +13,8 @@ Sinks (all injectable so tests and the dry run make no network call):
   activities  one client-voiced deliverables row for submitted, pending-verify, live and rejected (never needs-human: an internal blocker
             is not client news). ON by default (Mike, 2026-10-21). These four templated, factual receipts are written with approved_at = now:
             Mike ruled 2026-10-14 (vault Intelligence/decisions/2026-10-14-nate-approves-routine-client-activity-lines.md) that routine
-            factual lines need no Mike approval; pricing, a promise or a new claim stays held. Hold path: CE_ACTIVITIES_HOLD=1 (or
-            activities_hold_flag=True) writes approved_at null so the portal hides the row until staff approve it (migration 20261020000002).
+            factual lines need no Mike approval. t_25000cbd: the hold path is gone; portal.write_deliverables is the one writer and always sets approved_at,
+            so no row can land held (activities_hold_flag is accepted and ignored).
             Opt out of writing entirely with CE_ACTIVITIES_WRITE=0 (tests, dry runs).
   verification  needs-human with verify_type phone-call|sms|postcard upserts one citation_verification row (idempotent per client+directory)
             for the client's Your Turn page and the batch trigger. A later live transition marks that row live with verified_at.
@@ -93,7 +93,6 @@ ALLOWED_FROM = {
 ANY_FROM = {"rejected", "needs-human"}
 ACTIVITY_SOURCE = "citation_engine"
 FLAG = "CE_ACTIVITIES_WRITE"
-HOLD_FLAG = "CE_ACTIVITIES_HOLD"
 ACTIVITY_CHANNEL_LABEL = "SEO & Local SEO"  # t_ef2b05e9: directory listings are Local SEO; shared contract with portal card t_9bc7d948
 ACTIVITY_STATES = ("submitted", "pending-verify", "live", "rejected")  # needs-human is internal, never client news
 VERIFY_TYPES = ("phone-call", "sms", "postcard", "id-check", "client-email")
@@ -225,11 +224,6 @@ def activity_title(new, directory):
 def activities_enabled(explicit=None):
     """Default ON. CE_ACTIVITIES_WRITE=0 (or activities_flag=False) turns it off."""
     return bool(explicit) if explicit is not None else os.environ.get(FLAG) != "0"
-
-
-def activities_hold(explicit=None):
-    """Default OFF. CE_ACTIVITIES_HOLD=1 (or activities_hold_flag=True) writes approved_at null: the row waits in the portal's staff hold."""
-    return bool(explicit) if explicit is not None else os.environ.get(HOLD_FLAG) == "1"
 
 
 def verification_note(verify_type):
@@ -433,11 +427,10 @@ def full_portal_payload(base, q, new_row, day):
 
 
 def build_activity_record(client_id, row, new, evidence_url, day, hold=None, now=None):
-    approved = None if activities_hold(hold) else (now or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    return {"approved_at": approved, "client_id": client_id, "deliverable_type": "citation", "title": activity_title(new, row["directory"]),
+    return P.deliverable_row({"client_id": client_id, "deliverable_type": "citation", "title": activity_title(new, row["directory"]),
             "date_completed": day, "in_scope": True, "units": 1, "evidence_url": evidence_url,
-            "source": ACTIVITY_SOURCE, "source_ref": "citation-transition:%s:%s" % (row["id"], new),
-            "channel_label": ACTIVITY_CHANNEL_LABEL}
+            "source_ref": "citation-transition:%s:%s" % (row["id"], new),
+            "channel_label": ACTIVITY_CHANNEL_LABEL}, now=now)
 
 
 def retype_path(client_id, directory, verify_type):
@@ -571,7 +564,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
                                           "directory_patch": pp["directories"]}} if tenant["snapshot"]
                                  else "skipped: %s queue has no portal snapshot (Your turn row + allowlist only)" % client)
         out["directories_request"] = {"queue_state": new_state, "reason_code": reason_code if new_state == "needs-human" else None}
-        out["activities_request"] = ({"method": "POST", "path": "deliverables?on_conflict=client_id,source_ref", "body": [rec]} if use_act
+        out["activities_request"] = (P.deliverables_request([rec]) if use_act
                                      else "skipped: %s=0 or state %s is not client news" % (FLAG, new_state))
         out["verification_request"] = (
             ([{"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]}] + (   # t_fd2f38d0: a list; sms/phone-call add the retype PATCH the write also sends
@@ -614,7 +607,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if use_act:
         try:
             act = activities or portal or P.Portal(*P.load_portal_env())
-            act.call("POST", "deliverables?on_conflict=client_id,source_ref", [rec], prefer="resolution=merge-duplicates,return=minimal")
+            P.write_deliverables(act, [rec], now=rec["approved_at"])   # t_25000cbd: the one writer; approved_at always set
             out["activities_written"] = True
         except Exception as e:
             out["errors"].append("activities: %s" % e)
