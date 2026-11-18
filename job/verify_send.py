@@ -317,7 +317,7 @@ def helper_command():
 
 
 NO_ACCOUNT_RULE = "- No CapSolver, no account creation, no payment, no client contact.\n"
-SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP.\n")
+SIGN_IN_STEP = ("1. Sign in to the Directory with the vault helper (the Vaultwarden Citations item for %(biz)s on %(dom)s). Use ONLY the browser at %(cdp)s (already open). Do not open another browser. When you run vaultwarden-cli-fill.js, ALWAYS pass --organization \"%(org)s\" --collection Citations --name \"%(item)s\" --cdp %(cdp)s on every call (the item lives in the %(org)s organization only; never search another one). Never create, edit, rename or move a vault item in this run; if the item is not found, STOP. If sign-in shows a CAPTCHA or will not complete, NEVER solve or retry it: run %(helper)s fail --request-id %(rid)s --reason captcha (or --reason session_signed_out when the session is simply signed out) --evidence \"<a short line of the page text>\" and end the session.\n")
 PHONE_ON_ACCOUNT_STEP = "2. This page shows no phone; the playbook records the code goes to the phone on the account. Proceed.\n"
 STEP3_SIGNIN = "3. Click the send button. Before you click it, if the page shows a paid upsell, a plan purchase, or a marketing consent that is not required for the code, do NOT click; end the session and report it.\n"
 PHONE_STEP = "2. Go to the phone verification step. Check the phone shown there against the masked phone above. If it differs, or you cannot read it, STOP.\n"
@@ -387,7 +387,7 @@ def build_prompt(request_id, req, row, entry, tenant, masked, username, playbook
     step4 = (STEP4_MARKED if n else STEP4_SIGNIN) % {"ch": ch, "helper": helper, "rid": request_id, "masked": masked or "(not on file; read it from the page)", "n": n}
     step3 += ARM_STEP % {"helper": helper, "rid": request_id}   # t_c6eee3cb: the fence the agent runs right before the send click
     step3 += WATCH_STEP % {"helper": helper, "rid": request_id}   # t_761c9558: right after the click
-    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "org": tenant[1], "cdp": tenant_browser(biz)[2]}
+    fmt = {"rid": request_id, "biz": biz, "dom": entry["domain"], "item": tenant[2], "org": tenant[1], "cdp": tenant_browser(biz)[2], "helper": helper}
     return (
         "You are the citation-submitter agent. Finish ONE Verify Now request for a client. Work only on this request.\n\n"
         "Request id: %(rid)s\nTenant: %(biz)s\nDirectory: %(dom)s\nChannel: %(ch)s (the Directory sends the code by %(how)s)\n"

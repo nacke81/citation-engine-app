@@ -1,6 +1,6 @@
 """Verify Now page evidence, signed-out pre-flight and send_unconfirmed tests (t_761c9558). A mock page stands in for the tenant's Chrome: no network,
 no Chrome, no hermes, no real send, and no CAPTCHA is ever attempted. Run: python tests/verify_evidence_test.py (CI). Exit 1 on any failure."""
-import contextlib, io, json, os, sys, tempfile
+import contextlib, io, json, os, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 TMP = tempfile.mkdtemp()
 os.environ["CE_LOGS"] = os.path.join(TMP, "logs")
@@ -198,6 +198,56 @@ txt3 = sv[2]["text"]; txt4 = sv[3]["text"]
 check("9d thumbtack v4 step 3: Next opens the SMS consent panel and its Continue is the send, not the code modal", "SMS consent panel" in txt3 and "Continue is the send button" in txt3 and "Next does NOT open the code modal" in txt3, txt3[:200])
 check("9e thumbtack v4 send step clicks Continue once on the consent panel (still exactly one marked send step, number 4)", "'Continue' ONCE" in txt4 and PB.send_step_number(sv, False) == 4 and sum(1 for s in sv if s.get("send")) == 1)
 check("9f a playbook with send_is_signup stamps signup in the stage file", (lambda: (fresh(), SB.stamp(F.RID, None, signup="1"), VE.classify(page(url="https://x.example/signup", password=True), bool(stage().get("signup"))) == "signed_in")[-1])())
+
+# ---- 10 review round 1 (t_761c9558) -----------------------------------------------------------------------------------------------------------
+check("10a a visible bframe is a CAPTCHA; the READ_JS frame list counts visible iframes only (a hidden reCAPTCHA v2 bframe is signed_in)",
+      "filter(vis)" in VE.READ_JS and VE.classify(page(frames=[]), False) == "signed_in"
+      and VE.classify(page(frames=["https://www.google.com/recaptcha/api2/bframe?hl=en"])) == "captcha")
+wrong = dict(SIGNED_OUT, on_domain=False)
+check("10b a tab that is not on the Directory is never judged (signed-out look-alike and CAPTCHA text): None, no stop", VE.classify(wrong) is None and VE.classify(dict(CAPTCHA, on_domain=False)) is None)
+fresh(); use(wrong); p = mk(); r, _t = quiet(ST.main, ["stage", "--request-id", F.RID, "--stage", "signed_in"], p, B.VerifyRpc(p))
+check("10c wrong tab at stage signed_in: no stop, request untouched, signed_in_at stays null", p.requests[F.RID]["status"] == "starting" and not rows() and not stage().get("signed_in_at"), (r, rows()))
+
+class FakeLoc: pass
+class FakePg:
+    url = "https://www.agentdir.example/pro"; frames = []
+    def __init__(self): self.shot = None
+    def evaluate(self, js): return {"text": "Jobs", "password": False, "frames": []}
+    def locator(self, sel): self.sel = sel; return FakeLoc()
+    def screenshot(self, **kw): self.shot = kw; return PNG
+class FakeCtx: pages = []
+class FakeB:
+    def __init__(self, pg): self.contexts = [type("C", (), {"pages": [pg]})()]
+class FakeChromium:
+    def __init__(self, pg): self.pg = pg
+    def connect_over_cdp(self, url): return FakeB(self.pg)
+class FakePW:
+    def __init__(self, pg): self.chromium = FakeChromium(pg)
+    def start(self): return self
+    def stop(self): pass
+import types
+fpg = FakePg(); fake_sync = types.ModuleType("playwright.sync_api"); fake_sync.sync_playwright = lambda: FakePW(fpg)
+fake_root = types.ModuleType("playwright"); sys.modules["playwright"] = fake_root; sys.modules["playwright.sync_api"] = fake_sync
+os.environ.pop("CE_NO_CDP", None)
+got = VE.read_page("http://127.0.0.1:1", ["agentdir.example"])
+os.environ["CE_NO_CDP"] = "1"
+check("10d the screenshot masks every input, textarea and select (a typed code never reaches a PNG)", got is not None and fpg.shot and isinstance(fpg.shot.get("mask"), list) and len(fpg.shot["mask"]) == 1
+      and "input" in fpg.sel and "textarea" in fpg.sel and "select" in fpg.sel, (fpg.shot, getattr(fpg, "sel", None)))
+
+fresh(); root = VE.evidence_root(); NOW_ = time.time()
+for name, age_d in (("oldrid", 45), ("newrid", 2)):
+    d = os.path.join(root, name); os.makedirs(d, exist_ok=True)
+    f = os.path.join(d, "01-end.txt"); open(f, "w").write("x")
+    t = NOW_ - age_d * 86400; os.utime(f, (t, t)); os.utime(d, (t, t))
+n = VE.prune(); check("10e prune removes request dirs older than 30 days and keeps newer ones", n == 1 and not os.path.isdir(os.path.join(root, "oldrid")) and os.path.isdir(os.path.join(root, "newrid")), (n, os.listdir(root)))
+d = os.path.join(root, "oldrid2"); os.makedirs(d); f = os.path.join(d, "a.txt"); open(f, "w").write("x"); t = NOW_ - 60 * 86400; os.utime(f, (t, t)); os.utime(d, (t, t))
+VE.save(F.RID, "end", SIGNED_IN)
+check("10f save prunes old dirs and still writes the new evidence; a prune on a missing root never raises", not os.path.isdir(d) and evfiles() and VE.prune(os.path.join(root, "nope")) == 0, evfiles())
+
+pr_si = S.build_prompt(F.RID, F.request(channel="sms"), F.verification(directory="thumbtack.com"), ENTRY, TEN, MASK, "x@y.example", playbook={"steps": sv, "send_is_signup": False, "version": 4})
+check("10g the sign-in step tells the agent: CAPTCHA or sign-in that will not complete -> never solve or retry, run fail --reason captcha / session_signed_out, end",
+      "--reason captcha" in pr_si and "--reason session_signed_out" in pr_si and "NEVER solve or retry" in pr_si and "fail --request-id %s" % F.RID in pr_si)
+check("10h the Thumbtack v4 session step names the fail reasons and no longer says only 'report needs-human'", "fail --reason captcha" in sv[1]["text"] and "STOP and report needs-human" not in sv[1]["text"])
 
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

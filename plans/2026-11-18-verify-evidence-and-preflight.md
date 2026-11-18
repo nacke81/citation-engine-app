@@ -19,4 +19,4 @@ origin/main 3697684. Worktree app-t_761c9558, branch feat/verify-evidence-t_761c
 6. Tests by execution with a mock page (`tests/verify_evidence_test.py`), added to CI.
 
 ## Not changed / coordination
-The portal client text ("we need to sign in again") and the fence's counting live in nacke-platform. This card writes `fence_skip` on the scoreboard row and uses portal code signin_failed; the platform card must read those. Card t_e4f97eb5 is not visible from this board, so the column name is a proposal, flagged in the handoff.
+The portal client text ("we need to sign in again") and the fence's counting live in the platform repo. The fence (platform #138) counts `code_sent_at is not null`; these stops never stamp code_sent_at, so they are already not counted. `fence_skip` on the local scoreboard row is informational only; the platform never reads it. The client text for portal code signin_failed is parked on relay card t_c730bf69.

@@ -33,7 +33,7 @@ def evidence_root():
 READ_JS = """() => {
   const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   const pw = Array.from(document.querySelectorAll('input[type=password]')).some(vis);
-  const frames = Array.from(document.querySelectorAll('iframe')).map((f) => f.src || '').filter(Boolean);
+  const frames = Array.from(document.querySelectorAll('iframe')).filter(vis).map((f) => f.src || '').filter(Boolean);   // visible only: a reCAPTCHA v2 widget keeps a hidden bframe
   return {text: (document.body ? document.body.innerText : '') || '', password: pw, frames: frames};
 }"""
 
@@ -53,7 +53,7 @@ def read_page(cdp_url, domains=()):
         mine = [pg for pg in pages if VD.host_on(pg.url, domains)]
         pg = (mine or pages)[-1]
         got = pg.evaluate(READ_JS) or {}
-        try: png = pg.screenshot(type="png")
+        try: png = pg.screenshot(type="png", mask=[pg.locator("input, textarea, select")])   # a typed code or password never reaches a PNG
         except Exception: png = None
         items = []
         for fr in pg.frames:   # the same input collector the landed check uses: a visible code box on this page, any frame
@@ -73,7 +73,7 @@ def read_page(cdp_url, domains=()):
 def classify(page, signup=False):
     """-> "captcha" | "signed_out" | "signed_in". None page -> None (cannot tell). A signup Directory is never 'signed out' (its send IS the signup);
     a CAPTCHA stops either way."""
-    if not isinstance(page, dict): return None
+    if not isinstance(page, dict) or not page.get("on_domain", True): return None   # a tab that is not the Directory is never judged
     text, url = str(page.get("text") or ""), str(page.get("url") or "")
     if CAPTCHA_TEXT.search(CAPTCHA_BADGE.sub(" ", text[:TEXT_MAX])) or CAPTCHA_FRAME.search(url) or any(CAPTCHA_FRAME.search(str(f)) for f in page.get("frames") or []):
         return "captcha"
@@ -101,6 +101,26 @@ def redact(text):
     return DIGITS6.sub("[x]", PHONE.sub("[x]", t))[:TEXT_MAX]
 
 
+RETAIN_DAYS = 30
+
+
+def prune(root=None, days=RETAIN_DAYS, now=None):
+    """Delete request dirs under logs/verify-evidence/ whose newest file is older than `days`. -> number removed. Never raises."""
+    import shutil, time
+    n = 0
+    try:
+        root = root or evidence_root(); cutoff = (now if now is not None else time.time()) - days * 86400
+        for name in os.listdir(root):
+            d = os.path.join(root, name)
+            try:
+                if not os.path.isdir(d): continue
+                newest = max([os.path.getmtime(d)] + [os.path.getmtime(os.path.join(d, f)) for f in os.listdir(d)])
+                if newest < cutoff: shutil.rmtree(d); n += 1
+            except Exception: continue
+    except Exception: pass
+    return n
+
+
 def save(request_id, label, page):
     """Write NN-<label>.png and NN-<label>.txt under logs/verify-evidence/<request_id>/ and link them in the stage file. -> the relative text path or None.
     A page that could not be read still leaves a .txt saying so (a missing file is not evidence). Never raises."""
@@ -109,6 +129,7 @@ def save(request_id, label, page):
         rid = SB._clean_rid(request_id)
         if not rid or label not in LABELS: return None
         d = os.path.join(evidence_root(), rid); os.makedirs(d, exist_ok=True)
+        prune()
         n = len([f for f in os.listdir(d) if f.endswith(".txt")]) + 1
         base = "%02d-%s" % (n, label)
         rel = {}
