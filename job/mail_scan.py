@@ -22,6 +22,9 @@ MAIL_DOMAINS_PATH = os.path.join(HERE, "..", "config", "mail_domains.json")
 _HOST_RE = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
 
 
+class MailDomainOverlap(ValueError): pass
+
+
 def load_mail_domains(path=None):
     """-> {directory: {"domain", "aliases", "approval"}}. Raises ValueError on an unreadable or malformed file."""
     try:
@@ -34,7 +37,16 @@ def load_mail_domains(path=None):
                 raise ValueError("bad host in %r" % (r,))
             out[d] = {"domain": dom, "aliases": al, "approval": bool(r.get("approval"))}
         if not out: raise ValueError("no directories")
+        seen = []   # t_19510826: one sender host (or a host under/over it) on two Directory rows would count one site's mail for the other; refuse, never guess
+        for d, r in out.items():   # an alias is compared with every other row's aliases AND its domain; domain vs domain is not checked
+            for kind, h in [("alias", x) for x in r["aliases"]] + [("domain", r["domain"])]:
+                for d2, k2, h2 in seen:
+                    if d2 != d and "alias" in (kind, k2) and (h == h2 or h.endswith("." + h2) or h2.endswith("." + h)):
+                        raise MailDomainOverlap("%s %s on row %s overlaps %s %s on row %s: a shared sender needs a body or To check" % (kind, h, d, k2, h2, d2))
+                seen.append((d, kind, h))
         return out
+    except MailDomainOverlap:
+        raise   # full text: both row names, never cut
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         raise ValueError("mail_domains.json unreadable: %s: %s" % (type(e).__name__, str(e)[:100]))
 

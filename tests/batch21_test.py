@@ -23,6 +23,7 @@ ok = []
 def check(n, c, d=""):
     ok.append(bool(c)); print(("PASS " if c else "FAIL ") + n + (f" [{d}]" if d else ""), flush=True)
 TMP = tempfile.mkdtemp()
+FIXQ = os.path.join(TMP, "mail_scan_queue.json"); open(FIXQ, "w", encoding="utf-8").write(json.dumps({"fix_queue": [], "create_rows": []}))   # t_19510826: mail_scan never reads the live queue
 TODAY = "2026-10-27"
 
 # ---- 1 workable report on the real row shapes -----------------------------------------------------------------------------------------------------
@@ -200,16 +201,16 @@ buf, err = io.StringIO(), io.StringIO()
 orig = MS.read_messages
 MS.read_messages = lambda **k: (_ for _ in ()).throw(MS.imaplib.IMAP4.error("down")) if False else MS.read_messages_real(**dict(k, env=ENV, imap_cls=FakeImap))
 MS.read_messages_real = orig
-with contextlib.redirect_stdout(buf): rc = MS.main(["--presence", "--headers", "--directory", "bbb.org"])
+with contextlib.redirect_stdout(buf): rc = MS.main(["--presence", "--headers", "--directory", "bbb.org", "--queue", FIXQ])
 MS.read_messages = orig
 check("3 CLI `--presence --headers --directory bbb.org` reads every folder by default (Junk is listed) and exits 0", rc == 0 and "Junk |" in buf.getvalue() and "482913" not in buf.getvalue(), buf.getvalue())
 try:
-    with contextlib.redirect_stderr(io.StringIO()): MS.main(["--headers"]); bad = False
+    with contextlib.redirect_stderr(io.StringIO()): MS.main(["--headers", "--queue", FIXQ]); bad = False
 except SystemExit: bad = True
 check("3 --headers without --presence is refused", bad)
 buf = io.StringIO()
 MS.read_messages = lambda **k: orig(env=ENV, imap_cls=FakeImap, **k)
-with contextlib.redirect_stdout(buf): MS.main(["--presence", "--directory", "bbb.org"])
+with contextlib.redirect_stdout(buf): MS.main(["--presence", "--directory", "bbb.org", "--queue", FIXQ])
 MS.read_messages = orig
 check("3 plain --presence is unchanged (INBOX only, yes/no line, no header lines)", "folders: INBOX" in buf.getvalue() and " from @" not in buf.getvalue(), buf.getvalue())
 check("3 scrub_subject masks 4+ digit runs and URLs", MS.scrub_subject("Code 123456 at https://x.example/a?b=1 ok 12") == "Code [x] at [x] ok 12")
