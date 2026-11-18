@@ -75,6 +75,11 @@ def happy_steps(p, rpc, rt, out, holder=None):
         lambda: holder.__setitem__("code", ST.step_code(F.RID, p, rpc, out, rt.sleep, rt.now, wall=rt.wall)),
         lambda: holder.__setitem__("result", ST.step_result(F.RID, "accepted", p, rpc, F.NOW))])
     return ag
+# t_cd0e943e: the prompt embeds helper_command() = the running interpreter's path. On a host whose python sits under a hash dir with a 6-digit run, the
+# no-6-digit-run check failed while CI passed. Pin the helper path to a fixture for these runs; the real-interpreter check on helper_command stays below.
+prompt_clean = lambda pr: CODE not in pr and "SERVICE_ROLE" not in pr and not re.search(r"(?<!\d)\d{6}(?!\d)", pr)
+_real_helper_command = S.helper_command
+S.helper_command = lambda: '"C:/fixture/python" "C:/fixture/job/verify_step.py"'
 for ch in ("sms", "phone-call"):
     p = agent_portal(channel=ch); holder = {}
     rpc = B.VerifyRpc(p); out = io.StringIO()
@@ -93,7 +98,14 @@ for ch in ("sms", "phone-call"):
     check("agent %s: prompt names request id, tenant, Directory, channel, masked phone, the helper commands and the hard rules" % ch,
           all(s in pr for s in (F.RID, "Tenant: NM", "Directory: " + AGENT_DIR, "Channel: " + ch, MASK, "verify_step.py\" sent", "verify_step.py\" code", "verify_step.py\" result",
                                 "paid upsell", "marketing consent", "Never type the code anywhere except the Directory", "Never print", "One Directory session", "sitegate", "service key")), pr[:200])
-    check("agent %s: prompt holds no code, no service key, no 6-digit run" % ch, CODE not in pr and "SERVICE_ROLE" not in pr and not re.search(r"(?<!\d)\d{6}(?!\d)", pr))
+    check("agent %s: prompt holds no code, no service key, no 6-digit run" % ch, prompt_clean(pr))
+    # mutation (t_cd0e943e): a 6-digit run, the code, or the service key in the prompt must make that same predicate fail
+    check("agent %s: mutation: a 6-digit run in the prompt is caught" % ch, not prompt_clean(pr + "\nref 482913"))
+    check("agent %s: mutation: the code / SERVICE_ROLE in the prompt is caught" % ch, not prompt_clean(pr + CODE) and not prompt_clean(pr + "SERVICE_ROLE"))
+    S.helper_command = lambda: '"C:/py123456/python" "C:/fixture/job/verify_step.py"'
+    check("agent %s: mutation: a 6-digit run through the real build_prompt path is caught" % ch, not prompt_clean(S.build_prompt(F.RID, F.request(), F.verification(), B.directory_entry("cylex.us", "sms"), ("NM", "o", "i", "u"), MASK, "x")))
+    S.helper_command = lambda: '"C:/fixture/python" "C:/fixture/job/verify_step.py"'
+S.helper_command = _real_helper_command
 check("prompt carries the row's steps and directory_url", True)
 p = agent_portal(); p.verifications[F.VID].update({"steps": ["Open the profile", "Press Verify"], "directory_url": "https://agentdir.example/profile/1"})
 rt = F.FakeRuntime(F.FakePage(), agent_factory=lambda rt: F.FakeAgent([]))
