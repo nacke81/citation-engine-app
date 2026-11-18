@@ -64,6 +64,8 @@ def guard_hits(root):
                 except SyntaxError: hits.append((rel, 0, "unparseable python")); continue
                 for n in ast.walk(tree):
                     if isinstance(n, ast.Constant) and isinstance(n.value, str) and TABLE.search(n.value): hits.append((rel, n.lineno, n.value[:80]))
+                    if (isinstance(n, ast.Name) and n.id == "DELIVERABLES_PATH") or (isinstance(n, ast.Attribute) and n.attr == "DELIVERABLES_PATH"):
+                        hits.append((rel, n.lineno, "references DELIVERABLES_PATH outside portal.py"))   # t_25000cbd review: the constant makes the table-name string unnecessary
             else:
                 for i, line in enumerate(txt.splitlines(), 1):
                     if TABLE.search(line): hits.append((rel, i, line.strip()[:80]))
@@ -94,6 +96,8 @@ try:
     for name, rel, body in (("python POST", "job/backfill_x.py", 'db.call("POST", "deliverables?on_conflict=client_id,source_ref", rows)\n'),
                             ("python rest url", "job/retry_x.py", 'URL = base + "/rest/v1/deliverables"\n'),
                             ("sql insert", "db/008_x.sql", "insert into public.deliverables (client_id) values ('x');\n"),
+                            ("planted M1 via P.DELIVERABLES_PATH", "job/backfill_y.py", 'import portal as P\nportal.call("POST", P.DELIVERABLES_PATH, [dict(r, approved_at=None) for r in rows])\n'),
+                            ("bare DELIVERABLES_PATH import", "job/backfill_z.py", 'from portal import DELIVERABLES_PATH\nx = DELIVERABLES_PATH\n'),
                             ("js supabase", "job/x.mjs", "await sb.from('deliverables').upsert(rows)\n")):
         p = os.path.join(tmp, *rel.split("/")); open(p, "w", encoding="utf-8").write(body)
         got = guard_hits(tmp)
@@ -103,6 +107,58 @@ try:
     check("G4 prose mention of the word is not a write", guard_hits(tmp) == [])
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+# T: transport invariant in Portal.call (the one choke point), via the injectable opener
+import json as _json  # noqa: E402
+
+
+def transport_problems(mod):
+    """-> list of what is wrong with Portal.call's deliverables guard (empty = fine)."""
+    bad = []; SCC = mod.ALLOWED["SCC"]
+    def mk():
+        seen = []
+        class R:
+            def __enter__(s): return s
+            def __exit__(s, *a): return False
+            def read(s): return b""
+        def op(req): seen.append(req); return R()
+        return mod.Portal("http://x.invalid", "k", opener=op), seen
+    for given in ({"approved_at": None}, {}, {"approved_at": "", "source": "other"}):
+        p, seen = mk()
+        p.call("POST", mod.DELIVERABLES_PATH, [dict(client_id=SCC, title="t", source_ref="r", **given)], prefer="resolution=merge-duplicates")
+        rows = _json.loads(seen[0].data) if seen else []
+        if len(seen) != 1 or not rows or not all(r.get("approved_at") and r.get("source") == "citation_engine" for r in rows): bad.append("raw POST body not stamped for %r: %r" % (given, rows))
+    for m, path, body in (("PATCH", "deliverables?source=eq.citation_engine", {"approved_at": None}), ("DELETE", "deliverables?client_id=eq.x", None),
+                          ("POST", "deliverables?on_conflict=id", [dict(client_id=SCC)]), ("POST", "/deliverables", [dict(client_id=SCC)]), ("POST", "Deliverables?on_conflict=client_id,source_ref", [dict(client_id=SCC)])):
+        p, seen = mk()
+        try: p.call(m, path, body); bad.append("%s %s was not refused" % (m, path))
+        except mod.PortalWriteError: pass
+        if seen: bad.append("%s %s reached the opener" % (m, path))
+    p, seen = mk()
+    try: p.call("POST", mod.DELIVERABLES_PATH, [dict(client_id="not-allowed")]); bad.append("non-allow-listed client written")
+    except mod.PortalWriteError: pass
+    if seen: bad.append("bad client reached the opener")
+    p, seen = mk(); p.call("GET", "deliverables?select=id&limit=1")
+    if len(seen) != 1: bad.append("GET on deliverables was blocked")
+    p, seen = mk(); p.call("POST", "footprint_snapshot?on_conflict=client_id,source,captured_day", [{"client_id": SCC}])
+    if len(seen) != 1 or "approved_at" in _json.loads(seen[0].data)[0]: bad.append("other tables were touched by the guard")
+    return bad
+
+
+check("T1 real Portal.call guard has no problems", transport_problems(P) == [], str(transport_problems(P)))
+check("T1b an existing stamp on a row is kept, a None is replaced", P.deliverable_row({"approved_at": "2026-01-02T03:04:05Z"})["approved_at"] == "2026-01-02T03:04:05Z" and P.deliverable_row({"approved_at": None})["approved_at"])
+check("T1c dry-run request goes through the portal helper", all(x.get("approved_at") for x in P.deliverables_request([dict(client_id=P.ALLOWED["SCC"], approved_at=None)])["body"]))
+for label, old, new in (("guard call removed from Portal.call", "        body = guard_deliverables(method, path, body)", "        pass"),
+                        ("guard passes PATCH through", 'if str(method).upper() != "POST" or path != DELIVERABLES_PATH:', "if False:"),
+                        ("guard stops stamping rows", "out = [deliverable_row(r) for r in body]\n    for r in out: check_client(r.get(\"client_id\"))\n    return out", "return body")):
+    assert src.count(old) == 1 or label.startswith("guard stops"), label
+    m = types.ModuleType("portal_mut2")
+    mutated = src.replace(old, new, 1) if old in src else src.replace(old.replace("\n", "\r\n"), new.replace("\n", "\r\n"), 1)
+    assert mutated != src, label
+    exec(compile(mutated, "portal_mut2.py", "exec"), m.__dict__)
+    probs = transport_problems(m)
+    check("T2 mutation (%s) is caught" % label, len(probs) > 0, probs[0][:70] if probs else "not caught")
 
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})")
 sys.exit(0 if all(ok) else 1)

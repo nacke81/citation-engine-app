@@ -14,7 +14,7 @@ Sinks (all injectable so tests and the dry run make no network call):
             is not client news). ON by default (Mike, 2026-10-21). These four templated, factual receipts are written with approved_at = now:
             Mike ruled 2026-10-14 (vault Intelligence/decisions/2026-10-14-nate-approves-routine-client-activity-lines.md) that routine
             factual lines need no Mike approval. t_25000cbd: the hold path is gone; portal.write_deliverables is the one writer and always sets approved_at,
-                        so no row can land held (activities_hold_flag is accepted and ignored).
+            so no row can land held (activities_hold_flag is accepted and ignored).
             Opt out of writing entirely with CE_ACTIVITIES_WRITE=0 (tests, dry runs).
   verification  needs-human with verify_type phone-call|sms|postcard upserts one citation_verification row (idempotent per client+directory)
             for the client's Your Turn page and the batch trigger. A later live transition marks that row live with verified_at.
@@ -564,7 +564,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
                                           "directory_patch": pp["directories"]}} if tenant["snapshot"]
                                  else "skipped: %s queue has no portal snapshot (Your turn row + allowlist only)" % client)
         out["directories_request"] = {"queue_state": new_state, "reason_code": reason_code if new_state == "needs-human" else None}
-        out["activities_request"] = ({"method": "POST", "path": P.DELIVERABLES_PATH, "body": [rec]} if use_act
+        out["activities_request"] = (P.deliverables_request([rec]) if use_act
                                      else "skipped: %s=0 or state %s is not client news" % (FLAG, new_state))
         out["verification_request"] = (
             ([{"method": "POST", "path": VERIFY_UPSERT_PATH, "body": [ver_rec]}] + (   # t_fd2f38d0: a list; sms/phone-call add the retype PATCH the write also sends
@@ -607,7 +607,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     if use_act:
         try:
             act = activities or portal or P.Portal(*P.load_portal_env())
-            P.write_deliverables(act, [rec])   # t_25000cbd: the one writer; approved_at always set
+            P.write_deliverables(act, [rec], now=rec["approved_at"])   # t_25000cbd: the one writer; approved_at always set
             out["activities_written"] = True
         except Exception as e:
             out["errors"].append("activities: %s" % e)
