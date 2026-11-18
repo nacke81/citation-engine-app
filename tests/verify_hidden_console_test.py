@@ -8,6 +8,7 @@ os.environ["CE_SITE_GUARD"] = os.path.join(TMP, "guard.json")
 os.environ["CE_IDENTITY"] = os.path.join(HERE, "test_identity.json"); os.environ["CE_RUNS"] = tempfile.mkdtemp()
 os.environ["CE_NO_CARDS"] = "1"
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "..", "job"))
+os.environ["CE_PORTAL_ENV"] = os.path.join(HERE, "no-such-portal.env")   # fail closed, never the prod portal
 import verify_bridge as B
 
 fails = []
