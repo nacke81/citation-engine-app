@@ -143,6 +143,21 @@ with tempfile.TemporaryDirectory() as td:
         try: M.load_mail_domains(p); err9 = ''
         except ValueError as e: err9 = str(e)
         check('9 %s on two rows raises, message names both rows' % label, err9 and rows[0][0] in err9 and rows[1][0] in err9, err9)
+    def rows_dom(*rows): return json.dumps({'directories': [{'directory': d, 'domain': dom, 'aliases': list(al), 'approval': False} for d, dom, al in rows]})
+    for label, rows in (('alias equal to the other row domain', (('kentuckyonline.us', 'kentuckyonline.us', ['usaonline.us']), ('usaonline.us', 'usaonline.us', []))),
+                        ('alias under the other row domain', (('kentuckyonline.us', 'kentuckyonline.us', ['mail.usaonline.us']), ('usaonline.us', 'usaonline.us', []))),
+                        ('alias over the other row domain', (('kentuckyonline.us', 'kentuckyonline.us', ['usaonline.us']), ('ky.usaonline.us', 'ky.usaonline.us', [])))):
+        open(p, 'w').write(rows_dom(*rows))
+        try: M.load_mail_domains(p); err9 = ''
+        except ValueError as e: err9 = str(e)
+        check('9 %s raises, message names both rows' % label, err9 and rows[0][0] in err9 and rows[1][0] in err9, err9)
+    for r1, a1, r2, a2 in (('kentuckyizze.com', 'notify.thelocalcore.com', 'tennesseeizze.com', 'thelocalcore.com'), ('kentuckyonline.us', 'usaonline.us', 'northcarolinaonline.us', 'usaonline.us')):
+        open(p, 'w').write(rows_json((r1, [a1]), (r2, [a2])))
+        try: M.load_mail_domains(p); err9 = ''
+        except ValueError as e: err9 = str(e)
+        check('9 long-name pair %s / %s: full message names both rows (not cut at 100)' % (r1, r2), r1 in err9 and r2 in err9 and len(err9) > 100, err9)
+    open(p, 'w').write(rows_dom(('kentuckyonline.us', 'kentuckyonline.us', ['usaonline.us']), ('ohioonline.us', 'ohioonline.us', [])))
+    check('9 a row with an alias and an unrelated other row still loads', len(M.load_mail_domains(p)) == 2)
     open(p, 'w').write(rows_json(('kentuckyonline.us', ['usaonline.us']), ('kentuckyizze.com', ['thelocalcore.com']), ('cylex.us', []), ('cylex.us.com', [])))
     check('9 distinct aliases, and rows with no alias, still load', len(M.load_mail_domains(p)) == 4)
 check('9 the shipped map file has no shared alias (it loads)', M.load_mail_domains() == M.MAIL_DOMAINS)
