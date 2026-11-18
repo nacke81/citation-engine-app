@@ -92,6 +92,21 @@ with contextlib.redirect_stdout(io.StringIO()) as buf:
     rc = T.main(["--existing-activity", "--client", "SCC", "--row", "scc-existing-maps-apple-com", "--queue", p, "--dry-run"])
 check("C1 CLI --existing-activity --dry-run exits 0 and prints the confirmed-live request", rc == 0 and "confirmed live" in buf.getvalue())
 
+# --- t_9f3a9323: --record-existing CLI exit code when the client-row post fails
+def _cli_record(p, writer):
+    real, realp, realenv = P.write_deliverables, P.Portal, P.load_portal_env
+    P.write_deliverables, P.Portal, P.load_portal_env = writer, (lambda *a, **k: Portal()), (lambda *a, **k: ("u", "k"))
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = T.main(["--record-existing", "--client", "SCC", "--domain", "maps.apple.com", "--proof-url", OK["proof_url"], "--proof-nap", OK["proof_nap"], "--proof-at", OK["proof_at"], "--queue", p, "--today", DAY])
+        return rc, err.getvalue()
+    finally: P.write_deliverables, P.Portal, P.load_portal_env = real, realp, realenv
+def _raise(*a, **k): raise P.PortalWriteError("boom")
+pr1 = fresh(); rc1, err1 = _cli_record(pr1, _raise)
+check("R1 failed client-row post: CLI rc 1, queue row still written, retry command printed", rc1 == 1 and json.load(open(pr1))["fix_queue"][0]["state"] == "live" and "--existing-activity --client SCC --row scc-existing-maps-apple-com" in err1, "rc=%s err=%s" % (rc1, err1))
+pr2 = fresh(); rc2, _e = _cli_record(pr2, P.write_deliverables)
+check("R2 clean post: CLI rc 0", rc2 == 0, rc2)
+
 # --- one writer: the module names no deliverables path of its own
 src = open(os.path.join(ROOT, "job", "transitions.py"), encoding="utf-8").read()
 check("W1 transitions.py has no literal deliverables path and calls write_deliverables", "deliverables?" not in src and "P.write_deliverables(" in src)
@@ -110,6 +125,7 @@ if not os.environ.get("CE_MUT_PATH"):
     check("M1 mutant: title says 'added' -> the title check FAILS", run_mutant("title", 'EXISTING_TITLE = "Your %s listing is confirmed live"', 'EXISTING_TITLE = "Your %s listing was added"', "FAIL A2"))
     check("M2 mutant: NAP gate dropped -> the NAP test FAILS", run_mutant("nap", 'or pf.get("proof_nap_match") is not True', "", "FAIL N2"))
     check("M3 mutant: row posted around P.write_deliverables -> A1 and W1 FAIL", run_mutant("helper", "P.write_deliverables(act, [rec], now=rec[\"approved_at\"])", "act.call(\"POST\", \"deliverables\", [rec])", "FAIL A1"))
+    check("M5 mutant: --record-existing returns 0 on a failed post -> R1 FAILS", run_mutant("rc", 'file=sys.stderr); return 1\n        return 0\n    if n.create_row', 'file=sys.stderr); return 0\n        return 0\n    if n.create_row', "FAIL R1"))
     check("M4 mutant: source_ref drops :live -> A3 FAILS", run_mutant("ref", '"citation-existing:%s:live"', '"citation-existing:%s"', "FAIL A3"))
 
 print("%d/%d passed" % (sum(ok), len(ok)))
