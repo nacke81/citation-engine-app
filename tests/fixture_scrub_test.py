@@ -43,5 +43,39 @@ check("G1 no file under tests/fixtures carries an AIza key", leaks(FX) == [], st
 dirty = tempfile.mkdtemp(prefix="scrub-g-"); open(os.path.join(dirty, "x.html"), "w").write(page)
 check("G2 mutation: the guard does catch a fixture that has a key", leaks(dirty) == ["x.html"])
 
+# W: the builders' write path scrubs (t_6df6203a round 2). Helper tested directly; builders checked to use only the helper.
+wd = tempfile.mkdtemp(prefix="scrub-w-")
+for nl in (None, "\n"):
+    wp = os.path.join(wd, "w.html")
+    ret = S.write_fixture(wp, page, newline=nl)
+    got = open(wp, encoding="utf-8", newline="").read()
+    check("W1 write_fixture(newline=%r) lands with 0 keys" % nl, S.PATTERN.search(got) is None and "REDACTED_GOOGLE_KEY" in got and ret == got, got)
+for b in ("build_fixtures.py", "build_resolver_fixtures.py"):
+    src = open(os.path.join(HERE, b), encoding="utf-8").read()
+    raw = re.findall(r"open\([^\n]*[\"']w[\"'][^\n]*\)\.write\(", src)
+    check("W2 %s imports write_fixture and has no raw open(...,'w').write(" % b, "from fixture_scrub import write_fixture" in src and "write_fixture(" in src and not raw, str(raw))
+mut = 'open(os.path.join(OUT, "x.html"), "w", encoding="utf-8").write(t)'
+check("W3 mutation: the raw-write detector flags a builder that bypasses the helper", re.findall(r"open\([^\n]*[\"']w[\"'][^\n]*\)\.write\(", mut) != [])
+
+# L: leak_check.py catches the Google-key shape across the whole repo walk, and the planted control can't go dead.
+def run_leak(mutate):
+    root = tempfile.mkdtemp(prefix="leak-"); td = os.path.join(root, "tests"); os.makedirs(td)
+    src = open(os.path.join(HERE, "leak_check.py"), encoding="utf-8").read()
+    if mutate: src = src.replace('hits.append("google-key-shape")', "pass"); assert "pass" in src
+    open(os.path.join(td, "leak_check.py"), "w", encoding="utf-8").write(src)
+    open(os.path.join(td, "denylist.json"), "w").write(open(os.path.join(HERE, "denylist.json")).read())
+    return root, td
+def leak_rc(root, td):
+    r = subprocess.run([sys.executable, os.path.join(td, "leak_check.py")], capture_output=True, text=True); return r.returncode, r.stdout
+root, td = run_leak(False)
+rc, out = leak_rc(root, td)
+check("L1 leak_check passes on a clean tree (planted control caught)", rc == 0 and "PASS planted Google-key control" in out, out)
+os.makedirs(os.path.join(root, "docs", "deep")); open(os.path.join(root, "docs", "deep", "n.md"), "w").write("x " + KEY)   # outside tests/fixtures
+rc, out = leak_rc(root, td)
+check("L2 a key anywhere in the repo (not only tests/fixtures) fails leak_check", rc != 0 and "google-key-shape" in out, out)
+root, td = run_leak(True)
+rc, out = leak_rc(root, td)
+check("L3 mutation: AIza shape removed -> the planted control FAILS", rc != 0 and "FAIL planted Google-key control" in out, out)
+
 print("%d/%d" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

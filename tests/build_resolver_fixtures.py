@@ -1,7 +1,10 @@
 """Writes the saved-HTML fixtures for tests/resolver_test.py into tests/fixtures/resolver/. Placeholder identity only (tests/test_identity.json).
 One search page and one listing page per in-scope Directory, shaped after what Edith saw (2026-10-22). No live traffic. Run: python tests/build_resolver_fixtures.py
 """
-import os
+import os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fixture_scrub import write_fixture   # every fixture write goes through the Google-key scrub (t_6df6203a)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "fixtures", "resolver")
@@ -51,6 +54,6 @@ def listing_html(h):
 if __name__ == "__main__":
     for d, h in HOSTS.items():
         k = d.split(".")[0]
-        open(os.path.join(OUT, "%s-search.html" % k), "w", encoding="utf-8", newline="\n").write(search_html(h))
-        open(os.path.join(OUT, "%s-listing.html" % k), "w", encoding="utf-8", newline="\n").write(listing_html(h))
+        write_fixture(os.path.join(OUT, "%s-search.html" % k), search_html(h), newline="\n")
+        write_fixture(os.path.join(OUT, "%s-listing.html" % k), listing_html(h), newline="\n")
     print("wrote", len(HOSTS) * 2, "fixtures to", OUT)

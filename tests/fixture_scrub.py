@@ -12,6 +12,14 @@ def scrub(text):
     return PATTERN.sub(PLACEHOLDER, text)
 
 
+def write_fixture(path, text, newline=None):
+    """The one way a builder writes a fixture: scrub first, then write. Returns the scrubbed text."""
+    out = scrub(text)
+    with open(path, "w", encoding="utf-8", newline=newline) as f:
+        f.write(out)
+    return out
+
+
 def main(paths):
     for p in paths:
         with open(p, encoding="utf-8", newline="") as f:
