@@ -11,3 +11,10 @@ SCC mode: `_domain_of()` is None for any directory outside `SCAN_DIRECTORIES`; `
 3. `_unmapped(dirs)`; presence_main, headers_main, reset_main, verify_main and the approval scan in `_main` print `DIRECTORY NOT MAPPED: <d>` to stderr and return 2 before reading the mailbox or printing any count. `find_verify` uses `_domain_of` (no raw-name fallback). nm-relay open-domain mode unchanged.
 4. Tests `tests/mail_scan_unmapped_test.py` (in CI): refuses per mode, alias counted, same-brand other-Catalog From rejected, alias spoof rejected, bad data file fails closed, mutation (restore silent None) detected.
 5. Positive control: one read-only `--presence --headers --directory kentuckyizze.com` scan (IMAP EXAMINE/PEEK, creds via the existing env path; nothing printed but headers).
+
+## Round 2 (Nate review, same day; lesson cited: docs/lessons/2026-11-18-a-zero-needs-a-reason-it-could-see.md)
+- CI red: the test's approval-scan path read the live queue. Every `cli()` call in the test now passes `--queue <temp fixture>`; no test reads the live queue.
+- SCC known set = every `directory` in the queue (`--queue` or default) mapping to itself + config/mail_domains.json (a data-file row overrides/extends). Unreadable queue: data file only, `QUEUE NOT READ` on stderr; approval scan returns 2.
+- Refusal text now names the fix: `DIRECTORY NOT MAPPED: <d> (not a queue row directory and not in config/mail_domains.json)`.
+- kentuckyizze.com alias `thelocalcore.com` (white-label; mails from notify.thelocalcore.com); test: notify. host counted, thelocalcore.com.evil.io and notthelocalcore.com rejected.
+- Tests: queue-row dir (us-business.info) counted, unreadable queue fallback, mutation removing queue derivation detected. Positive control: t_03715c6d re-runs on the new head.

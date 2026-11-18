@@ -17,7 +17,13 @@ def msg(frm, subj='Please confirm your email', uid=1, body='hello'):
 MSGS = [msg('Kentucky Izze <noreply@kentuckyizze.com>', uid=1), msg('Biz <noreply@biz.usaonline.us>', uid=2), msg('Bank <a@bbb.org>', uid=3)]
 M.read_messages = lambda **k: MSGS
 
-def cli(argv):
+_TD = tempfile.mkdtemp()
+FIXTURE_Q = os.path.join(_TD, 'queue.json')   # a test never reads the live queue: every call passes --queue
+def _row(i, d, state='submitted'): return {'id': i, 'directory': d, 'state': state}
+open(FIXTURE_Q, 'w').write(json.dumps({'fix_queue': [_row('fix-bbb', 'bbb.org')], 'create_rows': [_row('create-us-business', 'us-business.info'), _row('create-localstar', 'localstar.org')]}))
+
+def cli(argv, queue=FIXTURE_Q):
+    if queue and '--queue' not in argv: argv = list(argv) + ['--queue', queue]
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try: rc = M.main(argv)
@@ -90,6 +96,41 @@ check('5 shipped map file lists kentuckyonline.us with alias usaonline.us and ke
 M._OPEN_DOMAINS = True
 check('6 nm-relay: dotted host opens itself, free text refuses', M._domain_of('n49.com') == 'n49.com' and M._unmapped(['yahoo.com (local.yahoo.com)']) == ['yahoo.com (local.yahoo.com)'])
 M._OPEN_DOMAINS = False
+
+# 7 the queue derives the map: a queue-row Directory with no data-file row maps to itself
+MSGS[:] = MSGS + [msg('US Biz <noreply@us-business.info>', uid=4)]
+rc, out, err = cli(['--presence', '--headers', '--directory', 'us-business.info'])
+check('7 queue-row Directory with no data-file row (us-business.info) is mapped and counted', rc == 0 and 'us-business.info | 1 matching mail(s)' in out, (rc, out, err))
+rc, out, err = cli(['--verify-link', '--directory', 'localstar.org'])
+check('7 verify-link on a queue-row Directory (localstar.org) does not refuse', 'NOT MAPPED' not in err, (rc, out, err))
+rc, out, err = cli(['--presence', '--directory', 'kentuckyonline.com'])
+check('7 a name in neither the queue nor the data file still refuses, and the message names the data file', rc == 2 and 'DIRECTORY NOT MAPPED: kentuckyonline.com (not a queue row directory and not in config/mail_domains.json)' in err and out == '', (rc, out, err))
+check('7 queue set does not leak past the run', M._QUEUE_DIRS == frozenset())
+# data-file row overrides a queue row
+check('7 data-file row wins: cylex.us -> cylex.us.com with a queue row of the same name', M._domain_of('cylex.us') == 'cylex.us.com')
+# unreadable queue: data file only, said on stderr, mapped data-file Directory still works, queue-only one refuses
+gone = os.path.join(_TD, 'gone.json')
+rc, out, err = cli(['--presence', '--directory', 'kentuckyizze.com', '--queue', gone])
+check('7 unreadable queue: data-file Directory still counts, stderr says the queue was not read', rc == 0 and 'kentuckyizze.com | mails from the Directory: 1' in out and 'QUEUE NOT READ' in err, (rc, out, err))
+rc, out, err = cli(['--presence', '--directory', 'us-business.info', '--queue', gone])
+check('7 unreadable queue: a queue-only Directory refuses', rc == 2 and 'DIRECTORY NOT MAPPED: us-business.info' in err and 'matching mail' not in out, (rc, out, err))
+rc, out, err = cli(['--queue', gone])
+check('7 unreadable queue: approval scan returns 2, no crash', rc == 2 and 'QUEUE NOT READ' in err, (rc, out, err))
+# mutation: remove the queue derivation -> the queue-row checks must fail
+realq = M._load_queue_dirs
+M._load_queue_dirs = lambda path: (realq(path)[0], frozenset())
+rc, out, err = cli(['--presence', '--headers', '--directory', 'us-business.info'])
+M._load_queue_dirs = realq
+check('7 mutation (queue derivation removed) is DETECTED: us-business.info refuses', rc == 2 and 'NOT MAPPED: us-business.info' in err)
+rc, out, err = cli(['--presence', '--headers', '--directory', 'us-business.info'])
+check('7 restored: queue derivation back', rc == 0 and 'us-business.info | 1' in out, (rc, out, err))
+
+# 8 kentuckyizze.com is a white-label of The Local Core: its mail comes from notify.thelocalcore.com
+check('8 kentuckyizze.com alias is thelocalcore.com in the data file', M.MAIL_DOMAINS['kentuckyizze.com']['aliases'] == ('thelocalcore.com',))
+check('8 From x@notify.thelocalcore.com on the kentuckyizze.com row is counted', M.presence('kentuckyizze.com', [msg('Local Core <x@notify.thelocalcore.com>', body='Confirm your email')])[0] == 1)
+check('8 lookalike host thelocalcore.com.evil.io is rejected', M.presence('kentuckyizze.com', [msg('x@thelocalcore.com.evil.io')])[0] == 0)
+check('8 lookalike prefix host notthelocalcore.com is rejected', M.presence('kentuckyizze.com', [msg('x@notthelocalcore.com')])[0] == 0)
+check('8 the Local Core alias does not leak to the kentuckyonline.us row', M.presence('kentuckyonline.us', [msg('x@notify.thelocalcore.com')])[0] == 0)
 
 print('%d/%d' % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

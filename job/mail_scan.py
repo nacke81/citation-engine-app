@@ -96,10 +96,26 @@ _OPEN_DOMAINS = False   # set by --mailbox nm-relay only; SCC (listings) keeps t
 NM_ALIASES = {"designrush.com": ("designrush.co",), "goodfirms.co": ("goodfirms.email",)}   # explicit per-directory alias hosts (nm-relay only)
 
 
+_QUEUE_DIRS = frozenset()   # SCC mode: every `directory` in the SCC queue, set per run by _main (read-only); empty if the queue cannot be read
+
+
+def _load_queue_dirs(path):
+    """-> (rows or None, frozenset of queue directories). An unreadable queue: data file only, said on stderr."""
+    try:
+        rows = Q.load_all_rows(path)
+        return rows, frozenset(str(r.get("directory") or "").strip().lower() for r in rows)
+    except Exception as e:   # unreadable or malformed queue: never fatal for the map
+        print("QUEUE NOT READ (%s): Directories map from config/mail_domains.json only" % type(e).__name__, file=sys.stderr)
+        return None, frozenset()
+
+
 def _domain_of(directory):
     """t_5b3b4a3f: the domain a Directory's mail carries. SCC: only SCAN_DIRECTORIES. nm-relay: an unlisted dotted name is its own domain (matched by From domain and link host)."""
     r = MAIL_DOMAINS.get((directory or "").strip().lower())
     d = r["domain"] if r else None
+    if not d:
+        q = (directory or "").strip().lower()
+        if q in _QUEUE_DIRS and _HOST_RE.fullmatch(q): d = q   # t_2b13224d: a queue row's directory maps to itself; the data file (above) overrides or extends it
     if d or not _OPEN_DOMAINS: return d
     d = (directory or "").strip().lower()
     return d if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", d) else None   # a bare host token only: 'yahoo.com (local.yahoo.com)' opens nothing
@@ -117,7 +133,7 @@ def _unmapped(directories):
 
 def _refuse_unmapped(directories):
     bad = _unmapped(directories)
-    for d in bad: print("DIRECTORY NOT MAPPED: %s" % d, file=sys.stderr)
+    for d in bad: print("DIRECTORY NOT MAPPED: %s (not a queue row directory and not in config/mail_domains.json)" % d, file=sys.stderr)
     return bool(bad)
 
 
@@ -458,8 +474,9 @@ def select_rows(all_rows, wanted, today, historical=False):
 def main(argv=None):
     try: return _main(argv)
     finally:
-        global _OPEN_DOMAINS
+        global _OPEN_DOMAINS, _QUEUE_DIRS
         _OPEN_DOMAINS = False   # t_5b3b4a3f: the nm-relay opening never outlives the run
+        _QUEUE_DIRS = frozenset()
 
 
 def _main(argv=None):
@@ -476,8 +493,10 @@ def _main(argv=None):
     a.add_argument("--verify-link", action="store_true", help="print the newest email-verification link / code per --directory (terminal only; never stored)")
     a.add_argument("--mailbox", choices=("listings", "nm-relay"), default="listings", help="nm-relay = the file nm_listings_relay.py fills from mail to the NM listings alias (no IMAP)")
     n = a.parse_args(argv)
-    global read_messages, _OPEN_DOMAINS   # noqa
+    global read_messages, _OPEN_DOMAINS, _QUEUE_DIRS   # noqa
     _OPEN_DOMAINS = n.mailbox == "nm-relay"   # reset every call: only the NM relay opens the directory list
+    q_rows = None
+    if n.mailbox != "nm-relay": q_rows, _QUEUE_DIRS = _load_queue_dirs(n.queue)   # t_2b13224d: the known set = queue row directories + the data file
     if n.mailbox == "nm-relay":
         read_messages = read_relay_messages   # every mode below reads the relay file instead of IMAP
     if n.headers and not n.presence: a.error("--headers goes with --presence")
@@ -495,7 +514,8 @@ def _main(argv=None):
     wanted = set(n.directory) if n.directory else {"bbb.org", "loc8nearme.com", "businessyab.com", "discoverourtown.com"}
     import datetime
     today = datetime.date.today().isoformat()
-    selected, skipped = select_rows(Q.load_all_rows(n.queue), wanted, today, historical=n.historical)
+    if q_rows is None and n.mailbox != "nm-relay": return 2   # no queue, no rows to scan (stderr said so)
+    selected, skipped = select_rows(q_rows if q_rows is not None else Q.load_all_rows(n.queue), wanted, today, historical=n.historical)
     rows = [(r["id"], r["directory"]) for r in selected]
     from cfg import IDENT
     sc = MailScanner(reader=lambda: read_messages(days=n.days, folders=n.folders), name=IDENT["BIZ"]["NM" if n.mailbox == "nm-relay" else "SCC"]["name"])
