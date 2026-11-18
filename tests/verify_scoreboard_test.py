@@ -20,7 +20,7 @@ MUTATIONS = [  # (label, file, needle, replacement); every needle is a distinct 
     ("signed_in_at (script)", "verify_send.py", 'SB.stamp(request_id, "signed_in_at")', 'SB.stamp(request_id, "zz")'),
     ("signed_in_at (agent stage call)", "verify_step.py", 'STAGE_NAMES = {"signed_in": "signed_in_at", "ready": None}', 'STAGE_NAMES = {"signed_in": "zz", "ready": None}'),
     ("send_clicked_at (script)", "verify_send.py", 'SB.stamp(request_id, "send_clicked_at")', 'SB.stamp(request_id, "zz")'),
-    ("send_clicked_at (agent sent)", "verify_step.py", 'SB.stamp(request_id, "send_clicked_at", now_dt)', 'SB.stamp(request_id, "zz", now_dt)'),
+    ("send_clicked_at (agent sent)", "verify_step.py", 'SB.stamp(request_id, "send_clicked_at", now_dt)   # the agent runs `sent`', 'SB.stamp(request_id, "zz", now_dt)   # the agent runs `sent`'),
     ("code_sent_at (script)", "verify_send.py", 'SB.stamp(request_id, "code_sent_at")', 'SB.stamp(request_id, "zz")'),
     ("code_sent_at (agent sent)", "verify_step.py", 'SB.stamp(request_id, "code_sent_at", now_dt)', 'SB.stamp(request_id, "zz", now_dt)'),
     ("code_submitted_at (script)", "verify_send.py", 'SB.stamp(request_id, "code_submitted_at")', 'SB.stamp(request_id, "zz")'),
@@ -79,6 +79,8 @@ import os as _fo; _fo.environ["CE_PORTAL_ENV"] = _fo.path.join(_fo.path.dirname(
 import verify_bridge as B
 import verify_send as S
 import verify_step as ST; F_ = __import__("verify_fakes"); F_.default_evidence(ST)
+import verify_evidence as VE   # t_761c9558: `stage signed_in` reads the page; this suite's mock page is a signed-in one
+VE.READER = lambda cdp, doms: {"url": "https://www.agentdir.example/pro/setup", "text": "Jobs Messages Performance", "password": False, "frames": [], "png": None, "on_domain": True, "code_input": False}
 import verify_scoreboard as SB
 
 CODE = "906417"
