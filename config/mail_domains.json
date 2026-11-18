@@ -1,0 +1,67 @@
+{
+ "_comment": "Directory -> the mail domain its senders carry (and alias sender domains). The listings@ scan refuses any --directory not listed here (DIRECTORY NOT MAPPED). approval:true = also in the approval-mail scan set (SCAN_DIRECTORIES); the rest are presence/headers/verify/reset only. Add a Directory here, no code edit. t_2b13224d",
+ "directories": [
+  {
+   "directory": "bbb.org",
+   "domain": "bbb.org",
+   "aliases": [],
+   "approval": true
+  },
+  {
+   "directory": "loc8nearme.com",
+   "domain": "loc8nearme.com",
+   "aliases": [],
+   "approval": true
+  },
+  {
+   "directory": "businessyab.com",
+   "domain": "businessyab.com",
+   "aliases": [],
+   "approval": true
+  },
+  {
+   "directory": "discoverourtown.com",
+   "domain": "discoverourtown.com",
+   "aliases": [],
+   "approval": true
+  },
+  {
+   "directory": "cylex.us",
+   "domain": "cylex.us.com",
+   "aliases": [],
+   "approval": true
+  },
+  {
+   "directory": "cylex.us.com",
+   "domain": "cylex.us.com",
+   "aliases": [],
+   "approval": true
+  },
+  {
+   "directory": "kentuckyonline.us",
+   "domain": "kentuckyonline.us",
+   "aliases": [
+    "usaonline.us"
+   ],
+   "approval": false
+  },
+  {
+   "directory": "kentuckyizze.com",
+   "domain": "kentuckyizze.com",
+   "aliases": ["thelocalcore.com"],
+   "approval": false
+  },
+  {
+   "directory": "sortlist.com",
+   "domain": "sortlist.com",
+   "aliases": [],
+   "approval": false
+  },
+  {
+   "directory": "clutch.co",
+   "domain": "clutch.co",
+   "aliases": [],
+   "approval": false
+  }
+ ]
+}
