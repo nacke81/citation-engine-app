@@ -59,8 +59,9 @@ with tempfile.TemporaryDirectory() as td:
     check("G2 the flag does not outlive an nm-relay run", M._OPEN_DOMAINS is False)
     fake = lambda **k: msgs
     M.read_messages = fake
-    rc, txt = run(["--presence", "--directory", "n49.com", "--days", "5"])
-    check("G2 default-mailbox run REFUSES n49.com (t_2b13224d: unmapped, never a 0 count)", rc == 2 and "mails from the Directory" not in txt, txt[:100])
+    fq = os.path.join(td, "queue.json"); open(fq, "w", encoding="utf-8").write(json.dumps({"fix_queue": [{"id": "fix-bbb", "directory": "bbb.org", "state": "submitted"}], "create_rows": []}))   # t_19510826: never the live queue (it now holds n49.com)
+    rc, txt = run(["--presence", "--directory", "unmapped-example.invalid", "--days", "5", "--queue", fq])
+    check("G2 default-mailbox run REFUSES an unmapped directory (t_2b13224d: unmapped, never a 0 count)", rc == 2 and "mails from the Directory" not in txt, txt[:100])
     del os.environ["NM_RELAY_FILE"]
 
 # ---- recheck

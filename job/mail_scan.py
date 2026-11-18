@@ -34,6 +34,13 @@ def load_mail_domains(path=None):
                 raise ValueError("bad host in %r" % (r,))
             out[d] = {"domain": dom, "aliases": al, "approval": bool(r.get("approval"))}
         if not out: raise ValueError("no directories")
+        seen = []   # t_19510826: one sender host (or a host under/over it) on two Directory rows would count one site's mail for the other; refuse, never guess
+        for d, r in out.items():
+            for a in r["aliases"]:
+                for d2, a2 in seen:
+                    if d2 != d and (a == a2 or a.endswith("." + a2) or a2.endswith("." + a)):
+                        raise ValueError("alias %s on row %s overlaps alias %s on row %s: a shared sender needs a body or To check" % (a, d, a2, d2))
+                seen.append((d, a))
         return out
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         raise ValueError("mail_domains.json unreadable: %s: %s" % (type(e).__name__, str(e)[:100]))

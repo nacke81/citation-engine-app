@@ -132,5 +132,32 @@ check('8 lookalike host thelocalcore.com.evil.io is rejected', M.presence('kentu
 check('8 lookalike prefix host notthelocalcore.com is rejected', M.presence('kentuckyizze.com', [msg('x@notthelocalcore.com')])[0] == 0)
 check('8 the Local Core alias does not leak to the kentuckyonline.us row', M.presence('kentuckyonline.us', [msg('x@notify.thelocalcore.com')])[0] == 0)
 
+# 9 (t_19510826) a shared alias sender across two Directory rows is refused at load, never guessed
+with tempfile.TemporaryDirectory() as td:
+    p = os.path.join(td, 'm.json')
+    def rows_json(*rows): return json.dumps({'directories': [{'directory': d, 'domain': d, 'aliases': list(al), 'approval': False} for d, al in rows]})
+    for label, rows in (('same alias', (('kentuckyonline.us', ['usaonline.us']), ('ohioonline.us', ['usaonline.us']))),
+                        ('alias host under the other row alias', (('kentuckyonline.us', ['usaonline.us']), ('ohioonline.us', ['mail.usaonline.us']))),
+                        ('alias host over the other row alias', (('kentuckyonline.us', ['mail.usaonline.us']), ('ohioonline.us', ['usaonline.us'])))):
+        open(p, 'w').write(rows_json(*rows))
+        try: M.load_mail_domains(p); err9 = ''
+        except ValueError as e: err9 = str(e)
+        check('9 %s on two rows raises, message names both rows' % label, err9 and rows[0][0] in err9 and rows[1][0] in err9, err9)
+    open(p, 'w').write(rows_json(('kentuckyonline.us', ['usaonline.us']), ('kentuckyizze.com', ['thelocalcore.com']), ('cylex.us', []), ('cylex.us.com', [])))
+    check('9 distinct aliases, and rows with no alias, still load', len(M.load_mail_domains(p)) == 4)
+check('9 the shipped map file has no shared alias (it loads)', M.load_mail_domains() == M.MAIL_DOMAINS)
+
+# 10 (t_19510826) test gaps: the second-@ check, find_verify without a raw-name fallback, a non-host queue directory never self-maps
+check('10 From <a@usaonline.us> (b@evil.io) on kentuckyonline.us is rejected (second @host)', M.presence('kentuckyonline.us', [msg('<a@usaonline.us> (b@evil.io)')])[0] == 0)
+check('10 control: the plain alias From is counted', M.presence('kentuckyonline.us', [msg('<a@usaonline.us>')])[0] == 1)
+VMSG = [msg('Kentucky Online <noreply@kentuckyonline.com>', body='Please confirm your email: https://kentuckyonline.com/verify?token=abc123')]
+check('10 find_verify("kentuckyonline.com") directly is None (no raw-name fallback)', M.find_verify('kentuckyonline.com', VMSG) is None)
+check('10 control: find_verify on a mapped Directory still finds its link', (M.find_verify('kentuckyizze.com', [msg('Kentucky Izze <noreply@kentuckyizze.com>', body='Please confirm your email: https://kentuckyizze.com/verify?token=abc123')]) or {}).get('url', '').startswith('https://kentuckyizze.com/verify'))
+NOTHOST = 'yahoo.com (local.yahoo.com)'
+q9 = os.path.join(_TD, 'nothost_queue.json')
+open(q9, 'w').write(json.dumps({'fix_queue': [_row('fix-yahoo', NOTHOST)], 'create_rows': []}))
+rc, out, err = cli(['--presence', '--directory', NOTHOST], queue=q9)
+check('10 a queue row whose directory is not a bare host does not self-map (refused, rc 2)', rc == 2 and 'DIRECTORY NOT MAPPED' in err and 'matching mail' not in out, (rc, out, err))
+
 print('%d/%d' % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)
