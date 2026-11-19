@@ -195,19 +195,14 @@ if not ONLY_MUT:
 
 # ---- t_8f631f1b: a promo/referral NAME with an "Enter code" label is not the code box
 PROMO = [dict(name="promo", placeholder="Enter code"), dict(name="referral", aria="Enter code"), dict(name="coupon", placeholder="Code"), dict(name="invite_code", placeholder="Enter code"),
-         dict(id="promoCode", placeholder="Enter the code"), dict(name="referral_code", aria="6-digit code")]
+         dict(id="promoCode", placeholder="Enter the code"), dict(name="referral_code", aria="6-digit code"), dict(name="zip", placeholder="Enter code")]
 OK_NAMES = [dict(name="phoneVerificationCode", placeholder="Enter code"), dict(name="otp", placeholder="Enter code"), dict(name="code", placeholder="Enter code"), dict(name="smsCode")]
 if not ONLY_MUT:
     for kw in PROMO: check("16a promo/referral/coupon/invite name or id with a human code label refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
     for kw in OK_NAMES: check("16b real code name still records: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
-
-# ---- t_8f631f1b: a promo/referral NAME with an "Enter code" label is not the code box
-PROMO = [dict(name="promo", placeholder="Enter code"), dict(name="referral", aria="Enter code"), dict(name="coupon", placeholder="Code"), dict(name="invite_code", placeholder="Enter code"),
-         dict(id="promoCode", placeholder="Enter the code"), dict(name="referral_code", aria="6-digit code")]
-OK_NAMES = [dict(name="phoneVerificationCode", placeholder="Enter code"), dict(name="otp", placeholder="Enter code"), dict(name="code", placeholder="Enter code"), dict(name="smsCode")]
-if not ONLY_MUT:
-    for kw in PROMO: check("16a promo/referral/coupon/invite name or id with a human code label refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
-    for kw in OK_NAMES: check("16b real code name still records: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
+    # real Thumbtack shape (submitter state.db msgs 15840/15843): four single-char boxes #pin-input-0..3
+    check("16c Thumbtack 4-box pin row records", VD.has_code_input([inp(id="pin-input-%d" % k, maxlength="1", group=7) for k in range(4)]) is True)
+    check("16c Thumbtack 4-box pin row with type=number records", VD.has_code_input([inp(id="pin-input-%d" % k, type="number", maxlength="1", group=7) for k in range(4)]) is True)
 
 # ---- mutations: every one must be caught
 def caught(label, cond, d=""): check("12 MUTATION %s" % label, cond, d)
