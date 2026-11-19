@@ -269,6 +269,26 @@ with tempfile.TemporaryDirectory() as d2:
     got = ns2["run_once"](cl4, transcriber(W_TEXT), os.path.join(d2, "k.json"), SINCE, W1)
     check("window mutation (gate dropped) prints the customer 'gate pin' as a code, which the outside-window test catches", len(got) == 1 and "4455" in got[0], got)
 
+    # failure reason log (t_f5233f56): type + returncode + masked stderr tail, never digits/transcript, never changes lines
+    import subprocess
+    d3 = tempfile.mkdtemp()
+    st4 = os.path.join(d3, "s.json")
+    exc = subprocess.CalledProcessError(3221225477, ["w"], output=b"", stderr=b"[local-whisper] ERROR: boom 482913 in cuda\nline2 code 482913 end")
+    got4 = C.run_once(FakeClient(RECS[:1]), transcriber({"RE0001": exc}), st4, SINCE, WIN)
+    elog = os.path.join(d3, "call-code-errors.log")
+    ltxt = open(elog, encoding="utf8").read() if os.path.exists(elog) else ""
+    check("failure log written", "CalledProcessError" in ltxt and "3221225477" in ltxt and "RE0001" in ltxt, ltxt)
+    check("failure log has masked stderr tail, no digits from it", "line# code ###### end" in ltxt and "482913" not in ltxt, ltxt)
+    check("failure line unchanged", len(got4) == 1 and "will retry" in got4[0] and "482913" not in got4[0], got4)
+    check("state still clean", "482913" not in open(st4, encoding="utf8").read())
+    d4 = tempfile.mkdtemp()
+    os.mkdir(os.path.join(d4, "call-code-errors.log"))   # a directory where the file should be: open() fails
+    got5 = C.run_once(FakeClient(RECS[:1]), transcriber({"RE0001": exc}), os.path.join(d4, "s.json"), SINCE, WIN)
+    check("log write failure does not change the line", len(got5) == 1 and "will retry" in got5[0], got5)
+    d5 = tempfile.mkdtemp()
+    C.run_once(FakeClient(RECS[:1]), transcriber(TEXTS), os.path.join(d5, "s.json"), SINCE, WIN)
+    check("success writes no failure log", not os.path.exists(os.path.join(d5, "call-code-errors.log")))
+
 if FAILS:
     print("%d FAILED: %s" % (len(FAILS), ", ".join(FAILS))); sys.exit(1)
 print("call_code_test: all passed")
