@@ -14,10 +14,16 @@ Rules this module holds:
     no transcript, no code, and failures print a fixed phrase, never exception text.
   * Digits count only right after a code cue (code / passcode / verification / pin / otp; not zip, area, postal, promo, coupon or discount code). No cue -> no line: the inbound-voicemail cron
     already reports ordinary voicemails.
+  * Only a recording whose CALL STARTED inside an armed Verify Now window (job/verify_arm.py's local window log) is read at all. Outside every window
+    nothing is transcribed and nothing is printed: that is the structural answer to a customer voicemail such as "the gate pin is 4455". No windows
+    file = no windows = silence. The window log can only narrow what is reported; it never turns a transcript without a code cue into a code.
   * Two different candidate codes in one recording -> no code, never a guess.
   * A transcription failure is retried, at most MAX_TRIES times per recording, then one final line and the SID is marked seen.
 """
 import argparse, base64, datetime, email.utils, json, os, re, subprocess, sys, tempfile, urllib.parse, urllib.request
+
+# (run as a script, job/ is already on sys.path; tests add it)
+import verify_arm as AR   # stdlib only: the local arm-window log (t_282b646e). No portal, no Directory.
 
 CRED_PATH = os.environ.get("CE_TWILIO_CREDENTIALS", "C:/Credentials/twilio-api.json")
 WHISPER_SCRIPT = os.environ.get("CE_WHISPER_SCRIPT", "C:/Users/Mikes Desktop 2023/Documents/Claude/Claude Code/vault-calls-and-texts/scripts/transcribe_faster_whisper.py")
@@ -121,8 +127,10 @@ def _save_state(path, seen, fails):
         json.dump({"seen": sorted(seen), "fails": fails}, f)
 
 
-def run_once(client, transcribe, state_path, since_iso):
-    """-> list of Telegram lines (possibly empty). A recording is marked seen once transcribed, or after MAX_TRIES failed attempts."""
+def run_once(client, transcribe, state_path, since_iso, windows=None):
+    """-> list of Telegram lines (possibly empty). A recording is marked seen once transcribed, or after MAX_TRIES failed attempts.
+    `windows` = the armed windows (verify_arm.load_windows). None or [] means no window: every recording is skipped (seen, never transcribed, no line)."""
+    windows = windows or []
     seen, fails = _load_state(state_path)
     lines, dirty = [], False
     for rec in sorted(client.recordings_since(since_iso), key=lambda r: r["created"]):
@@ -130,6 +138,9 @@ def run_once(client, transcribe, state_path, since_iso):
         if sid in seen:
             continue
         dirty = True
+        if not AR.in_window(rec.get("started") or rec["created"], windows):   # a customer voicemail, not the Directory's robot: the inbound cron reports it
+            seen.add(sid)
+            continue
         try:
             text = transcribe(client.audio(sid))
         except Exception:   # never echo the exception text: it could carry the transcript
@@ -180,7 +191,8 @@ class TwilioClient:
             for r in self._get("%s/Recordings.json?%s" % (base, q2)).get("recordings", []):
                 created = _iso(r.get("date_created"))
                 if created >= since_iso:
-                    out.append({"sid": r["sid"], "created": created})
+                    started = _iso(call["start_time"]) if call.get("start_time") else created   # the CALL's start decides the window, not the recording's
+                    out.append({"sid": r["sid"], "created": created, "started": started})
         return out
 
     def audio(self, sid):
@@ -210,6 +222,7 @@ def main(argv=None, client=None, transcribe=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", required=True, help="ISO UTC, e.g. 2026-11-19T00:00:00Z; only newer recordings are read")
     ap.add_argument("--state", default=os.path.join(os.environ.get("LOCALAPPDATA", "."), "citation-engine", "logs", "call-code-seen.json"))
+    ap.add_argument("--windows", default=None, help="the armed-window log (default: verify_arm's CE_VERIFY_WINDOWS / LOCALAPPDATA path)")
     a = ap.parse_args(argv)
     try:
         if client is None:
@@ -218,7 +231,7 @@ def main(argv=None, client=None, transcribe=None):
             except LineConfigError:
                 print("NM line call: call-code reader has no valid NM line (set CE_NM_LINE); no code read")
                 return 1
-        lines = run_once(client, transcribe or whisper_transcribe, a.state, a.since)
+        lines = run_once(client, transcribe or whisper_transcribe, a.state, a.since, AR.load_windows(a.windows))
     except Exception:
         print("NM line call: call-code reader failed (see the box; no code read)")
         return 1

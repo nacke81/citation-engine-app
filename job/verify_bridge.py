@@ -428,7 +428,8 @@ def stale_post_send(portal, now, after_s=POST_SEND_SWEEP_S):
     return out
 
 
-def sweep(portal, rpc, now=None, card_runner=None):
+def sweep(portal, rpc, now=None, card_runner=None, armer=None):
+    """`armer` (t_282b646e): a swept request that still holds the NM line's arm window is disarmed (its send run died without its own disarm). Never fatal."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     done = []
     try:
@@ -446,6 +447,10 @@ def sweep(portal, rpc, now=None, card_runner=None):
         except BridgeError as e:
             log("sweep finish failed for %s: %s" % (rid, e))   # the card still goes out below: a stuck row must reach a person
         if card: file_card(rid, status, age, runner=card_runner)
+        if armer is not None:
+            try:
+                if armer.armed_request() == rid: armer.disarm(rid)
+            except Exception as e: log("sweep disarm failed for %s: %s" % (rid, type(e).__name__))
         log("swept %s from %s after %dm: %s/%s" % (rid, status, int(age // 60), fstatus, fcode))
         done.append(rid)
     return done
@@ -512,12 +517,12 @@ def dispatch(req, portal, rpc, res, busy, spawner=None):
         except BridgeError as e2: log(str(e2))
 
 
-def run_pass(portal=None, rpc=None, now=None, spawner=None, card_runner=None):
+def run_pass(portal=None, rpc=None, now=None, spawner=None, card_runner=None, armer=None):
     """-> {"swept": [ids], "started": [ids], "refused": [(id, verdict)], "deferred": [ids]}. Sweeps first so a stuck row is never
     starved by new claims. Then retries deferred rows (starting, no run started yet), then claims new ones."""
     portal = portal or P.Portal(*P.load_portal_env())
     rpc = rpc or VerifyRpc(portal)
-    res = {"swept": sweep(portal, rpc, now, card_runner), "started": [], "refused": [], "deferred": [], "first_use": []}
+    res = {"swept": sweep(portal, rpc, now, card_runner, armer), "started": [], "refused": [], "deferred": [], "first_use": []}
     try: res["first_use"] = file_first_use_cards(portal, card_runner)   # never blocks claim or dispatch
     except Exception as e: log("first-use cards failed: %s" % type(e).__name__)
     busy = set()   # tenants this pass already started a run for (the new run may not hold its lock yet)
@@ -644,7 +649,8 @@ def main(argv=None):
             print("VERIFY DIRECTORIES CHECK FAILED: " + type(e).__name__, file=sys.stderr, flush=True); return 1
     try:
         loop_s, every_s = _arg(argv, "--loop-s", 0), _arg(argv, "--every-s", 15)
-        results = run_loop(loop_s, every_s)
+        import functools, verify_arm   # t_282b646e: the real armer only from the CLI entry; run_pass/sweep default to none (no Twilio in tests)
+        results = run_loop(loop_s, every_s, passer=functools.partial(run_pass, armer=verify_arm.SyncArm()))
     except Exception as e:
         print("VERIFY BRIDGE FAILED: " + type(e).__name__, file=sys.stderr, flush=True)
         return 1

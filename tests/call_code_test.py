@@ -86,10 +86,13 @@ RECS = [
 ]
 TEXTS = {"RE0001": "Your code is four eight two nine one three. Again: 482913.", "RE0002": "Hi, I'm at 1234 Main Street. Call me back."}
 SINCE = "2026-11-19T00:00:00Z"
+import verify_arm as AR
+WIN = [{"request_id": "req-fake", "start": "2026-11-19T00:00:00Z", "until": "2026-11-19T23:59:00Z", "end": None}]   # t_282b646e: an armed window covering the fixture day
 with tempfile.TemporaryDirectory() as d:
     state = os.path.join(d, "state.json")
+    WINF = os.path.join(d, "windows.json"); AR.save_windows(WIN, WINF)
     cl = FakeClient(RECS)
-    lines = C.run_once(cl, transcriber(TEXTS), state, SINCE)
+    lines = C.run_once(cl, transcriber(TEXTS), state, SINCE, WIN)
     check("code recording -> one line, voicemail -> none", len(lines) == 1, lines)
     check("code line has code and CT label", len(lines) == 1 and "482913" in lines[0] and "call code" in lines[0] and "09:00 CT" in lines[0], lines)
     check("old recording not fetched", "RE0000" not in cl.fetched, cl.fetched)
@@ -97,12 +100,12 @@ with tempfile.TemporaryDirectory() as d:
     raw = open(state, encoding="utf8").read()
     check("state has no code", "482913" not in raw and "four eight" not in raw and "1234" not in raw, raw)
     check("state has sids", "RE0001" in raw and "RE0002" in raw, raw)
-    check("second pass silent", C.run_once(cl, transcriber(TEXTS), state, SINCE) == [])
+    check("second pass silent", C.run_once(cl, transcriber(TEXTS), state, SINCE, WIN) == [])
 
     # transcription failure: capped at 3 tries per SID, then marked seen, then silent
     state2 = os.path.join(d, "state2.json")
     boom = {"RE0001": RuntimeError("whisper died with 482913 in the message")}
-    passes = [C.run_once(FakeClient(RECS[:1]), transcriber(boom), state2, SINCE) for _ in range(4)]
+    passes = [C.run_once(FakeClient(RECS[:1]), transcriber(boom), state2, SINCE, WIN) for _ in range(4)]
     check("try 1 retry line", len(passes[0]) == 1 and "will retry" in passes[0][0], passes)
     check("try 2 retry line", len(passes[1]) == 1 and "will retry" in passes[1][0], passes)
     check("try 3 final line", len(passes[2]) == 1 and "giving up" in passes[2][0], passes)
@@ -112,26 +115,26 @@ with tempfile.TemporaryDirectory() as d:
     check("state2 sids/counts only", "482913" not in raw2 and "RE0001" in raw2, raw2)
     # a failure then success resets the count
     state2b = os.path.join(d, "state2b.json")
-    C.run_once(FakeClient(RECS[:1]), transcriber(boom), state2b, SINCE)
-    l2 = C.run_once(FakeClient(RECS[:1]), transcriber(TEXTS), state2b, SINCE)
+    C.run_once(FakeClient(RECS[:1]), transcriber(boom), state2b, SINCE, WIN)
+    l2 = C.run_once(FakeClient(RECS[:1]), transcriber(TEXTS), state2b, SINCE, WIN)
     check("retry succeeds", len(l2) == 1 and "482913" in l2[0], l2)
 
     # main(): stdout carries lines only
     buf = io.StringIO()
     state3 = os.path.join(d, "state3.json")
     with contextlib.redirect_stdout(buf):
-        rc = C.main(["--since", SINCE, "--state", state3], client=FakeClient(RECS[:1]), transcribe=transcriber(TEXTS))
+        rc = C.main(["--since", SINCE, "--state", state3, "--windows", WINF], client=FakeClient(RECS[:1]), transcribe=transcriber(TEXTS))
     check("main rc 0", rc == 0, rc)
     check("main prints code line", "482913" in buf.getvalue(), buf.getvalue())
     buf2 = io.StringIO()
     with contextlib.redirect_stdout(buf2):
-        rc2 = C.main(["--since", SINCE, "--state", state3], client=FakeClient(RECS[:1]), transcribe=transcriber(TEXTS))
+        rc2 = C.main(["--since", SINCE, "--state", state3, "--windows", WINF], client=FakeClient(RECS[:1]), transcribe=transcriber(TEXTS))
     check("main empty when nothing new", rc2 == 0 and buf2.getvalue() == "", buf2.getvalue())
     class Dead:
         def recordings_since(self, s): raise RuntimeError("secret 482913")
     buf3 = io.StringIO()
     with contextlib.redirect_stdout(buf3):
-        rc3 = C.main(["--since", SINCE, "--state", state3], client=Dead(), transcribe=transcriber(TEXTS))
+        rc3 = C.main(["--since", SINCE, "--state", state3, "--windows", WINF], client=Dead(), transcribe=transcriber(TEXTS))
     check("main failure rc 1 fixed phrase", rc3 == 1 and "482913" not in buf3.getvalue() and "failed" in buf3.getvalue(), buf3.getvalue())
 
     # ---- NM line config ----
@@ -151,7 +154,7 @@ with tempfile.TemporaryDirectory() as d:
     old = C.CRED_PATH
     C.CRED_PATH = os.path.join(d, "nope.json")
     with contextlib.redirect_stdout(buf4):
-        rc4 = C.main(["--since", SINCE, "--state", state3], transcribe=transcriber(TEXTS))
+        rc4 = C.main(["--since", SINCE, "--state", state3, "--windows", WINF], transcribe=transcriber(TEXTS))
     C.CRED_PATH = old
     check("main refuses with no line: rc 1, fixed phrase", rc4 == 1 and "no valid NM line" in buf4.getvalue(), buf4.getvalue())
 
@@ -168,7 +171,7 @@ with tempfile.TemporaryDirectory() as d:
         out = cl2.recordings_since(SINCE)
         q = urllib.parse.parse_qs(urllib.parse.urlparse(calls[0]).query)
         return (q.get("To") == [FAKE_LINE] and q.get("StartTime>") == ["2026-11-19"] and "Calls.json" in calls[0]
-                and "CallSid=CA1" in calls[1] and out == [{"sid": "RE9", "created": "2026-11-19T15:00:10Z"}])
+                and "CallSid=CA1" in calls[1] and out == [{"sid": "RE9", "created": "2026-11-19T15:00:10Z", "started": "2026-11-19T15:00:10Z"}])
     os.environ.pop("CE_NM_LINE", None)
     check("Calls.json query: To = configured line, StartTime>, recordings by CallSid", query_ok(C))
     msrc = open(os.path.join(HERE, "..", "job", "call_code.py"), encoding="utf8").read()
@@ -204,6 +207,67 @@ src = open(os.path.join(HERE, "..", "job", "call_code.py"), encoding="utf8").rea
 check("no portal import", "import portal" not in src and "verify_bridge" not in src)
 check("read-only toward Twilio (GET only)", "POST" not in src and "method=" not in src.replace("method=\"GET\"", ""))
 check("no phone number in the module", not __import__("re").search(r"\+?\d{3}\W?\d{3}\W?\d{4}", src))
+
+# ---- t_282b646e: only a call that started inside an armed window is read (structural fix for a customer "gate pin is 4455") ----
+W1 = [{"request_id": "req-fake", "start": "2026-11-19T15:00:00Z", "until": "2026-11-19T15:12:00Z", "end": None}]
+IN_REC = {"sid": "REin", "created": "2026-11-19T15:04:40Z", "started": "2026-11-19T15:04:00Z"}
+OUT_REC = {"sid": "REout", "created": "2026-11-19T16:30:40Z", "started": "2026-11-19T16:30:00Z"}
+PINVM = "Hi, the gate pin is 4455, please call me back."
+W_TEXT = {"REin": "Your verification code is four eight two nine one three.", "REout": PINVM}
+with tempfile.TemporaryDirectory() as d2:
+    def go(recs, windows, texts=W_TEXT, name="s.json"):
+        cl = FakeClient(recs); return C.run_once(cl, transcriber(texts), os.path.join(d2, name), SINCE, windows), cl
+    lines, cl = go([IN_REC], W1, name="a.json")
+    check("window: a call inside the armed window prints its code line", len(lines) == 1 and "482913" in lines[0], lines)
+    lines, cl = go([OUT_REC], W1, name="b.json")
+    check("window: the same text OUTSIDE every window prints nothing and is never transcribed", lines == [] and cl.fetched == [], (lines, cl.fetched))
+    check("window: a customer 'gate pin is 4455' voicemail outside the window leaves no line (the extractor alone would have printed one)", C.extract_code(PINVM) == "4455")
+    lines, cl = go([IN_REC, OUT_REC], W1, name="c.json")
+    check("window: one in, one out -> exactly the in-window line", len(lines) == 1 and "482913" in lines[0] and cl.fetched == ["REin"], (lines, cl.fetched))
+    lines, cl = go([OUT_REC], W1, name="b.json")
+    check("window: the skipped recording is marked seen (second pass silent, nothing fetched)", lines == [] and cl.fetched == [])
+    for label, w in [("None", None), ("empty list", [])]:
+        lines, cl = go([IN_REC], w, name="n-%s.json" % label)
+        check("window: %s windows -> silence, nothing transcribed" % label, lines == [] and cl.fetched == [], (lines, cl.fetched))
+    closed = [{"request_id": "r", "start": "2026-11-19T15:00:00Z", "until": "2026-11-19T15:12:00Z", "end": "2026-11-19T15:03:00Z"}]
+    lines, cl = go([IN_REC], closed, name="d.json")
+    check("window: a disarmed (closed) window ends at its end time: a call after it is outside", lines == [] and cl.fetched == [], lines)
+    lines, cl = go([dict(IN_REC, started="2026-11-19T15:02:30Z")], closed, name="e.json")
+    check("window: a call that began before the disarm is still inside", len(lines) == 1, lines)
+    lines, cl = go([dict(IN_REC, created="2026-11-19T15:40:00Z")], W1, name="f.json")
+    check("window: the CALL start decides, not the recording's creation time", len(lines) == 1, lines)
+    lines, cl = go([dict(IN_REC, started="2026-11-19T14:59:59Z")], W1, name="g.json")
+    check("window: a call one second before the window is outside", lines == [], lines)
+    lines, cl = go([IN_REC], W1, texts={"REin": "Hi, this is a customer, call me back at noon."}, name="h.json")
+    check("window contradiction: inside the window a transcript with no code cue still prints nothing (the log narrows, never invents)", lines == [], lines)
+    lines, cl = go([IN_REC], W1, texts={"REin": RuntimeError("boom")}, name="i.json")
+    check("window: a transcription failure inside the window still reports (retry line)", len(lines) == 1 and "will retry" in lines[0], lines)
+    lines, cl = go([OUT_REC], W1, texts={"REout": RuntimeError("boom")}, name="j.json")
+    check("window: a recording outside the window never produces a failure line either", lines == [], lines)
+    wf = os.path.join(d2, "nowin.json")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = C.main(["--since", SINCE, "--state", os.path.join(d2, "m.json"), "--windows", wf], client=FakeClient([IN_REC]), transcribe=transcriber(W_TEXT))
+    check("window: main with a missing windows file is silent, rc 0", rc == 0 and buf.getvalue() == "", buf.getvalue())
+    AR.save_windows(W1, wf); buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = C.main(["--since", SINCE, "--state", os.path.join(d2, "m2.json"), "--windows", wf], client=FakeClient([IN_REC]), transcribe=transcriber(W_TEXT))
+    check("window: main reads the windows file and prints the in-window code line", rc == 0 and "482913" in buf.getvalue(), buf.getvalue())
+    # the real client carries the call's start
+    cred2 = os.path.join(d2, "cred.json"); json.dump({"account_sid": "ACfake", "auth_token": "fake"}, open(cred2, "w"))
+    cl3 = C.TwilioClient(cred_path=cred2, line=FAKE_LINE)
+    cl3._get = lambda path, raw=False: ({"calls": [{"sid": "CA1", "start_time": "Thu, 19 Nov 2026 15:04:00 +0000"}]} if "Calls.json" in path
+                                        else {"recordings": [{"sid": "RE9", "date_created": "Thu, 19 Nov 2026 15:09:30 +0000"}]})
+    check("real client: a recording carries its CALL's start_time as `started`", cl3.recordings_since(SINCE) == [{"sid": "RE9", "created": "2026-11-19T15:09:30Z", "started": "2026-11-19T15:04:00Z"}])
+    # mutation: gate dropped -> the outside-window voicemail prints a code line, so the outside-window test must fail
+    src2 = open(os.path.join(HERE, "..", "job", "call_code.py"), encoding="utf8").read()
+    anchor = 'if not AR.in_window(rec.get("started") or rec["created"], windows):'
+    check("window mutation anchor present", anchor in src2)
+    ns2 = {"__name__": "call_code_mut_w"}
+    exec(compile(src2.replace(anchor, "if False:"), "call_code_mut_w", "exec"), ns2)
+    cl4 = FakeClient([OUT_REC])
+    got = ns2["run_once"](cl4, transcriber(W_TEXT), os.path.join(d2, "k.json"), SINCE, W1)
+    check("window mutation (gate dropped) prints the customer 'gate pin' as a code, which the outside-window test catches", len(got) == 1 and "4455" in got[0], got)
 
 if FAILS:
     print("%d FAILED: %s" % (len(FAILS), ", ".join(FAILS))); sys.exit(1)

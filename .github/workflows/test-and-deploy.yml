@@ -51,6 +51,10 @@ jobs:
         run: python tests/deliverables_helper_test.py
       - name: Directory call code transcript -> Telegram line (fake recordings, no network)
         run: python tests/call_code_test.py
+      - name: Verify Now arms/disarms the NM line for a phone-call request (fakes, no Twilio; mutations)
+        run: python tests/verify_arm_test.py
+      - name: Twilio Functions in the repo equal the live build (fake Serverless API; GET-only script)
+        run: python tests/twilio_functions_test.py
       - name: No test reaches the prod portal (scan)
         run: python tests/no_prod_portal_sink_test.py
       - name: NM R1 identity + Nate release gate (city-only match, alias discovery, release command, SCC unchanged)
