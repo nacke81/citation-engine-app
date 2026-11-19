@@ -114,7 +114,7 @@ class CrashRt(ArmRt):
     def write_prompt(self, rid, text): raise RuntimeError("disk full")
 p = portal(); events = []; rt = CrashRt(F.FakePage(), events, armer=FakeArmer(events))
 r, text = quiet(S.run, F.RID, p, B.VerifyRpc(p), rt, F.NOW)
-check("a crash before the arm leaves nothing to disarm", [e[0] for e in events if e[0] in ("arm", "disarm")] == [], (r, events))
+check("a prompt-write crash right after the arm: still disarmed once (arm and disarm balance)", [e[0] for e in events if e[0] in ("arm", "disarm")] == ["arm", "disarm"] and r == "failed:send_failed", (r, events))
 class StatusBoomRt(ArmRt):
     def vault_lookup(self, t): return True
 p = portal(); rpc = B.VerifyRpc(p); events = []

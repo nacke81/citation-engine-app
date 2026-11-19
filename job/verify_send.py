@@ -881,9 +881,8 @@ def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, m
     try:
         if playbook and playbook.get("send_is_signup"): SB.stamp(request_id, None, signup="1")   # t_761c9558: a signup Directory is never "signed out" at pre-flight (a CAPTCHA still stops)
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
-        prompt_path = rt.write_prompt(request_id, prompt)
         _arm(rt, req, tenant[0], request_id)   # t_282b646e: right before the agent starts toward the send click; every exit of run() disarms
-        agent = rt.launch_agent(prompt_path, tenant_browser(tenant[0])[2])
+        agent = rt.launch_agent(rt.write_prompt(request_id, prompt), tenant_browser(tenant[0])[2])
         SB.stamp(request_id, "agent_start_at")
     except Exception as e:
         log("agent did not start: %s" % type(e).__name__); return end("failed", "send_failed")
