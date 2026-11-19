@@ -167,6 +167,7 @@ class VerifyRpc:
         try:   # t_761c9558: the end-of-run page (screenshot + text) is saved before the scoreboard row links it; never changes the result
             import verify_evidence as VE; VE.capture_for(self.portal, request_id, "end", only_agent_runs=True)
         except Exception as e: print("verify_bridge: end evidence skipped: %s" % type(e).__name__, file=sys.stderr, flush=True)
+        if status == "failed" and fail_code == "signin_failed": file_signin_card(request_id)   # t_73db4569: NM must re-sign in before the client's 24h retry; best effort
         SB.finalize(request_id, status if status == "verified" else "%s:%s" % (status, fail_code))   # the one scoreboard row; never raises
 
 
@@ -339,6 +340,65 @@ def file_card(request_id, status, age_s, runner=None):
         return True
     except Exception as e:
         log("card failed for %s: %s" % (request_id, type(e).__name__)); return False
+
+
+def _evidence_path(stage):
+    """-> the full path of the best saved capture for a request: the end screenshot, else sign-in, else any screenshot, else a text file, else ''."""
+    ev = stage.get("evidence") if isinstance(stage.get("evidence"), dict) else {}
+    order = [l for l in ("end", "signin") if l in ev] + [l for l in ev if l not in ("end", "signin")]
+    for kind in ("png", "txt"):
+        for label in order:
+            rel = (ev.get(label) or {}).get(kind) if isinstance(ev.get(label), dict) else None
+            if rel:
+                import sitegate
+                return os.path.join(sitegate.logs_dir(), rel)
+    return ""
+
+
+def _key_part(v):
+    return re.sub(r"[^a-z0-9.]+", "-", str(v or "unknown").lower()).strip("-") or "unknown"
+
+
+CARD_TZ = "America/Chicago"   # the key date and "Failed at" are Central: one evening is one card (t_73db4569 round 2)
+
+
+def _tenant_chrome(tenant):
+    import verify_send as VS
+    b = VS.TENANT_BROWSER.get(str(tenant))
+    return "%s (port %d)" % (b[0], b[1]) if b else "(no browser configured for this tenant)"
+
+
+def signin_card_argv(request_id, stage, now):
+    import zoneinfo
+    import postcard_step as PS   # REVIEWER literal is assembled there (the repo leak check denylists it)
+    tenant = str(stage.get("tenant") or "unknown"); directory = str(stage.get("domain") or "unknown")
+    reason = re.sub(r"[^a-z0-9_ -]+", "", str(stage.get("reason") or "").lower())[:40]
+    when = now.astimezone(zoneinfo.ZoneInfo(CARD_TZ)); chrome = _tenant_chrome(tenant)
+    title = "%s %s: sign-in needed for Verify Now (client retries after 24h)" % (tenant.upper(), directory)
+    body = ("Tenant: %s\nDirectory: %s\nRequest id: %s\nFailed at: %s\nReason: %s\nEvidence screenshot: %s\n\n"
+            "The send run closed failed/signin_failed, so the client sees \"We need to sign in to this directory again\" for 24 hours and then the button comes back. "
+            "Sign in again before then or the next click fails the same way.\n"
+            "reCAPTCHA or signed-out: a human signs in in %s. Vault/login problem (no reason recorded, check the send log): fix the vault item.\n\n"
+            "Nate: do not try to sign in. Open the evidence. A CAPTCHA or signed-out session needs a human: file ONE Todoist ask via todoist-for-mike "
+            "(key card:citations:<this card id>) naming the tenant Chrome and directory. A vault/login problem: route to the client seat.\n\n"
+            "This card never carries a code, password, client email or phone number."
+            % (tenant, directory, request_id, when.strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)"), reason or "(none recorded)", _evidence_path(stage) or "(none saved)", chrome))
+    key = "signin-needed-%s-%s-%s" % (_key_part(tenant), _key_part(directory), when.strftime("%Y-%m-%d"))
+    return [PS._hermes_exe(), "-p", PS.REVIEWER, "kanban", "--board", "citations", "create", title, "--assignee", PS.REVIEWER,
+            "--workspace", "scratch", "--idempotency-key", key, "--body", body]
+
+
+def file_signin_card(request_id, runner=None, now=None):
+    """One card per tenant+Directory+day when a run closes failed/signin_failed. Best effort: never raises, never changes the close. -> bool."""
+    if os.environ.get("CE_NO_CARDS") == "1" and runner is None and _card_runner is None:
+        log("sign-in card skipped (CE_NO_CARDS) for %s" % request_id); return False
+    try:
+        import verify_evidence as VE
+        argv = signin_card_argv(request_id, VE._stage(request_id), now or SB.now())
+        (runner or _card_runner or subprocess.run)(argv, capture_output=True, timeout=CARD_TIMEOUT_S, check=True)
+        log("sign-in card filed for %s" % request_id); return True
+    except Exception as e:
+        log("sign-in card failed for %s: %s" % (request_id, type(e).__name__)); return False
 
 
 def stale_requests(portal, now, after_s=SWEEP_AFTER_S):
