@@ -12,7 +12,7 @@ Rules this module holds:
   * Read-only toward Twilio (GET only). It never imports the portal and never touches a Directory.
   * The code is printed on stdout (that is the product) and goes nowhere else: the state file holds recording SIDs and try counts only,
     no transcript, no code, and failures print a fixed phrase, never exception text.
-  * Digits count only right after a code cue (code / verification / pin / passcode / otp). No cue -> no line: the inbound-voicemail cron
+  * Digits count only right after a code cue (code / passcode / verification / pin / otp; not zip, area, postal, promo, coupon or discount code). No cue -> no line: the inbound-voicemail cron
     already reports ordinary voicemails.
   * Two different candidate codes in one recording -> no code, never a guess.
   * A transcription failure is retried, at most MAX_TRIES times per recording, then one final line and the SID is marked seen.
@@ -25,7 +25,7 @@ MIN_DIGITS, MAX_DIGITS = 4, 8
 MAX_TRIES = 3
 CUE_WINDOW = 40
 WORDS = {"zero": "0", "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9"}
-CUE_RE = re.compile(r"\b(?:\w*code|verification|pin|otp)s?\b")
+CUE_RE = re.compile(r"\b(?<!zip )(?<!area )(?<!postal )(?<!promo )(?<!coupon )(?<!discount )(?:code|passcode|verification|pin|otp)s?\b")
 E164_RE = re.compile(r"\+[1-9]\d{7,14}")
 
 
@@ -66,6 +66,14 @@ def _runs(t):
     return out
 
 
+def _unrepeat(d):
+    """A code read back to back ("4 8 2 9 1 3. 4 8 2 9 1 3.") joins into one run: k exact copies of a 4-8 digit unit -> the unit."""
+    for n in range(MIN_DIGITS, MAX_DIGITS + 1):
+        if len(d) > n and len(d) % n == 0 and d == d[:n] * (len(d) // n):
+            return d[:n]
+    return d
+
+
 def extract_code(transcript):
     """-> the code (str of 4-8 digits) or None. Only digits right after a code cue count; two different candidates -> None."""
     if not transcript or not isinstance(transcript, str):
@@ -78,8 +86,10 @@ def extract_code(transcript):
     cands = set()
     for cue in CUE_RE.finditer(t):
         after = [d for s, d in runs if cue.end() <= s <= cue.end() + CUE_WINDOW]
-        if after and MIN_DIGITS <= len(after[0]) <= MAX_DIGITS:   # the first run after the cue is the code; a phone number later is not
-            cands.add(after[0])
+        if after:
+            d = _unrepeat(after[0])
+            if MIN_DIGITS <= len(d) <= MAX_DIGITS:   # the first run after the cue is the code; a phone number later is not
+                cands.add(d)
     return cands.pop() if len(cands) == 1 else None
 
 

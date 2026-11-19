@@ -61,6 +61,19 @@ for label, text, want in [
     ("code then phone", "your code is 482913, and my number is 555 123 4567", FAKE),
     ("cue far from digits", "code" + " blah" * 20 + " 482913", None),
     ("sentence period not joined", "your code is 482913. 7 people called", FAKE),
+    # round 3: back-to-back repeats
+    ("repeat digits", "Your verification code is 4 8 2 9 1 3. 4 8 2 9 1 3.", FAKE),
+    ("repeat commas", "Your code is 4, 8, 2, 9, 1, 3. 4, 8, 2, 9, 1, 3.", FAKE),
+    ("repeat dashes", "Your code is 4-8-2-9-1-3. 4-8-2-9-1-3.", FAKE),
+    ("repeat words", "Your code is four, eight, two, nine, one, three. Four, eight, two, nine, one, three.", FAKE),
+    ("triple repeat", "Your code is 4829. 4829. 4829.", "4829"),
+    ("repeat then different", "Your code is 4 8 2 9 1 3. 7 7 1 1 2 2.", None),
+    ("8 digit non-repeating kept", "Your code is 48291375.", "48291375"),
+    # round 3: compound cues are not cues
+    ("vm zip code", "my zip code is 37203", None),
+    ("vm promo code", "promo code 2026", None),
+    ("vm barcode", "the barcode reads 77889900", None),
+    ("passcode still works", "Your passcode is 4829.", "4829"),
 ]:
     got = C.extract_code(text)
     check("extract " + label, got == want, "got %r" % (got,))
@@ -166,6 +179,21 @@ with tempfile.TemporaryDirectory() as d:
     class Mod: pass
     m = Mod(); m.TwilioClient = ns["TwilioClient"]
     check("mutation (masked constant) fails the query test", query_ok(m) is False)
+
+# ---- round 3 mutations: each must change an extractor answer ----
+_src = open(os.path.join(HERE, "..", "job", "call_code.py"), encoding="utf8").read()
+def _mut_changes(old, new, probe, want):
+    assert old in _src, old
+    ns = {"__name__": "call_code_mut3"}
+    exec(compile(_src.replace(old, new), "call_code_mut3", "exec"), ns)
+    return ns["extract_code"](probe) != want
+check("mutation (_unrepeat off) fails repeat test",
+      _mut_changes("d = _unrepeat(after[0])", "d = after[0]", "Your verification code is 4 8 2 9 1 3. 4 8 2 9 1 3.", FAKE))
+_narrow = r"(?<!zip )(?<!area )(?<!postal )(?<!promo )(?<!coupon )(?<!discount )(?:code|passcode|verification|pin|otp)"
+check("mutation (wildcard cue back) fails compound-cue test",
+      _mut_changes(_narrow, r"(?:\w*code|verification|pin|otp)", "the barcode reads 77889900", None))
+check("mutation (lookbehinds off) fails zip-code test",
+      _mut_changes(_narrow, r"(?:code|passcode|verification|pin|otp)", "my zip code is 37203", None))
 
 # ---- CT label ----
 check("heard label is CT", C._heard("2026-11-18T16:55:08Z") == "10:55 CT", C._heard("2026-11-18T16:55:08Z"))
