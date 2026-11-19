@@ -355,4 +355,45 @@ r, text = quiet(B.main, [])
 check("main prints first_use count", r in (0, 1))
 cmd = open(os.path.join(HERE, "..", "job", "verify_bridge.cmd"), encoding="utf-8").read()
 check("scheduler entry runs the bridge from the runtime clone under the submitter env, copies no credential", "citation-engine\\app" in cmd and "verify_bridge.py" in cmd and "profiles\\citation-submitter" in cmd and not re.search(r"BW_(CLIENTID|CLIENTSECRET|PASSWORD)\s*=|echo[^\r\n]*BW_|wt-", cmd))
+# 9 t_73db4569: one card when a run closes failed/signin_failed (so NM re-signs in before the client's 24h retry); none for other closes
+import verify_scoreboard as _SB
+def close_case(fail_status, fail_code, rid=F.RID, tenant="NM", domain="cylex.us", card_runner=None, evidence=True):
+    p = portal(requests=[F.request(rid=rid, status="starting")]); cards = card_runner if card_runner is not None else F.FakeCards()
+    _SB.stamp(rid, None, tenant=tenant, domain=domain)
+    if evidence: _SB.add_evidence(rid, "end", {"png": "verify-evidence/%s/02-end.png" % rid, "txt": "verify-evidence/%s/02-end.txt" % rid})
+    B._card_runner = cards
+    try: _, text = quiet(B.VerifyRpc(p).finish, rid, fail_status, fail_code)
+    finally: B._card_runner = None
+    return p, cards, text
+p, cards, text = close_case("failed", "signin_failed")
+check("signin_failed close -> the portal write happened and ONE card was filed", p.requests[F.RID]["status"] == "failed" and len(cards.argvs) == 1 and len(cards.cards) == 1, cards.argvs)
+a = cards.argvs[0]; key = a[a.index("--idempotency-key") + 1]; title = a[a.index("create") + 1]; body = a[a.index("--body") + 1]
+check("card goes to board citations, assignee = reviewer, scratch", a[a.index("--board") + 1] == "citations" and a[a.index("--assignee") + 1] == RV and a[a.index("-p") + 1] == RV, a)
+check("idempotency key is signin-needed-<tenant>-<directory>-<YYYY-MM-DD>", re.fullmatch(r"signin-needed-nm-cylex\.us-\d{4}-\d{2}-\d{2}", key) is not None, key)
+check("title names tenant + directory + the 24h retry", title == "NM cylex.us: sign-in needed for Verify Now (client retries after 24h)", title)
+check("body: tenant, directory, request id, fail time, evidence screenshot path, human-in-Chrome line", all(x in body for x in ("Tenant: NM", "Directory: cylex.us", "Request id: " + F.RID, "Failed at: 20", "02-end.png", "reCAPTCHA sign-ins need a human in the NM Chrome (port 9334)")), body)
+check("body holds no code, no phone number, no password", CODE not in body and not re.search(r"\d{3}[-) ]+\d{3}-\d{4}", body) and "password:" not in body.lower())
+shared = F.FakeCards()
+close_case("failed", "signin_failed", card_runner=shared)
+close_case("failed", "signin_failed", rid="aaaaaaaa-0000-4000-8000-000000000009", card_runner=shared)
+check("a second signin_failed the same day dedupes to ONE card (same key)", len(shared.argvs) == 2 and len(shared.cards) == 1, shared.cards)
+other = F.FakeCards(); close_case("failed", "signin_failed", tenant="SCC", domain="thumbtack.com", card_runner=other)
+check("a different tenant/directory gets its own key", other.cards[0].startswith("signin-needed-scc-thumbtack.com-") and other.cards != shared.cards, other.cards)
+for st, code in (("failed", "send_failed"), ("could_not_start", "timeout"), ("failed", "timeout"), ("failed", "code_rejected"), ("failed", "other"), ("failed", "no_playbook")):
+    p, cards, text = close_case(st, code)
+    check("%s/%s creates no card" % (st, code), cards.argvs == [], cards.argvs)
+class CardDown:
+    def __call__(self, argv, **kw): raise RuntimeError("hermes down secret-xyz")
+p, cards, text = close_case("failed", "signin_failed", card_runner=CardDown())
+check("a failing card call never changes the close and logs the type only", p.requests[F.RID]["status"] == "failed" and p.requests[F.RID]["fail_code"] == "signin_failed" and "sign-in card failed" in text and "secret-xyz" not in text, text)
+p, cards, text = close_case("failed", "signin_failed", evidence=False)
+check("no saved evidence -> card still filed, says none saved", len(cards.argvs) == 1 and "(none saved)" in cards.argvs[0][cards.argvs[0].index("--body") + 1])
+B._card_runner = rc = F.FakeCards()
+try:
+    pp = portal(requests=[F.request(status="starting")]); quiet(S.run, F.RID, pp, B.VerifyRpc(pp), F.FakeRuntime(F.FakePage(), vault_ok=False), F.NOW)
+finally: B._card_runner = None
+check("a real verify_send signin_failed close files the card", len(rc.cards) == 1 and rc.cards[0].startswith("signin-needed-"), rc.cards)
+src = open(os.path.join(HERE, "..", "job", "verify_bridge.py"), encoding="utf-8").read()
+seg = src[src.index("def signin_card_argv"):src.index("def stale_requests")]
+check("the sign-in alert touches no Telegram and no portal write", not re.search(r"(?i)telegram|portal\.call|\.call\(", seg))
 sys.exit(0 if all(ok) else 1)
