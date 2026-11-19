@@ -193,6 +193,22 @@ if not ONLY_MUT:
     check("15d refusal log lists the page's input shapes (attributes only, no values)", r == ST.REFUSED and "inputs seen: text/-/40/-/biz_name|-|-|Business name" in out and "SECRETVAL" not in out, out.strip()[-200:])
     check("15d shapes() caps at 5 and skips unusable inputs", VD.shapes([inp(name="n%d" % n) for n in range(9)] + [inp(visible=False)]).count(";") == 4)
 
+# ---- t_8f631f1b: a promo/referral NAME with an "Enter code" label is not the code box
+PROMO = [dict(name="promo", placeholder="Enter code"), dict(name="referral", aria="Enter code"), dict(name="coupon", placeholder="Code"), dict(name="invite_code", placeholder="Enter code"),
+         dict(id="promoCode", placeholder="Enter the code"), dict(name="referral_code", aria="6-digit code")]
+OK_NAMES = [dict(name="phoneVerificationCode", placeholder="Enter code"), dict(name="otp", placeholder="Enter code"), dict(name="code", placeholder="Enter code"), dict(name="smsCode")]
+if not ONLY_MUT:
+    for kw in PROMO: check("16a promo/referral/coupon/invite name or id with a human code label refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
+    for kw in OK_NAMES: check("16b real code name still records: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
+
+# ---- t_8f631f1b: a promo/referral NAME with an "Enter code" label is not the code box
+PROMO = [dict(name="promo", placeholder="Enter code"), dict(name="referral", aria="Enter code"), dict(name="coupon", placeholder="Code"), dict(name="invite_code", placeholder="Enter code"),
+         dict(id="promoCode", placeholder="Enter the code"), dict(name="referral_code", aria="6-digit code")]
+OK_NAMES = [dict(name="phoneVerificationCode", placeholder="Enter code"), dict(name="otp", placeholder="Enter code"), dict(name="code", placeholder="Enter code"), dict(name="smsCode")]
+if not ONLY_MUT:
+    for kw in PROMO: check("16a promo/referral/coupon/invite name or id with a human code label refused: %s" % (kw,), VD.has_code_input([inp(**kw)]) is False)
+    for kw in OK_NAMES: check("16b real code name still records: %s" % (kw,), VD.has_code_input([inp(**kw)]) is True)
+
 # ---- mutations: every one must be caught
 def caught(label, cond, d=""): check("12 MUTATION %s" % label, cond, d)
 
@@ -285,6 +301,14 @@ VD.NOT_CODE_TOKENS = orig_nct
 VD._human_code = lambda text: True
 caught("_human_code accepts anything: 'Enter your business name' is seen, so 15a catches it", VD.has_code_input([inp(placeholder="Enter your business name")]) is True)
 VD._human_code = orig_hc
+
+# t_8f631f1b mutations
+orig_nnc = VD._name_not_code
+VD._name_not_code = lambda i: False
+caught("name/id NOT_A_CODE guard removed: promo/referral names read as code, so 16a catches it", any(VD.has_code_input([inp(**kw)]) for kw in PROMO))
+VD._name_not_code = lambda i: any(VD.NOT_A_CODE.search(str(i.get(k) or "")) for k in ("name", "id"))
+caught("guard with no code-name exemption: phoneVerificationCode name is lost, so 16b catches it", not all(VD.has_code_input([inp(**kw)]) for kw in OK_NAMES))
+VD._name_not_code = orig_nnc
 
 print("\n%d/%d passed" % (sum(ok), len(ok)))
 sys.exit(0 if all(ok) else 1)

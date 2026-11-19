@@ -92,6 +92,12 @@ def _phone_first(text):
     return False
 
 
+def _name_not_code(i):
+    """t_8f631f1b: a name/id naming a promo/coupon/referral/invite/zip/phone field is not the code box, whatever its placeholder says. A name/id that is itself
+    a code field (phoneVerificationCode, otp) is exempt, so it still records."""
+    return any(NOT_A_CODE.search(str(i.get(k) or "")) and not _field_is_code(i.get(k), True) for k in ("name", "id"))
+
+
 def rule_named_code(i, row=None):
     """name/id/aria-label/placeholder reads as a code field: otp/totp/passcode, `code` next to verification/verify/security/confirmation/sms/auth/one-time,
     or a name/id that is exactly `code`. Never with `captcha` in the label; a password box only with otp/passcode."""
@@ -99,6 +105,7 @@ def rule_named_code(i, row=None):
     if "captcha" in label.lower(): return False
     if (i.get("type") or "") == "password" and not any(t in ("otp", "totp", "passcode") for t in _tokens(label)): return False
     if any(_phone_first(i.get(k)) for k in ("aria", "placeholder")): return False
+    if _name_not_code(i): return False
     return (any(_field_is_code(i.get(k), k in ("name", "id")) for k in ("name", "id", "aria", "placeholder"))
             or any(_human_code(i.get(k)) for k in ("aria", "placeholder")))
 
