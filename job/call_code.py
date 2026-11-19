@@ -127,6 +127,21 @@ def _save_state(path, seen, fails):
         json.dump({"seen": sorted(seen), "fails": fails}, f)
 
 
+def _log_failure(state_path, sid, exc):
+    """Why a transcription failed, for the operator (t_f5233f56): UTC time, sid, exception type, return code, last stderr line of the helper with
+    every digit masked. Never the transcript, never in a Telegram line or the state. A log failure never changes the result."""
+    try:
+        err = getattr(exc, "stderr", None) or b""
+        if isinstance(err, bytes):
+            err = err.decode("utf8", "replace")
+        tail = re.sub(r"\d", "#", (err.strip().splitlines() or [""])[-1])[:200]
+        rc = getattr(exc, "returncode", "-")
+        with open(os.path.join(os.path.dirname(os.path.abspath(state_path)), "call-code-errors.log"), "a", encoding="utf8") as f:
+            f.write("%s %s %s rc=%s stderr_tail=%s\n" % (datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), sid, type(exc).__name__, rc, tail))
+    except Exception:
+        pass
+
+
 def run_once(client, transcribe, state_path, since_iso, windows=None):
     """-> list of Telegram lines (possibly empty). A recording is marked seen once transcribed, or after MAX_TRIES failed attempts.
     `windows` = the armed windows (verify_arm.load_windows). None or [] means no window: every recording is skipped (seen, never transcribed, no line)."""
@@ -143,7 +158,8 @@ def run_once(client, transcribe, state_path, since_iso, windows=None):
             continue
         try:
             text = transcribe(client.audio(sid))
-        except Exception:   # never echo the exception text: it could carry the transcript
+        except Exception as exc:   # never echo the exception text: it could carry the transcript
+            _log_failure(state_path, sid, exc)
             n = fails.get(sid, 0) + 1
             if n >= MAX_TRIES:
                 lines.append("NM line call: heard %s, could not transcribe the recording after %d tries (giving up)" % (_heard(rec["created"]), MAX_TRIES))
