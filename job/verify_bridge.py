@@ -359,16 +359,30 @@ def _key_part(v):
     return re.sub(r"[^a-z0-9.]+", "-", str(v or "unknown").lower()).strip("-") or "unknown"
 
 
+CARD_TZ = "America/Chicago"   # the key date and "Failed at" are Central: one evening is one card (t_73db4569 round 2)
+
+
+def _tenant_chrome(tenant):
+    import verify_send as VS
+    b = VS.TENANT_BROWSER.get(str(tenant))
+    return "%s (port %d)" % (b[0], b[1]) if b else "(no browser configured for this tenant)"
+
+
 def signin_card_argv(request_id, stage, now):
+    import zoneinfo
     import postcard_step as PS   # REVIEWER literal is assembled there (the repo leak check denylists it)
     tenant = str(stage.get("tenant") or "unknown"); directory = str(stage.get("domain") or "unknown")
-    when = now.astimezone(datetime.timezone.utc)
+    reason = re.sub(r"[^a-z0-9_ -]+", "", str(stage.get("reason") or "").lower())[:40]
+    when = now.astimezone(zoneinfo.ZoneInfo(CARD_TZ)); chrome = _tenant_chrome(tenant)
     title = "%s %s: sign-in needed for Verify Now (client retries after 24h)" % (tenant.upper(), directory)
-    body = ("Tenant: %s\nDirectory: %s\nRequest id: %s\nFailed at: %s\nEvidence screenshot: %s\n\n"
+    body = ("Tenant: %s\nDirectory: %s\nRequest id: %s\nFailed at: %s\nReason: %s\nEvidence screenshot: %s\n\n"
             "The send run closed failed/signin_failed, so the client sees \"We need to sign in to this directory again\" for 24 hours and then the button comes back. "
-            "Sign in again before then or the next click fails the same way. reCAPTCHA sign-ins need a human in the NM Chrome (port 9334). "
+            "Sign in again before then or the next click fails the same way.\n"
+            "reCAPTCHA or signed-out: a human signs in in %s. Vault/login problem (no reason recorded, check the send log): fix the vault item.\n\n"
+            "Nate: do not try to sign in. Open the evidence. A CAPTCHA or signed-out session needs a human: file ONE Todoist ask via todoist-for-mike "
+            "(key card:citations:<this card id>) naming the tenant Chrome and directory. A vault/login problem: route to the client seat.\n\n"
             "This card never carries a code, password, client email or phone number."
-            % (tenant, directory, request_id, when.strftime("%Y-%m-%dT%H:%M:%SZ"), _evidence_path(stage) or "(none saved)"))
+            % (tenant, directory, request_id, when.strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)"), reason or "(none recorded)", _evidence_path(stage) or "(none saved)", chrome))
     key = "signin-needed-%s-%s-%s" % (_key_part(tenant), _key_part(directory), when.strftime("%Y-%m-%d"))
     return [PS._hermes_exe(), "-p", PS.REVIEWER, "kanban", "--board", "citations", "create", title, "--assignee", PS.REVIEWER,
             "--workspace", "scratch", "--idempotency-key", key, "--body", body]

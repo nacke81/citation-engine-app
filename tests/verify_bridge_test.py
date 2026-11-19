@@ -357,9 +357,9 @@ cmd = open(os.path.join(HERE, "..", "job", "verify_bridge.cmd"), encoding="utf-8
 check("scheduler entry runs the bridge from the runtime clone under the submitter env, copies no credential", "citation-engine\\app" in cmd and "verify_bridge.py" in cmd and "profiles\\citation-submitter" in cmd and not re.search(r"BW_(CLIENTID|CLIENTSECRET|PASSWORD)\s*=|echo[^\r\n]*BW_|wt-", cmd))
 # 9 t_73db4569: one card when a run closes failed/signin_failed (so NM re-signs in before the client's 24h retry); none for other closes
 import verify_scoreboard as _SB
-def close_case(fail_status, fail_code, rid=F.RID, tenant="NM", domain="cylex.us", card_runner=None, evidence=True):
+def close_case(fail_status, fail_code, rid=F.RID, tenant="NM", domain="cylex.us", card_runner=None, evidence=True, reason=None):
     p = portal(requests=[F.request(rid=rid, status="starting")]); cards = card_runner if card_runner is not None else F.FakeCards()
-    _SB.stamp(rid, None, tenant=tenant, domain=domain)
+    _SB.stamp(rid, None, tenant=tenant, domain=domain, **({"reason": reason} if reason else {}))
     if evidence: _SB.add_evidence(rid, "end", {"png": "verify-evidence/%s/02-end.png" % rid, "txt": "verify-evidence/%s/02-end.txt" % rid})
     B._card_runner = cards
     try: _, text = quiet(B.VerifyRpc(p).finish, rid, fail_status, fail_code)
@@ -371,7 +371,7 @@ a = cards.argvs[0]; key = a[a.index("--idempotency-key") + 1]; title = a[a.index
 check("card goes to board citations, assignee = reviewer, scratch", a[a.index("--board") + 1] == "citations" and a[a.index("--assignee") + 1] == RV and a[a.index("-p") + 1] == RV, a)
 check("idempotency key is signin-needed-<tenant>-<directory>-<YYYY-MM-DD>", re.fullmatch(r"signin-needed-nm-cylex\.us-\d{4}-\d{2}-\d{2}", key) is not None, key)
 check("title names tenant + directory + the 24h retry", title == "NM cylex.us: sign-in needed for Verify Now (client retries after 24h)", title)
-check("body: tenant, directory, request id, fail time, evidence screenshot path, human-in-Chrome line", all(x in body for x in ("Tenant: NM", "Directory: cylex.us", "Request id: " + F.RID, "Failed at: 20", "02-end.png", "reCAPTCHA sign-ins need a human in the NM Chrome (port 9334)")), body)
+check("body: tenant, directory, request id, fail time, evidence screenshot path, human-in-Chrome line", all(x in body for x in ("Tenant: NM", "Directory: cylex.us", "Request id: " + F.RID, "Failed at: 20", "02-end.png", "nm-chrome-profile (port 9334)")), body)
 check("body holds no code, no phone number, no password", CODE not in body and not re.search(r"\d{3}[-) ]+\d{3}-\d{4}", body) and "password:" not in body.lower())
 shared = F.FakeCards()
 close_case("failed", "signin_failed", card_runner=shared)
@@ -396,4 +396,28 @@ check("a real verify_send signin_failed close files the card", len(rc.cards) == 
 src = open(os.path.join(HERE, "..", "job", "verify_bridge.py"), encoding="utf-8").read()
 seg = src[src.index("def signin_card_argv"):src.index("def stale_requests")]
 check("the sign-in alert touches no Telegram and no portal write", not re.search(r"(?i)telegram|portal\.call|\.call\(", seg))
+# round 2: tenant Chrome from TENANT_BROWSER, stage reason, Nate line, Central-time key
+import datetime as _dt
+def argv_for(stage, now):
+    a = B.signin_card_argv("r1", stage, now); return a[a.index("--idempotency-key") + 1], a[a.index("--body") + 1]
+_u = _dt.timezone.utc
+k, bd = argv_for({"tenant": "SCC", "domain": "thumbtack.com", "reason": "captcha"}, _dt.datetime(2026, 11, 20, 1, 30, tzinfo=_u))
+check("SCC card names build-profile / 9333, not 9334", "build-profile (port 9333)" in bd and "9334" not in bd and "nm-chrome-profile" not in bd, bd)
+k, bd = argv_for({"tenant": "NM", "domain": "thumbtack.com"}, _dt.datetime(2026, 11, 20, 1, 30, tzinfo=_u))
+check("NM card names nm-chrome-profile / 9334", "nm-chrome-profile (port 9334)" in bd and "build-profile" not in bd, bd)
+k, bd = argv_for({"tenant": "ZZZ", "domain": "thumbtack.com"}, _dt.datetime(2026, 11, 20, 1, 30, tzinfo=_u))
+check("unknown tenant -> no browser configured", "(no browser configured for this tenant)" in bd, bd)
+k, bd = argv_for({"tenant": "NM", "domain": "x.com", "reason": "captcha"}, _dt.datetime(2026, 11, 20, 1, 30, tzinfo=_u))
+check("stage reason shown in the body", "Reason: captcha" in bd, bd)
+k, bd = argv_for({"tenant": "NM", "domain": "x.com"}, _dt.datetime(2026, 11, 20, 1, 30, tzinfo=_u))
+check("no reason: says none recorded and the action line covers CAPTCHA/signed-out and vault/login", "Reason: (none recorded)" in bd and "reCAPTCHA or signed-out: a human signs in in nm-chrome-profile (port 9334). Vault/login problem (no reason recorded, check the send log): fix the vault item." in bd, bd)
+check("Nate line: do not sign in, ONE Todoist ask, key card:citations:<id>, vault -> client seat", "Nate: do not try to sign in. Open the evidence." in bd and "file ONE Todoist ask via todoist-for-mike (key card:citations:<this card id>)" in bd and "route to the client seat" in bd, bd)
+k1, b1 = argv_for({"tenant": "NM", "domain": "x.com"}, _dt.datetime(2026, 11, 20, 1, 30, tzinfo=_u))
+k3, b3 = argv_for({"tenant": "NM", "domain": "x.com"}, _dt.datetime(2026, 11, 19, 20, 0, tzinfo=_u))
+check("01:30Z 11/20 and 20:00Z 11/19 (same Central evening) share one key 2026-11-19", k1 == k3 == "signin-needed-nm-x.com-2026-11-19", (k1, k3))
+check("Failed at is Central with the offset", "Failed at: 2026-11-19 19:30:00 CST (UTC-0600)" in b1, b1)
+k4, _b = argv_for({"tenant": "NM", "domain": "x.com"}, _dt.datetime(2026, 11, 20, 6, 30, tzinfo=_u))
+check("after Central midnight the key rolls to the next day", k4 == "signin-needed-nm-x.com-2026-11-20", k4)
+p, cards, text = close_case("failed", "signin_failed", reason="session_signed_out")
+check("a real close carries the stamped stage reason", "Reason: session_signed_out" in cards.argvs[0][cards.argvs[0].index("--body") + 1])
 sys.exit(0 if all(ok) else 1)
