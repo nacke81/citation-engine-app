@@ -1,0 +1,49 @@
+{
+  "dependencies": [
+    {
+      "name": "@twilio/runtime-handler",
+      "version": "2.1.2"
+    },
+    {
+      "name": "lodash",
+      "version": "4.17.21"
+    },
+    {
+      "name": "twilio",
+      "version": "5.3.0"
+    },
+    {
+      "name": "util",
+      "version": "0.12.5"
+    },
+    {
+      "name": "xmldom",
+      "version": "0.6.0"
+    }
+  ],
+  "environment": "production",
+  "functions": [
+    {
+      "path": "/after-dial",
+      "visibility": "protected"
+    },
+    {
+      "path": "/sms",
+      "visibility": "protected"
+    },
+    {
+      "path": "/vm-done",
+      "visibility": "protected"
+    },
+    {
+      "path": "/voice",
+      "visibility": "protected"
+    },
+    {
+      "path": "/voicemail",
+      "visibility": "protected"
+    }
+  ],
+  "runtime": "node22",
+  "service": "nm-public-line"
+}

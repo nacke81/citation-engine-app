@@ -34,6 +34,7 @@ import portal as P
 import verify_bridge as B
 import verify_scoreboard as SB
 import playbook as PB
+import verify_arm as AR
 
 DOMAIN = "cylex.us"
 SIGNIN_URL = "https://www.cylex.us.com/signin/"
@@ -424,6 +425,7 @@ class Runtime:
     def __init__(self, runner=None, sleep=time.sleep, now=time.time, popen=None):
         self._run, self.sleep, self.now, self._popen = runner or subprocess.run, sleep, now, popen
         self.email_wait_s = EMAIL_WAIT_S
+        self.armer = AR.SyncArm()   # t_282b646e: arms the NM line while a phone-call request is out (a runtime without `armer` never arms)
 
     def vault_lookup(self, tenant):
         _biz, org, item, url = tenant
@@ -665,6 +667,26 @@ def set_live(portal, row, client_id, now=None):
     return T.set_verification_live(portal, row["id"], client_id, now)
 
 
+def _arm(rt, req, biz, request_id):
+    """t_282b646e: a phone-call request on the NM line arms the Twilio Sync doc `verify_armed` right before the send step, so the Function records the
+    Directory's robot call instead of forwarding it. SMS never arms; neither does another tenant (the line is the NM tenant's). The attempt is noted
+    on the runtime BEFORE the call, so a timed-out arm that Twilio did apply is still disarmed. Never raises, never fatal."""
+    armer = getattr(rt, "armer", None)
+    if armer is None or req.get("channel") != "phone-call" or biz != "NM": return False
+    rt._armed = request_id
+    try: return bool(armer.arm(request_id))
+    except Exception as e: log("arm failed: %s" % type(e).__name__); return False
+
+
+def _disarm(rt, request_id):
+    """Every way out of run() lands here once. A disarm failure is logged, never fatal: the Sync Ttl and the Function's 15-minute rule cap it."""
+    armer = getattr(rt, "armer", None)
+    if armer is None or getattr(rt, "_armed", None) != request_id: return False
+    rt._armed = None
+    try: return bool(armer.disarm(request_id))
+    except Exception as e: log("disarm failed: %s" % type(e).__name__); return False
+
+
 def run(request_id, portal, rpc, rt, now_dt=None):
     """-> outcome: verified | failed:<code> | could_not_start:<code> | not_claimed | claim_lost. Never raises on a Directory problem."""
     def end(status, code=None):
@@ -685,7 +707,9 @@ def run(request_id, portal, rpc, rt, now_dt=None):
     base = TENANTS[req["client_id"]]
     for attempt in range(LOCK_TRIES):   # one send run per tenant; held until this run ends, however it ends
         with B.tenant_lock(req["client_id"]) as got:
-            if got: return _send(request_id, portal, rpc, rt, req, row, base, now_dt, end)
+            if got:
+                try: return _send(request_id, portal, rpc, rt, req, row, base, now_dt, end)
+                finally: _disarm(rt, request_id)   # verified, failed, closed, superseded, unknown, claim lost, killed agent, exception: the line stops recording
         if attempt < LOCK_TRIES - 1: rt.sleep(LOCK_WAIT_S)   # a bridge probe takes the lock for a blink; a real holder outlasts this
     log("tenant busy; %s stays starting, the bridge retries it" % request_id)
     B.clear_started(request_id)
@@ -747,6 +771,7 @@ def _send_run(request_id, portal, rpc, rt, req, row, base, now_dt, end):
                 log("number not readable in the verify step; not sending"); raise DriverError("send_failed")
             if not B.request_row(portal, request_id, status="starting"):   # last look: still claimed (the sweeper may have ended it)
                 log("claim lost before send for %s" % request_id); return "claim_lost"
+            _arm(rt, req, biz, request_id)   # t_282b646e: armed right before the send click (never for sms or another tenant)
             d.click_send()
             SB.stamp(request_id, "send_clicked_at")
             try: rpc.mark_sent(request_id, masked)
@@ -856,7 +881,9 @@ def _agent_run(request_id, portal, rt, req, row, entry, tenant, username, end, m
     try:
         if playbook and playbook.get("send_is_signup"): SB.stamp(request_id, None, signup="1")   # t_761c9558: a signup Directory is never "signed out" at pre-flight (a CAPTCHA still stops)
         prompt = build_prompt(request_id, req, row, entry, tenant, masked, username, playbook=playbook)
-        agent = rt.launch_agent(rt.write_prompt(request_id, prompt), tenant_browser(tenant[0])[2])
+        prompt_path = rt.write_prompt(request_id, prompt)
+        _arm(rt, req, tenant[0], request_id)   # t_282b646e: right before the agent starts toward the send click; every exit of run() disarms
+        agent = rt.launch_agent(prompt_path, tenant_browser(tenant[0])[2])
         SB.stamp(request_id, "agent_start_at")
     except Exception as e:
         log("agent did not start: %s" % type(e).__name__); return end("failed", "send_failed")
