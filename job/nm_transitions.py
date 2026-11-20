@@ -29,7 +29,8 @@ class NMTransitionRefused(T.TransitionRefused):
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, dry_run=False,
-                      listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, clear_recheck=False, **unsupported):
+                      listing_url=None, listing_id=None, recheck_due=None, reason=None, refresh_url=False, clear_recheck=False,
+                      side_effects=False, portal=None, activities=None, verification=None, activities_flag=None, **unsupported):
     """Same call shape as transitions.record_transition for the arguments a build records. Returns {"dry_run", "row_id", "from", "to", "history_entry", "backup"}."""
     if client != "NM":
         raise NMTransitionRefused("this writer is NM only, got %r (SCC rows go through transitions.py)" % (client,))
@@ -81,6 +82,10 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out["backup"] = backup_before_write(path, day)
     T._write_atomic(path, q)
     prune_backups(path, keep_path=out["backup"])
+    out["errors"] = []
+    if side_effects or portal or activities or verification:   # t_2211682c: the portal half (Activities row, Your turn row closed on live). Opt-in so a bare call in a test never reaches a portal; the CLI and the build path turn it on.
+        fx = T.queue_move_effects("NM", new_row, new_state, evidence_url, day, portal=portal, activities=activities, verification=verification, activities_flag=activities_flag)
+        out.update(fx)
     return out
 
 
@@ -147,10 +152,12 @@ def main(argv=None):
     n = ap.parse_args(argv)
     try:
         res = record_transition("NM", n.row, n.to, n.evidence, n.note, queue_path=n.queue, dry_run=n.dry_run,
-                                listing_url=n.listing_url, listing_id=n.listing_id, recheck_due=n.recheck_due, clear_recheck=n.clear_recheck)
+                                listing_url=n.listing_url, listing_id=n.listing_id, recheck_due=n.recheck_due, clear_recheck=n.clear_recheck, side_effects=not n.dry_run)
     except (T.TransitionRefused, Q.QueueError) as e:
         print("REFUSED: %s" % e); return 2
-    print(json.dumps(res, indent=2)); return 0
+    print(json.dumps(res, indent=2))
+    for e in res.get("errors") or []: print("FAILED STEP: %s (the queue row IS written; fix the portal and re-run the portal step)" % e, file=sys.stderr)   # t_2211682c: fail loud
+    return 3 if res.get("errors") else 0
 
 
 if __name__ == "__main__":

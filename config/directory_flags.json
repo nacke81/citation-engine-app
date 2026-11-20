@@ -1,0 +1,6 @@
+{
+  "_comment": "Per-Directory flags (data, not code). phone_verify_requires_mobile: the Directory refuses VoIP numbers for phone and SMS verification (Alignable: 'The number entered is not a mobile phone'; our line is Twilio). A sms/phone-call park there is written as the self-serve id-check ask (steps + directory_url), never a Verify Now row. t_2211682c",
+  "directories": {
+    "alignable.com": { "phone_verify_requires_mobile": true }
+  }
+}

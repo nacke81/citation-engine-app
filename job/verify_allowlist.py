@@ -109,3 +109,37 @@ def auto_add(directory, verify_type, tenant, vault_item, row_id, day=None, path=
     if repo: entry["supplement"] = True
     _write_rows(p, rows + [entry])
     return {"added": True, "reason": "added", "path": p, "kind": "supplement" if repo else "new"}
+
+
+# t_2211682c: per-directory flags are DATA (config/directory_flags.json), not a code tuple.
+FLAGS_PATH = os.path.join(REPO_ROOT, "config", "directory_flags.json")
+
+
+def directory_flags(directory, path=None):
+    """-> the flag dict for a Directory (domain or www./URL form), {} when none. A missing or unreadable file means no flags."""
+    import verify_bridge as B
+    dom = B.norm_domain(directory)
+    try:
+        with open(path or os.environ.get("CE_DIRECTORY_FLAGS") or FLAGS_PATH, encoding="utf-8") as f: data = json.load(f).get("directories") or {}
+    except Exception:
+        return {}
+    for k, v in data.items():
+        if B.norm_domain(k) == dom and isinstance(v, dict): return v
+    return {}
+
+
+def requires_mobile(directory, path=None):
+    """The Directory refuses VoIP numbers for phone/SMS verification (Alignable): a sms/phone-call park there is never a Verify Now row."""
+    return directory_flags(directory, path).get("phone_verify_requires_mobile") is True
+
+
+MOBILE_ONLY_STEPS = (
+    "%(d)s only verifies this listing with a mobile phone number, and it does not accept our business line.",
+    "Open the link below and sign in to the listing.",
+    "Ask %(d)s to verify by phone or text, and enter your own cell number when it asks.",
+    "Enter the code that %(d)s sends you.",
+)
+
+
+def mobile_only_steps(directory):
+    return [s % {"d": directory} for s in MOBILE_ONLY_STEPS]

@@ -200,9 +200,10 @@ check("N7 NM writer refuses an SCC client / SCC file / SCC row id / no note / a 
       and md5(scc7) == hs)
 check("N7 a row with no release is refused by submit_row before the writer runs", raises(lambda: Q.submit_row(rows7["nm-fix-bbb"], login, live=True), Q.SubmitRefused)
       and {r["id"]: r for r in json.load(open(p7))["fix_queue"]}["nm-fix-bbb"]["state"] == "queued")
-check("N7 CLI: refusal exits 2, success exits 0, dry run writes nothing", NT.main(["--row", "nm-fix-bbb", "--to", "live", "--note", "x", "--queue", p7]) == 2
+check("N7 CLI: refusal exits 2, success with no portal exits 3 (queue written, portal step failed loud), dry run writes nothing", NT.main(["--row", "nm-fix-bbb", "--to", "live", "--note", "x", "--queue", p7]) == 2
       and (lambda h: NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7, "--dry-run"]) == 0 and md5(p7) == h)(md5(p7))
-      and NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7]) == 0)
+      and NT.main(["--row", "nm-fix-bbb", "--to", "submitted", "--note", "sent", "--queue", p7]) == 3   # t_2211682c: the NM writer now posts the Activities row; with no portal the CLI fails loud (3) and the queue row is still written
+      and json.load(open(p7))["fix_queue"][1]["state"] == "submitted")
 
 # ---- N8 (r3) other_street is scoped to NM's own card, directly before the city, and to the JSON-LD entity named NM
 def clean(txt, nm):

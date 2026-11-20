@@ -51,6 +51,17 @@ def write_deliverables(portal, rows, now=None):
     return out
 
 
+def existing_source_refs(portal, client_id, page=1000):
+    """t_2211682c: the source_refs this client already has from the citation engine (a read; the backfill plans only what is missing). Lives here so no other module names the table."""
+    check_client(client_id)
+    refs, off = set(), 0
+    while True:
+        rows = portal.call("GET", "deliverables?client_id=eq.%s&source=eq.%s&select=source_ref&order=source_ref&limit=%d&offset=%d" % (client_id, SOURCE, page, off), None, "return=representation") or []
+        refs |= {r.get("source_ref") for r in rows}
+        if len(rows) < page: return refs
+        off += page
+
+
 def deliverables_request(rows, now=None):
     """t_25000cbd: the request write_deliverables would send, for dry runs. Lives here so no other module names DELIVERABLES_PATH."""
     return {"method": "POST", "path": DELIVERABLES_PATH, "body": [deliverable_row(r, now) for r in rows]}

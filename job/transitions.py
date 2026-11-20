@@ -52,7 +52,7 @@ TENANTS = {
     "SCC": {"slug": "scc", "queue_name": None, "queue_default": lambda: Q.QUEUE_PATH, "row_prefix": None, "snapshot": True, "activities": True, "create_row": False},
     "NM": {"slug": "na" + "cke-media", "queue_name": NM_QUEUE_NAME,
            "queue_default": lambda: os.environ.get("CE_NM_QUEUE") or os.path.expandvars("%LOCALAPPDATA%/citation-engine/queue/" + NM_QUEUE_NAME),
-           "row_prefix": "nm-", "snapshot": False, "activities": False, "create_row": True},
+           "row_prefix": "nm-", "snapshot": False, "activities": True, "create_row": True},   # t_2211682c: NM results are client news too (was SCC only)
 }
 
 
@@ -497,7 +497,54 @@ def set_verification_live(portal, verification_id, client_id, now=None):
     t = (now or datetime.datetime.now(datetime.timezone.utc)).isoformat()
     path = "citation_verification?id=eq.%s&client_id=eq.%s&state=eq.requires_verification" % (verification_id, client_id)
     rows = portal.call("PATCH", path, {"state": "live", "verified_at": t, "updated_at": t}, prefer="return=representation")
-    return isinstance(rows, list) and len(rows) == 1
+    done = isinstance(rows, list) and len(rows) == 1
+    if done:   # t_2211682c: an accepted code is client news the same day. Best effort AFTER the flip: a failure here never undoes it (the backfill re-posts by source_ref).
+        try:
+            day = ((now or datetime.datetime.now(datetime.timezone.utc)).astimezone().date().isoformat() if now else datetime.date.today().isoformat())
+            if activities_enabled(): post_verified_activity(portal, client_id, rows[0], verification_id, day)
+        except Exception as e:
+            print("verified activity NOT written: %s" % type(e).__name__, file=sys.stderr)
+    return done
+
+
+def verified_title(directory, verify_type):
+    """Client-voiced, domain only, no terminal period."""
+    how = {"phone-call": "by phone code", "sms": "by text code"}.get(verify_type, "with a code")
+    return "Verified your %s listing %s" % (directory, how)
+
+
+def build_verified_activity(client_id, directory, verify_type, verification_id, day, now=None):
+    return P.deliverable_row({"client_id": client_id, "deliverable_type": "citation", "title": verified_title(directory, verify_type),
+            "date_completed": day, "in_scope": True, "units": 1,
+            "source_ref": "citation-transition:%s:verified" % verification_id,
+            "channel_label": ACTIVITY_CHANNEL_LABEL}, now=now)
+
+
+def post_verified_activity(portal, client_id, ver_row, verification_id, day):
+    rec = build_verified_activity(client_id, ver_row.get("directory"), ver_row.get("verification_type"), verification_id, day)
+    P.write_deliverables(portal, [rec], now=rec["approved_at"])
+    return rec
+
+
+def _norm_dir(d):
+    d = str(d or "").strip().lower()
+    return d[4:] if d.startswith("www.") else d
+
+
+def close_verification_on_live(ver, client_id, directory):
+    """t_2211682c: the ONE live PATCH of citation_verification for a queue row's move to live. return=representation, so it reports how many rows it closed.
+    -> number closed. Raises PortalWriteError when the PATCH fails, or when it closed 0 rows while a requires_verification row for this client + directory
+    (www/case-insensitive) still exists: that row would stay open on the client's Your turn page."""
+    P.check_client(client_id)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, directory)
+    rows = ver.call("PATCH", path, {"state": "live", "verified_at": now, "updated_at": now}, prefer="return=representation")
+    closed = len(rows) if isinstance(rows, list) else 0
+    if closed == 0:
+        open_rows = ver.call("GET", "citation_verification?client_id=eq.%s&state=eq.requires_verification&select=id,directory" % client_id, None, "return=representation")
+        mine = [r.get("id") for r in (open_rows or []) if _norm_dir(r.get("directory")) == _norm_dir(directory)]
+        if mine: raise P.PortalWriteError("live PATCH closed 0 rows but %d requires_verification row(s) remain for %s: %s" % (len(mine), directory, ",".join(str(m)[:8] for m in mine)))
+    return closed
 
 
 def record_transition(client, row_id, new_state, evidence_url=None, note=None, *, queue_path=None, today=None, portal=None,
@@ -547,6 +594,13 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             except Exception as e: raise TransitionRefused("Your turn gate: could not read the Directory DB row for %s (%s); fail closed" % (row["directory"], type(e).__name__))
         problems = YT.check_your_turn(row["directory"], verify_type, observation, dir_row, day)
         if problems: raise TransitionRefused("Your turn gate refused %s: %s" % (row["directory"], "; ".join(problems)))
+    mobile_only = bool(verify_type in AL.AUTO_TYPES and AL.requires_mobile(row["directory"]))
+    if mobile_only:   # t_2211682c: the Directory refuses VoIP numbers (Alignable), so "Call me now" can never work. Park the self-serve ask instead; no Verify Now row, no allowlist add.
+        if signin_url is not None:
+            try: directory_url = directory_url or AL.check_signin_url(row["directory"], signin_url)
+            except ValueError as e: raise TransitionRefused("--signin-url: %s" % e)
+            signin_url = None
+        verify_type, steps, directory_url = "id-check", (steps or AL.mobile_only_steps(row["directory"])), (directory_url or "https://%s/" % row["directory"])
     steps, directory_url = check_id_check_fields(verify_type, steps, directory_url)
     if signin_url is not None:   # t_9de1c978: refused before any write; only a phone/SMS park reaches the allowlist
         if verify_type not in AL.AUTO_TYPES: raise TransitionRefused("--signin-url only applies to an sms or phone-call park")
@@ -590,6 +644,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     out["tenant"] = {"client": client, "slug": tenant["slug"], "client_id": client_id}
     if ver_rec: assert ver_rec["client_id"] == client_id == P.client_for(client)   # the portal row can only carry THIS tenant's id
     out["verification_written"] = False
+    out["mobile_only_rewrite"] = mobile_only
     out["allowlist"] = None
     ver_patch_path = "citation_verification?client_id=eq.%s&directory=eq.%s&state=eq.requires_verification" % (client_id, row["directory"])
 
@@ -652,18 +707,21 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
 
     # 3b verification queue (phone/sms/postcard). Never blocks the queue write above.
     if ver_rec or new_state == "live":
+        step = "connect"   # t_2211682c: every failure names the step that failed (the CLI prints it and exits non-zero)
         try:
             ver = verification or portal or P.Portal(*P.load_portal_env())
             if ver_rec:
+                step = "upsert"
                 ver.call("POST", VERIFY_UPSERT_PATH, [ver_rec], prefer="resolution=ignore-duplicates,return=minimal")  # existing row untouched: no deadline restart, a live row is not flipped back
                 if verify_type in AL.AUTO_TYPES:   # t_5148d0b9: ignore-duplicates left an existing row's type stale (a25e00ff stayed sms after a phone-call re-park). Retype only a still-waiting row whose type differs; parked_at and live rows stay untouched; a retyped row loses deadline/steps/directory_url (RETYPE_CLEARS).
+                    step = "retype"
                     ver.call("PATCH", *retype_request(client_id, row["directory"], verify_type), prefer="return=minimal")
             else:
-                now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                ver.call("PATCH", ver_patch_path, {"state": "live", "verified_at": now, "updated_at": now}, prefer="return=minimal")
+                step = "live PATCH"
+                out["verification_closed"] = close_verification_on_live(ver, client_id, row["directory"])
             out["verification_written"] = True
         except Exception as e:
-            out["errors"].append("verification: %s" % e)
+            out["errors"].append("verification %s: %s" % (step, e))
         # 3b2 t_f31e2490: in the same transition, a phone/SMS park puts the Directory on the Verify Now allowlist (runtime file outside the repo). Never blocks.
         if ver_rec and out["verification_written"] and verify_type in AL.AUTO_TYPES and (real_sink or allowlist_path):
             try:
@@ -691,6 +749,33 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
             out["directories_written"] = True
         except Exception as e:
             out["errors"].append("directories: %s" % e)
+    return out
+
+
+def queue_move_effects(client, row, new_state, evidence_url, day, *, portal=None, activities=None, verification=None, activities_flag=None):
+    """t_2211682c: the portal half of a queue move made by a writer that has no portal step of its own (job/nm_transitions.py, the NM build/live writer).
+    t_d038172d moved nm-create-alignable to live through that writer: no Activities row, and citation_verification a25e00ff stayed requires_verification,
+    with exit 0 and no error. Same rules as record_transition: client news on submitted/pending-verify/live/rejected (CE_ACTIVITIES_WRITE), the Your turn row
+    closed on live. -> {"activity_record", "activities_written", "verification_closed", "errors"}; each error names its step. Nothing here undoes the queue write."""
+    tenant, client_id = tenant_of(client), P.client_for(client)
+    out = {"activity_record": None, "activities_written": False, "verification_closed": None, "errors": []}
+    news = tenant["activities"] and new_state in ACTIVITY_STATES
+    if news: out["activity_record"] = build_activity_record(client_id, row, new_state, evidence_url, day)
+    if news and activities_enabled(activities_flag):
+        try:
+            act = activities or portal or P.Portal(*P.load_portal_env())
+            P.write_deliverables(act, [out["activity_record"]], now=out["activity_record"]["approved_at"])
+            out["activities_written"] = True
+        except Exception as e:
+            out["errors"].append("activities: %s" % e)
+    if new_state == "live":
+        step = "connect"
+        try:
+            ver = verification or portal or P.Portal(*P.load_portal_env())
+            step = "live PATCH"
+            out["verification_closed"] = close_verification_on_live(ver, client_id, row["directory"])
+        except Exception as e:
+            out["errors"].append("verification %s: %s" % (step, e))
     return out
 
 
@@ -864,6 +949,7 @@ def main(argv=None):
         print("REFUSED: %s" % e, file=sys.stderr)
         return 1
     print(json.dumps(res, indent=2))
+    for e in res["errors"]: print("FAILED STEP: %s" % e, file=sys.stderr)   # t_2211682c: fail loud, the step is named
     return 2 if res["errors"] else 0
 
 

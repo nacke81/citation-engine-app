@@ -371,6 +371,8 @@ def record_live(row, site, record=None, captured=None):
         return "NOT recorded (submit_row refused: %s). Record it with %s." % (e, "job/nm_transitions.py --row %s --to %s --note ..." % (row["id"], to) if Q.is_nm_row(row) else "transitions.py")
     except Exception as e:
         return "NOT recorded (recording failed: %s). Record it with %s." % (PK.redact(str(e))[:120], "job/nm_transitions.py --row %s --to %s --note ..." % (row["id"], to) if Q.is_nm_row(row) else "transitions.py")
+    errs = (res.get("recorded") or {}).get("errors") if isinstance(res.get("recorded"), dict) else None
+    if errs: return "recorded in the queue: %s -> %s, but the portal step FAILED: %s. Tell Nate (the Activities row can be re-posted with job/nm_activities_backfill.py --write)." % (res["id"], to, PK.redact("; ".join(map(str, errs)))[:200])   # t_2211682c: fail loud
     return "recorded: %s -> %s (%s)" % (res["id"], to, str(res.get("recorded"))[:120])
 
 

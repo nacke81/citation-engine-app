@@ -174,7 +174,8 @@ def submit_row(row, get_login, free_only=True, record=None, live=False, to="subm
     if record is None and (live or os.environ.get("CE_RECORD_TRANSITIONS") == "1"):
         if is_nm_row(row):   # t_00a75d04 r2: NM rows are recorded in nm-fix-queue.json by their own writer; transitions.py is SCC-only
             import nm_transitions
-            record = nm_transitions.record_transition
+            import functools
+            record = functools.partial(nm_transitions.record_transition, side_effects=True)   # t_2211682c: the NM build writer also posts the Activities row / closes Your turn
         else:
             import transitions
             record = transitions.record_transition
