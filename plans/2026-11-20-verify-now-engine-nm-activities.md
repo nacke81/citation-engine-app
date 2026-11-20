@@ -14,3 +14,9 @@ The worker ran `python job/nm_transitions.py --row nm-create-alignable --to live
 
 ## Not done
 No SCC writes, no flag change, no portal code, no prod write before merge.
+
+## Round 2 (review changes_requested, 2026-11-20 14:37 CT; written before any round-2 edit)
+Cites lesson `docs/lessons/2026-11-20-two-writers-one-must-not-be-silent.md` (latest): a caught failure must be visible, and "verified by code" must come from the record that proves it, not from a named tuple.
+1. `queue_move_effects` takes `old_state`; a same-state move (submitted->submitted, pending-verify->pending-verify, live->live refresh) writes no Activities row, same as `record_transition`'s `same_state`. The live close is unchanged. The guard is one helper (`is_client_news`) so a test mutation can remove it. `nm_transitions.record_transition` passes `old`.
+2. Backfill verified rows come from `citation_code_request` rows with status `verified`, joined to their `citation_verification` row (state live). `CODE_VERIFIED` is dropped. A hand-closed row has no verified request, so it plans 0. Date = the verification's `verified_at` (fallback request `finished_at`). `set_verification_live` failure line names the step (`activities`) and the verification id; comment now true because the backfill recovers it by source_ref.
+Tests: same-state x3 shapes 0 POSTs + mutation; one verified request -> one row, live without request -> 0, second run 0; failure line names step + id.

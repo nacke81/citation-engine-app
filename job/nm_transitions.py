@@ -84,7 +84,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     prune_backups(path, keep_path=out["backup"])
     out["errors"] = []
     if side_effects or portal or activities or verification:   # t_2211682c: the portal half (Activities row, Your turn row closed on live). Opt-in so a bare call in a test never reaches a portal; the CLI and the build path turn it on.
-        fx = T.queue_move_effects("NM", new_row, new_state, evidence_url, day, portal=portal, activities=activities, verification=verification, activities_flag=activities_flag)
+        fx = T.queue_move_effects("NM", new_row, new_state, evidence_url, day, portal=portal, activities=activities, verification=verification, activities_flag=activities_flag, old_state=old)
         out.update(fx)
     return out
 

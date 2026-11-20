@@ -34,8 +34,8 @@ VID = "a25e00ff-0000-4000-8000-000000000001"
 
 class Fake:
     """Portal fake. ver: open citation_verification rows. closes: whether the live PATCH matches (False models a directory-string mismatch)."""
-    def __init__(self, ver=None, fail=(), patch_matches=True):
-        self.calls, self.ver, self.fail, self.deliv, self.patch_matches = [], list(ver or []), fail, {}, patch_matches
+    def __init__(self, ver=None, fail=(), patch_matches=True, reqs=None):
+        self.calls, self.ver, self.fail, self.deliv, self.patch_matches, self.reqs = [], list(ver or []), fail, {}, patch_matches, list(reqs or [])
     def call(self, method, path, body=None, prefer=None):
         self.calls.append((method, path, body, prefer))
         if method != "GET" and "deliverables" in path: body = P.guard_deliverables(method, path, body)
@@ -46,6 +46,7 @@ class Fake:
                 for r in body: self.deliv[(r["client_id"], r["source_ref"])] = r
                 return None
             return [{"source_ref": k[1]} for k in self.deliv]
+        if path.startswith("citation_code_request"): return [dict(r) for r in self.reqs]
         if path.startswith("citation_verification"):
             if method == "PATCH" and "state=eq.requires_verification" in path:
                 hit = [v for v in self.ver if v["state"] == "requires_verification" and ("directory=eq.%s" % v["directory"] in path or "id=eq.%s" % v.get("id") in path)] if self.patch_matches else []
@@ -199,13 +200,26 @@ q = {"business": "NM", "fix_queue": [
 qp = os.path.join(tempfile.mkdtemp(prefix="ce-bf-"), "nm-fix-queue.json"); json.dump(q, open(qp, "w"))
 TB = "33333333-aaaa-4000-8000-000000000004"
 fb = Fake([verrow(directory="thumbtack.com", vt="phone-call", state="live", vid=TB, verified_at="2026-11-19T18:19:43Z"),
-           verrow(directory="alignable.com", vt="phone-call", state="live", vid=VID, verified_at="2026-11-20T18:46:16Z")])
+           verrow(directory="alignable.com", vt="phone-call", state="live", vid=VID, verified_at="2026-11-20T18:46:16Z"),
+           verrow(directory="stuck.example", vt="sms", state="live", vid="44444444-aaaa-4000-8000-000000000005", verified_at="2026-11-18T10:00:00Z")],
+          reqs=[{"id": "db1fdaaa-0000-4000-8000-000000000006", "citation_verification_id": TB, "status": "verified", "finished_at": "2026-11-19T18:19:44Z"},
+                {"id": "db1fdaab-0000-4000-8000-000000000007", "citation_verification_id": TB, "status": "verified", "finished_at": "2026-11-19T18:20:00Z"},
+                {"id": "bad00000-0000-4000-8000-000000000008", "citation_verification_id": "44444444-aaaa-4000-8000-000000000005", "status": "failed", "finished_at": "2026-11-18T10:00:00Z"}])
 res = BF.run(qp, False, fb)
 refs = sorted(r["source_ref"] for r in res["rows"])
 check("D1 dry run plans one row per move into submitted/pending-verify/live/rejected (+1 Thumbtack verified): 2+2+0+0+3 +1 = 8", res["planned"] == 8 and not fb.deliv, refs)
 check("D1 dated by the history entry", {r["source_ref"]: r["date_completed"] for r in res["rows"]}["citation-transition:nm-fix-a:live"] == "2026-11-05")
 check("D1 Thumbtack verified row dated 2026-11-19, ref uses the verification id", ("citation-transition:%s:verified" % TB) in refs and {r["source_ref"]: r["date_completed"] for r in res["rows"]}["citation-transition:%s:verified" % TB] == "2026-11-19")
-check("D1 the hand-closed alignable row is NOT written as 'verified by code'", not any(VID in x for x in refs))
+check("D1 the hand-closed alignable row (live, no verified request) is NOT written as 'verified by code'", not any(VID in x for x in refs))
+check("D1 a live row whose only request FAILED plans 0; two verified requests for one verification plan ONE row", not any("44444444" in x for x in refs) and refs.count("citation-transition:%s:verified" % TB) == 1)
+check("D1 no CODE_VERIFIED tuple in the backfill (data comes from the request record)", not hasattr(BF, "CODE_VERIFIED"))
+fv = Fake([verrow(directory="thumbtack.com", vt="sms", state="live", vid=TB, verified_at="2026-11-19T18:19:43Z")], reqs=[{"citation_verification_id": TB, "status": "verified", "finished_at": "2026-11-19T18:19:44Z"}])
+rv = BF.plan_verified_rows(fv.ver, fv.reqs, NM)
+check("D1 one verified request -> one row, the Thumbtack ref and date", len(rv) == 1 and rv[0]["source_ref"] == "citation-transition:%s:verified" % TB and rv[0]["date_completed"] == "2026-11-19" and rv[0]["approved_at"], rv)
+check("D1 a live row with no verified request -> 0 rows", BF.plan_verified_rows(fv.ver, [], NM) == [])
+check("D1 a verified request whose verification is not live -> 0 rows", BF.plan_verified_rows([dict(fv.ver[0], state="requires_verification")], fv.reqs, NM) == [])
+fv.deliv = {}; BF.run(qp.replace("nm-fix-queue.json", "none.json") if False else qp, True, fv); n1 = len(fv.deliv); r2 = BF.run(qp, True, fv)
+check("D1 recovery: a verified row lost by set_verification_live is re-posted by the backfill, and a second run plans 0", any(k[1].endswith(":verified") for k in fv.deliv) and r2["planned"] == 0 and len(fv.deliv) == n1)
 check("D1 needs-human, created-unlisted and a live->live refresh add no row", not any(x.endswith((":created-unlisted")) or "nm-fix-c" in x or "nm-fix-d" in x for x in refs) and refs.count("citation-transition:nm-fix-e:live") == 1)
 check("D1 every row is the NM client id, source citation_engine", all(r["client_id"] == NM and r["source"] == "citation_engine" for r in res["rows"]))
 check("D1 every planned NM row carries approved_at (the Activities page hides a citation_engine row without it)", all(r.get("approved_at") for r in res["rows"]) and len(res["rows"]) == 8)
@@ -246,6 +260,32 @@ check("E2 the shipped data file sets alignable.com", AL.requires_mobile("alignab
 src = open(os.path.join(ROOT, "job", "transitions.py"), encoding="utf-8").read() + open(os.path.join(ROOT, "job", "verify_allowlist.py"), encoding="utf-8").read()
 import re as _re
 check("E2 no job code names a flagged directory as a literal domain", not _re.search(r"[\"']alignable\.com[\"']", src))
+
+# ---- F same-state note refresh posts no Activities row (review round 1)
+def refresh(rid, state, d="refresh.example", **kw):
+    p = nm_queue([nm_row(rid, d, state, H(("2026-11-01", "queued", state, None)))]); fr = Fake([verrow(directory=d)])
+    r = NMT.record_transition("NM", rid, state, "https://%s/p" % d if state == "live" else None, "weekly recheck note", queue_path=p, today="2026-11-27", portal=fr, **kw)
+    return r, fr
+for st in ("submitted", "pending-verify"):
+    r, fr = refresh("nm-fix-%s" % st, st)
+    check("F1 %s -> %s note refresh: 0 deliverables POSTs, no activity record" % (st, st), not fr.posts("deliverables") and r["activity_record"] is None and not r["activities_written"] and not r["errors"], fr.calls)
+r, fr = refresh("nm-fix-live", "live", refresh_url="https://refresh.example/new")
+check("F1 live -> live --refresh-url: 0 deliverables POSTs", not fr.posts("deliverables") and r["activity_record"] is None, fr.calls)
+check("F1 a live -> live refresh still runs the live close (the open row is closed)", fr.ver[0]["state"] == "live" and r["verification_closed"] == 1)
+p = nm_queue([nm_row("nm-fix-ch", "change.example", "submitted", H(("2026-11-01", "queued", "submitted", None)))]); fch = Fake()
+NMT.record_transition("NM", "nm-fix-ch", "pending-verify", None, "moved on", queue_path=p, today="2026-11-27", portal=fch)
+check("F1 a real change of state still posts exactly one row", len(fch.posts("deliverables")) == 1)
+T2 = T
+_orig_news = T2.is_client_news
+T2.is_client_news = lambda tenant, old, new: bool(tenant["activities"] and new in T2.ACTIVITY_STATES)   # the guard removed
+r, fr = refresh("nm-fix-submitted", "submitted")
+check("M3 mutation (same-state guard removed) posts a row on a note refresh: F1 would fail", len(fr.posts("deliverables")) == 1)
+T2.is_client_news = _orig_news
+
+# ---- C2 failure line names step + verification id
+fz = Fake([verrow()]); fz.fail = ("deliverables",); eb = io.StringIO()
+with contextlib.redirect_stderr(eb): T.set_verification_live(fz, VID, NM)
+check("C2 a failed verified-activity write names the step and the verification id on stderr", "FAILED STEP: activities" in eb.getvalue() and VID in eb.getvalue(), eb.getvalue())
 
 # ---- mutations: the one-writer rule and the tenant gate can fail
 import transitions as T2

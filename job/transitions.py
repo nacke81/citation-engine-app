@@ -498,12 +498,12 @@ def set_verification_live(portal, verification_id, client_id, now=None):
     path = "citation_verification?id=eq.%s&client_id=eq.%s&state=eq.requires_verification" % (verification_id, client_id)
     rows = portal.call("PATCH", path, {"state": "live", "verified_at": t, "updated_at": t}, prefer="return=representation")
     done = isinstance(rows, list) and len(rows) == 1
-    if done:   # t_2211682c: an accepted code is client news the same day. Best effort AFTER the flip: a failure here never undoes it (the backfill re-posts by source_ref).
+    if done:   # t_2211682c: an accepted code is client news the same day. Best effort AFTER the flip: a failure here never undoes it (job/nm_activities_backfill.py re-posts it by source_ref from the code request finished 'verified').
         try:
             day = ((now or datetime.datetime.now(datetime.timezone.utc)).astimezone().date().isoformat() if now else datetime.date.today().isoformat())
             if activities_enabled(): post_verified_activity(portal, client_id, rows[0], verification_id, day)
         except Exception as e:
-            print("verified activity NOT written: %s" % type(e).__name__, file=sys.stderr)
+            print("FAILED STEP: activities (verified row) verification=%s: %s - the backfill (job/nm_activities_backfill.py) re-posts it from the verified code request" % (verification_id, type(e).__name__), file=sys.stderr)
     return done
 
 
@@ -752,14 +752,20 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     return out
 
 
-def queue_move_effects(client, row, new_state, evidence_url, day, *, portal=None, activities=None, verification=None, activities_flag=None):
+def is_client_news(tenant, old_state, new_state):
+    """t_2211682c: ONE place that says a queue move is client news: the tenant has Activities, the new state is an activity state, and the state CHANGED.
+    old_state == new_state is a note refresh (the weekly recheck, --refresh-url): no row, or merge-duplicates re-dates the first one. old_state None = unknown (old callers)."""
+    return bool(tenant["activities"] and new_state in ACTIVITY_STATES and (old_state is None or old_state != new_state))
+
+
+def queue_move_effects(client, row, new_state, evidence_url, day, *, portal=None, activities=None, verification=None, activities_flag=None, old_state=None):
     """t_2211682c: the portal half of a queue move made by a writer that has no portal step of its own (job/nm_transitions.py, the NM build/live writer).
     t_d038172d moved nm-create-alignable to live through that writer: no Activities row, and citation_verification a25e00ff stayed requires_verification,
     with exit 0 and no error. Same rules as record_transition: client news on submitted/pending-verify/live/rejected (CE_ACTIVITIES_WRITE), the Your turn row
     closed on live. -> {"activity_record", "activities_written", "verification_closed", "errors"}; each error names its step. Nothing here undoes the queue write."""
     tenant, client_id = tenant_of(client), P.client_for(client)
     out = {"activity_record": None, "activities_written": False, "verification_closed": None, "errors": []}
-    news = tenant["activities"] and new_state in ACTIVITY_STATES
+    news = is_client_news(tenant, old_state, new_state)
     if news: out["activity_record"] = build_activity_record(client_id, row, new_state, evidence_url, day)
     if news and activities_enabled(activities_flag):
         try:
