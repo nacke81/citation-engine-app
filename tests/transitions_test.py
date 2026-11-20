@@ -30,6 +30,7 @@ class FakePortal:
         self.snaps[cid] = copy.deepcopy(payload); self.calls.append(("snap", day))
     def call(self, method, path, body=None, prefer=None):
         t = (method, path, body); self.calls.append(t); self.pref = getattr(self, "pref", {}); self.pref[id(t)] = prefer
+        if method == "PATCH" and prefer == "return=representation" and path.startswith("citation_verification"): return [{"id": "v1"}]   # t_2211682c: the live PATCH reports the rows it closed
 
 def fresh(state="queued", approval=None):
     p = os.path.join(TMP, "q.json"); shutil.copy(SRC, p)
