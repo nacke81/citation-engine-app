@@ -151,7 +151,7 @@ check("T1b an existing stamp on a row is kept, a None is replaced", P.deliverabl
 check("T1c dry-run request goes through the portal helper", all(x.get("approved_at") for x in P.deliverables_request([dict(client_id=P.ALLOWED["SCC"], approved_at=None)])["body"]))
 for label, old, new in (("guard call removed from Portal.call", "        body = guard_deliverables(method, path, body)", "        pass"),
                         ("guard passes PATCH through", 'if str(method).upper() != "POST" or path != DELIVERABLES_PATH:', "if False:"),
-                        ("guard stops stamping rows", "out = [deliverable_row(r) for r in body]\n    for r in out: check_client(r.get(\"client_id\"))\n    return out", "return body")):
+                        ("guard stops stamping rows", "out = uniform_rows([deliverable_row(r) for r in body])\n    for r in out: check_client(r.get(\"client_id\"))\n    return out", "return body")):
     assert src.count(old) == 1 or label.startswith("guard stops"), label
     m = types.ModuleType("portal_mut2")
     mutated = src.replace(old, new, 1) if old in src else src.replace(old.replace("\n", "\r\n"), new.replace("\n", "\r\n"), 1)
@@ -159,6 +159,47 @@ for label, old, new in (("guard call removed from Portal.call", "        body = 
     exec(compile(mutated, "portal_mut2.py", "exec"), m.__dict__)
     probs = transport_problems(m)
     check("T2 mutation (%s) is caught" % label, len(probs) > 0, probs[0][:70] if probs else "not caught")
+
+# ---- t_e9ea1429: uniform keys + readable portal HTTP errors ----
+import io, json, urllib.error
+NMC = P.ALLOWED["NM"]
+MIXED = [dict(client_id=NMC, title="a", source_ref="r1", evidence_url="https://x.example/1"), dict(client_id=NMC, title="b", source_ref="r2")]
+
+def uniform_problems(mod):
+    bad = []
+    f = Fake(); mod.write_deliverables(f, MIXED)
+    if len({tuple(sorted(r)) for r in f.calls[0][2]}) != 1: bad.append("write_deliverables batch keys differ")
+    if f.calls[0][2][1].get("evidence_url", "missing") is not None: bad.append("missing key is not null")
+    if len({tuple(sorted(r)) for r in mod.deliverables_request(MIXED)["body"]}) != 1: bad.append("deliverables_request keys differ")
+    if len({tuple(sorted(r)) for r in mod.guard_deliverables("POST", mod.DELIVERABLES_PATH, MIXED)}) != 1: bad.append("guard keys differ")
+    return bad
+
+check("U1 mixed batch (one with evidence_url, one without) has uniform keys in all three paths", uniform_problems(P) == [], str(uniform_problems(P)))
+for label, old, new in (("write_deliverables skips uniform_rows", "out = uniform_rows([deliverable_row(r, now) for r in rows])", "out = [deliverable_row(r, now) for r in rows]"),
+                        ("dry run skips uniform_rows", '"body": uniform_rows([deliverable_row(r, now) for r in rows])}', '"body": [deliverable_row(r, now) for r in rows]}'),
+                        ("guard skips uniform_rows", "out = uniform_rows([deliverable_row(r) for r in body])", "out = [deliverable_row(r) for r in body]"),
+                        ("uniform_rows is a no-op", "return [{k: r.get(k) for k in keys} for r in rows]", "return rows")):
+    msrc = src.replace("\r\n", "\n")
+    assert msrc.count(old) == 1, label
+    m = types.ModuleType("portal_mut3"); exec(compile(msrc.replace(old, new, 1), "portal_mut3.py", "exec"), m.__dict__)
+    probs = uniform_problems(m)
+    check("U2 mutation (%s) is caught" % label, len(probs) > 0, probs[0][:70] if probs else "not caught")
+
+def http_error(code, body):
+    return urllib.error.HTTPError("https://portal.example/rest/v1/deliverables", code, "Bad Request", {}, io.BytesIO(body))
+def err_text(body, code=400):
+    def opener(req): raise http_error(code, body)
+    try: P.Portal("https://portal.example", "SECRETKEY123", opener=opener).call("POST", P.DELIVERABLES_PATH, [dict(client_id=NMC, title="REQBODYMARK")])
+    except P.PortalWriteError as e: return str(e)
+    return ""
+pg = json.dumps({"code": "PGRST102", "message": "All object keys must match", "details": "DETAILSMARK", "hint": "HINTMARK SECRETKEY123"}).encode()
+t = err_text(pg)
+check("E1 a PGRST102 400 shows the code and message", "PGRST102" in t and "All object keys must match" in t and "HTTP Error 400" in t, t[:160])
+check("E2 only code+message: no details/hint/request body/key/headers", not any(x in t for x in ("DETAILSMARK", "HINTMARK", "REQBODYMARK", "SECRETKEY123", "Bearer", "apikey")), t[:160])
+t2 = err_text(json.dumps({"code": "X" * 100, "message": "M" * 1000}).encode())
+check("E3 code and message are capped", "X" * 40 in t2 and "X" * 41 not in t2 and "M" * 200 in t2 and "M" * 201 not in t2, str(len(t2)))
+t3 = err_text(b"<html>not json SECRETKEY123</html>", 502)
+check("E4 a non-JSON body adds nothing and leaks nothing", "502" in t3 and "not json" not in t3 and "SECRETKEY123" not in t3, t3[:120])
 
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})")
 sys.exit(0 if all(ok) else 1)

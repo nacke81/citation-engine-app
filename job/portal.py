@@ -4,7 +4,7 @@ Only two portal clients can ever be written (ALLOWED, in code). The client id co
 and is checked before any network call. The prod service-role key is read in place from the portal repo's .env.prod.local; it is never
 copied, printed or logged, and error text is scrubbed of it. No Directory traffic, no portal-seed call, no other table.
 """
-import datetime, json, os, re, urllib.parse, urllib.request
+import datetime, json, os, re, urllib.error, urllib.parse, urllib.request
 
 PORTAL_ENV_PTR = os.path.expandvars("%LOCALAPPDATA%/citation-engine/portal_env_path.txt")  # one line: path of the portal repo's .env.prod.local (outside this repo)
 SOURCE = "citation_engine"  # underscore: the key the prod portal reader uses (Nate 2026-10-19)
@@ -43,9 +43,19 @@ def deliverable_row(fields, now=None):
     return row
 
 
+def uniform_rows(rows):
+    """t_e9ea1429: PostgREST refuses a bulk insert whose objects have different keys (PGRST102, HTTP 400). Give every row the union of the batch's keys
+    (missing = None -> null), first-seen order. Applied in write_deliverables, deliverables_request and guard_deliverables: no caller special-cases it."""
+    keys = []
+    for r in rows:
+        for k in r:
+            if k not in keys: keys.append(k)
+    return [{k: r.get(k) for k in keys} for r in rows]
+
+
 def write_deliverables(portal, rows, now=None):
     """t_25000cbd: the ONE writer of `deliverables`. Every row goes through deliverable_row; client id checked before any network call."""
-    out = [deliverable_row(r, now) for r in rows]
+    out = uniform_rows([deliverable_row(r, now) for r in rows])
     for r in out: check_client(r.get("client_id"))
     portal.call("POST", DELIVERABLES_PATH, out, prefer="resolution=merge-duplicates,return=minimal")
     return out
@@ -64,7 +74,7 @@ def existing_source_refs(portal, client_id, page=1000):
 
 def deliverables_request(rows, now=None):
     """t_25000cbd: the request write_deliverables would send, for dry runs. Lives here so no other module names DELIVERABLES_PATH."""
-    return {"method": "POST", "path": DELIVERABLES_PATH, "body": [deliverable_row(r, now) for r in rows]}
+    return {"method": "POST", "path": DELIVERABLES_PATH, "body": uniform_rows([deliverable_row(r, now) for r in rows])}
 
 
 def _table_of(path):
@@ -80,7 +90,7 @@ def guard_deliverables(method, path, body):
         raise PortalWriteError("deliverables accepts only POST %s (got %s %s)" % (DELIVERABLES_PATH, method, str(path).split("?")[0]))
     if not isinstance(body, list) or not all(isinstance(r, dict) for r in body):
         raise PortalWriteError("deliverables body must be a list of rows")
-    out = [deliverable_row(r) for r in body]
+    out = uniform_rows([deliverable_row(r) for r in body])
     for r in out: check_client(r.get("client_id"))
     return out
 
@@ -179,8 +189,19 @@ class Portal:
         try:
             with self._open(req) as r:
                 t = r.read(); return json.loads(t) if t else None
+        except urllib.error.HTTPError as e:
+            raise PortalWriteError(self._scrub("portal %s %s failed: %s: %s%s" % (method, path.split("?")[0], type(e).__name__, e, self._pg_detail(e))))
         except Exception as e:
             raise PortalWriteError(self._scrub("portal %s %s failed: %s: %s" % (method, path.split("?")[0], type(e).__name__, e)))
+
+    def _pg_detail(self, e):
+        """t_e9ea1429: the PostgREST `code` and `message` from an error response body, allowlisted and capped. Never the request body or headers."""
+        try:
+            d = json.loads(e.read(4096).decode("utf-8", "replace"))
+            code, msg = str(d.get("code") or "")[:40], str(d.get("message") or "")[:200]
+        except Exception:
+            return ""
+        return (" [code=%s message=%s]" % (code, msg)) if (code or msg) else ""
 
     def latest_snapshot(self, client_id):
         check_client(client_id)
