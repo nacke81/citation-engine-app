@@ -929,7 +929,7 @@ def note_for(cmp_):
 # Pages that are the way INTO a Directory (add / register / claim / thank-you / lookup / the bare homepage), never the listing itself. A row's
 # evidence_url often holds one of these (brownbook /add-business, showmelocal /, dnb lookup, discoverourtown thankyou.php) while the real
 # listing lives in listing_url. Reading the form page was the "unreadable" of batch 8 (t_560dd259).
-ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing|payment(\.php)?|checkout|submission|dashboard|account|businesses/new)([/?#.]|$)|thankyou|[?&]flow=lookup")
+ENTRY_RE = re.compile(r"(?i)/(add|add-?business|add-?listing|add_listing|submit|join|register|signup|sign-up|claim|get-listed|thank-?you[^/]*|lookup|listing\.php|create-listing|payment(\.php)?|checkout|submission|dashboard|account|businesses/new)([/?#.]|$)|thankyou|[?&]flow=lookup")
 
 
 def _is_entry_page(url):
@@ -985,6 +985,7 @@ def resolve_bbb(page, ident, biz="SCC"):
 
 
 RECHECK_SEARCH = {
+    "us-business.info": lambda x: "https://us-business.info/search/?q=%s" % quote(x["name"]),   # t_f169b3d6: public server-rendered cards (/company/<id>/); /join/ is the submit form
     "localsolution.com": lambda x: "https://www.localsolution.com/businesses?q=%s&geo=%s" % (quote(x["name"]), quote("%s, %s" % (x["city"], x["st"]))),
     "listyourbusiness.us": lambda x: "https://listyourbusiness.us/businesses?q=%s" % quote(x.get("short") or x["name"]),
 }

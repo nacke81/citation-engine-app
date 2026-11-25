@@ -316,5 +316,32 @@ for label, can, addr, want in [("city is a state name: New York / NY zip", NYC, 
     r = R.compare(_dot(addr), can)
     check("C8 %s -> %s" % (label, want), r["verdict"] == want, str(r))
 
+# J (t_f169b3d6): a join / submit FORM is never the listing page. us-business.info /join/ was read every recheck and scored not-public.
+import listing as _L
+JOIN = "https://us-business.info/join/"
+COMPANY = "https://us-business.info/company/czo4OiIxNzcxNjQ5MiI7/"
+check("J1 a /join/ evidence_url gives no permalink (with and without the slash, and a query)", all(R._permalink(row("j", "us-business.info", "submitted", u)) is None for u in (JOIN, JOIN.rstrip("/"), JOIN + "?x=1")))
+check("J1 /join is an entry page, a /company/ page is not", R._is_entry_page(JOIN) and R._is_entry_page("https://x.example/join") and not R._is_entry_page(COMPANY))
+check("J2 a real us-business.info company page is still a permalink; join, search and a state index are not", R._permalink(row("j", "us-business.info", "live", COMPANY)) == COMPANY and not any(_L.is_permalink("us-business.info", u) for u in (JOIN, "https://us-business.info/search/?q=x", "https://us-business.info/directory/ky/")))
+check("J2 listing_url wins over a /join/ evidence_url", R._permalink(row("j", "us-business.info", "submitted", JOIN, listing_url=COMPANY)) == COMPANY)
+SU = R.search_url_for("us-business.info", IDENT)
+check("J3 us-business.info has a public search URL built from the business name", SU and SU.startswith("https://us-business.info/search/?q=") and "Alder" in SU, str(SU))
+# J3a card found on the search: the form is never fetched, the card is read
+card = [{"href": COMPANY, "text": "Alder Care Consulting & Solutions"}]
+res, q, plain_calls, chrome_calls, db, fp = run([row("j", "us-business.info", "submitted", JOIN)], {SU: R.Page(200, SU, "Search results" + PAD, links=card), COMPANY: page_text()})
+check("J3a join-only row: search read, card found, listing read (not the form) -> live", JOIN not in plain_calls and plain_calls[:2] == [SU, COMPANY] and res[0]["verdict"] == "match" and q["fix_queue"][0]["state"] == "live" and q["fix_queue"][0]["evidence_url"] == COMPANY, str(res[0]))
+# J3b readable search with only OTHER businesses: not-public, and the verdict comes from the search, not the form
+other = [{"href": "https://us-business.info/company/aTo1MjI3ODEwOw==/", "text": "Walmart Supercenter"}]
+res, q, plain_calls, chrome_calls, db, fp = run([row("j", "us-business.info", "submitted", JOIN)], {SU: R.Page(200, SU, "Search results" + PAD, links=other)})
+check("J3b readable search with no card for us: not-public, the form never fetched, state unchanged", JOIN not in plain_calls and not chrome_calls and res[0]["verdict"] == "not-public" and "name + city search" in res[0]["note"] and q["fix_queue"][0]["state"] == "submitted", str(res[0]))
+# J3c a Directory with a form URL and NO search: no-permalink + the no-URL backoff, never not-public, form never fetched
+NOSRCH = "https://nosearch.example/join/"
+res, q, plain_calls, chrome_calls, db, fp = run([row("j", "nosearch.example", "submitted", NOSRCH)], {NOSRCH: "<title>Add Your Business</title>"})
+h = q["fix_queue"][0]["history"]
+check("J3c form-only row, no search: verdict no-permalink, no fetch, no-URL backoff date + marker written", res[0]["verdict"] == "no-permalink" and not plain_calls and not chrome_calls and len(h) == 1 and h[0].get("backoff") == "no-permalink" and q["fix_queue"][0].get("recheck_due"), str(res[0]))
+# J4 the old behaviour, pinned: a search that fails to load is not a not-public verdict either
+res, q, plain_calls, *_ = run([row("j", "us-business.info", "submitted", JOIN)], {})
+check("J4 search page unreadable (404): no-permalink, not not-public", res[0]["verdict"] == "no-permalink" and JOIN not in plain_calls, str(res[0]))
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("\nALL PASS" if all(ok) else "\nFAILED", f"({sum(ok)}/{len(ok)})"); sys.exit(0 if all(ok) else 1)
