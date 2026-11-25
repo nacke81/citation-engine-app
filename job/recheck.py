@@ -642,6 +642,42 @@ def full_address_row(text, canonical):
     return None
 
 
+def street_optional_locality(block, canonical):
+    """t_62f64298 (v3 Spike): data, not a business name. A canonical that carries `street_if_required` (NM's R1 record) lists the street only where the form will not
+    save without it, so a listing with city + state and no street is a valid NAP. -> None when the canonical has no such key (every other business: street still
+    required) or its city / state / zip cannot be read; else {"wrong": [(field, shown)], "quote": "City, ST[ zip]" or None}. A zip that is shown must equal the
+    canonical zip; another city with a state on its own short line is a wrong city. Pure."""
+    if not canonical.get("street_if_required"): return None
+    m = re.match(r"\s*([A-Za-z][A-Za-z .'\-]*?),\s*([A-Za-z]{2})\s+(\d{5})\b", canonical.get("address") or "")
+    if not m: return None
+    city, st, czip = m.group(1).strip(), m.group(2).upper(), m.group(3)
+    names = {st.lower()} | {n for n, a in US_STATES.items() if a == st}
+    loc = re.compile(r"(?i)(?<![A-Za-z])" + r"\s+".join(re.escape(w) for w in city.split()) + r",?\s+(" + "|".join(sorted(map(re.escape, names), key=len, reverse=True)) + r")\b(?:,?\s+(\d{5})(?:-\d{4})?)?")
+    other = re.compile(r"(?i)^\W*([A-Za-z][A-Za-z .'\-]*?),\s*(" + "|".join(sorted(map(re.escape, names), key=len, reverse=True)) + r")\b(?:,?\s+\d{5}(?:-\d{4})?)?\W*$")
+    wrong, quote = [], None
+    for l in block:
+        if len(l) > 80 or phones_in([l]): continue
+        hit = loc.search(l)
+        if hit:
+            if hit.group(2) and hit.group(2) != czip: wrong.append(("zip", hit.group(2)))
+            elif quote is None: quote = "%s, %s%s" % (city, st, (" " + hit.group(2)) if hit.group(2) else "")
+            continue
+        o = other.match(l)
+        if o and not city_same(ctok(o.group(1)), ctok(city, True), tail_ok=False): wrong.append(("city", l.strip()))
+    return {"wrong": wrong, "quote": quote}
+
+
+def retired_street_shown(block, canonical):
+    """t_62f64298: a street the canonical lists in `retire_streets` (data) shown in the listing block. -> the shown line or None. Pure."""
+    for rs in canonical.get("retire_streets") or []:
+        head = re.split(r",|\b(?:ste|suite|unit|apt)\b", rs, flags=re.I)[0]
+        want = " ".join(F._tok(head))
+        if not want: continue
+        for l in block:
+            if want in " ".join(F._tok(l)): return l.strip()
+    return None
+
+
 def compare(text, canonical, html_=None):
     """-> {"verdict": match|mismatch|nap-incomplete|not-public|unreadable, "wrong": [(field, shown)], "gaps": [field], "nap": "name | street | phone"}. Pure.
     nap-incomplete (was `gap`, t_f707b644): the page exists but a field is missing or hidden, or the page says the listing is paused / not public yet. A shown value that is wrong is `mismatch`."""
@@ -651,6 +687,7 @@ def compare(text, canonical, html_=None):
             return {"verdict": "not-public", "wrong": [], "gaps": ["listing visibility"], "nap": None}
         return {"verdict": "unreadable", "wrong": [], "gaps": [], "nap": None}
     wrong, gaps = [], []
+    loc_quote = None
     segs, zfirst = [], None   # t_f2bc28d2: set in the street-match branch below; read at the end to quote the city/state/zip line in the proof
     if exact_name(block[0]) != exact_name(canonical["name"]):
         wrong.append(("name", block[0]))   # 'Senior Care Consltng Solutions' is not our name (t_d7a907d5)
@@ -772,7 +809,18 @@ def compare(text, canonical, html_=None):
                     if zfirst and cst2 and cst2.group(2) and zfirst != cst2.group(2): wrong.append(("zip", zfirst))
                     if cst2 and ((not state and not got[2] and not zfirst) or (cst2.group(2) and not got[2] and not zfirst)) and not wrong: gaps.append("address")   # a shown, equal zip stands in for the state ("100 Example Drive, 40000" / "Exampleton")
     elif not got:
-        gaps.append("address")
+        loc = street_optional_locality(block, canonical)   # t_62f64298: city + state is the R1 NAP for a canonical that lists its street only if required
+        if loc is None or (not loc["wrong"] and not loc["quote"]): gaps.append("address")
+        else: wrong.extend(loc["wrong"]); loc_quote = loc["quote"]
+    elif got and not cstreet:   # t_62f64298: the canonical has no street of its own; the optional street (when one is listed) must be that street, and the locality must still be right
+        loc = street_optional_locality(block, canonical)
+        if loc is not None:
+            wrong.extend(loc["wrong"])
+            opt = F.parse_street(canonical["street_if_required"])
+            if opt and got[1] and not F.street_equal(got[1], opt): wrong.append(("address", got[0]))
+            elif not loc["wrong"] and not loc["quote"]: gaps.append("address")
+    rs_shown = retired_street_shown(block, canonical)   # t_62f64298: a retired street next to the right phone is still the wrong listing
+    if rs_shown: wrong.append(("address", rs_shown))
     if got and cstreet and not sa_used and "address" in gaps and html_ and canonical["address"].count(",") >= 1 and not any(f in ("address", "city", "state", "zip") for f, _v in wrong):
         # t_69102cc9: the text shows the canonical street but not (all of) the locality. The SAME business entity's own JSON-LD address (name == canonical name; never an
         # Organization / directory HQ / other entity) may supply what is genuinely missing, only when its street equals the canonical street. What the text DID show
@@ -850,6 +898,7 @@ def compare(text, canonical, html_=None):
                 if len(wrong) == n0:
                     gaps.remove("address"); got = (fa["raw"], got[1], fa["zip"])
     street_txt = got[0] if got else None
+    if loc_quote and not got: street_txt = loc_quote   # t_62f64298: the city / state the page showed, quoted as shown
     if got and segs and not sa_used and segs[0] not in got[0]:   # t_f2bc28d2: street and city/state/zip on separate lines -> quote both (display only; verdict logic unchanged)
         _zr = r"\b\d{5}(?:-\d{4})?\b"
         _zs = re.search(r"[,\s]+(\d{5}(?:-\d{4})?)$", got[0])
@@ -1268,7 +1317,7 @@ def _proof_only(row, kind, url, nap, day, db, queue_path=None):
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     action = PR.build_action(kind, row, row.get("claim_status"))
     import transitions as T
-    T.record_proof(row["id"], dict(proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action), queue_path=queue_path, today=day, db=db)   # t_d660babc: same validation, same writer
+    T.record_proof(row["id"], dict(proof_url=url, proof_nap=nap, proof_at=stamp, proof_nap_match=True, build_action=action), queue_path=queue_path, today=day, db=db, client=_biz_of(row))   # t_d660babc: same validation, same writer; t_62f64298: the row's own business, not SCC
 
 
 def recheck_file(path=None, ident=None, **kw):
@@ -1334,7 +1383,7 @@ def main(argv=None, plain=None, chrome=None):
             print("REFUSED: --proof-backfill needs --row ID and never combines with --any-state / --backoff-only", file=sys.stderr); return 1
         import transitions as T
         qq = json.load(open(n.queue or Q.QUEUE_PATH, encoding="utf-8"))
-        need = dict(T.live_rows_missing_proof(qq, T.db_proof_by_directory()))   # DB Proof columns are the truth: a live row with complete Proof in ce_directory_status is not eligible
+        need = dict(T.live_rows_missing_proof(qq, T.db_proof_by_directory(client=queue_biz(qq))))   # DB Proof columns are the truth: a live row with complete Proof in ce_directory_status is not eligible
         bad = [r for r in n.row if r not in need]
         if bad:
             print("REFUSED: --proof-backfill takes live rows with incomplete Proof only; not eligible: %s" % ", ".join(bad), file=sys.stderr); return 1

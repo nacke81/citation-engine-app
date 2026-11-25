@@ -133,7 +133,7 @@ rows = queue_rows()
 for r in rows: r["_orig"] = (r["state"], json.dumps(r["history"]))
 rows = [r for r in rows if r["id"] not in ("dbnull", "nodb")]   # prod shape: every live row has a complete DB copy
 p = write_q(rows, "oneshot.json"); m0 = md5(p); dbm = db_map()
-T.db_proof_by_directory = lambda db=None: dbm if os.environ.get("CE_DIRECTORIES_WRITE") != "0" else None
+T.db_proof_by_directory = lambda db=None, client="SCC": dbm if os.environ.get("CE_DIRECTORIES_WRITE") != "0" else None
 def run(args):
     out = io.StringIO()
     with contextlib.redirect_stdout(out): rc = T.main(args + ["--queue", p, "--today", DAY])
