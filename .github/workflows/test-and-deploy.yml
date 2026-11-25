@@ -223,6 +223,8 @@ jobs:
         run: node --test tests/existing_counts.test.mjs
       - name: Mirror DB Proof into live queue rows (fill missing, never overwrite complete, sink off skips)
         run: python tests/mirror_proof_test.py
+      - name: CE v3 Spike goldens (NM-branch count gate, fence + negative control, business-agnostic proof writer + mutation, street-optional comparator)
+        run: python tests/spike_nm_test.py
       - name: reCAPTCHA v3 pageAction + inject + logged CLI wrapper (fake CapSolver, no spend)
         run: python tests/pagekit_v3_test.py
       - name: Sign-in Send (gate, fail closed, no secret in output, flag-gated write)

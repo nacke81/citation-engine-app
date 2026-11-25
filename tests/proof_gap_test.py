@@ -59,7 +59,7 @@ def raw(p): return open(p, "rb").read()
 
 DBP = {"v": None}   # what the stubbed read-only status GET returns (None = sink off)
 REAL_DBP = T.db_proof_by_directory
-T.db_proof_by_directory = lambda db=None: DBP["v"]
+T.db_proof_by_directory = lambda db=None, client="SCC": DBP["v"]
 
 def refuses(fn):
     try: fn()
@@ -156,12 +156,12 @@ b = raw(p)
 check("P6 record_proof with incomplete Proof is refused; queue and db untouched", refuses(lambda: T.record_proof("r1", dict(GOOD, build_action=None), queue_path=p, today=DAY, db=db)) and raw(p) == b and not db.calls)
 check("P6 record_proof on a NON-live row is refused", refuses(lambda: T.record_proof("r1", GOOD, queue_path=make_queue([row(state="submitted")]), today=DAY, db=db)))
 out = T.record_proof("r1", GOOD, queue_path=p, today=DAY, db=db)
-q = json.load(open(p)); st = [c[2][0] for c in db.calls]
-check("P6 record_proof writes the 5 fields to queue row + status; state stays live; audit now clean", q["fix_queue"][0]["state"] == "live" and q["fix_queue"][0]["proof"] == GOOD and len(st) == 1 and full(st[0]) and "queue_state" not in st[0] and T.live_rows_missing_proof(q) == [])
+q = json.load(open(p)); st = [c[2][0] for c in db.calls if c[0] == "POST" and "ce_directory_status" in c[1]]   # t_62f64298: the Directory-row GET (ensure_directory) is not a status write
+check("P6 record_proof writes the 5 fields to queue row + status; state stays live; audit now clean", q["fix_queue"][0]["state"] == "live" and q["fix_queue"][0]["proof"] == GOOD and len(st) == 1 and full(st[0]) and st[0].get("queue_state") == "live" and st[0].get("queue_row_id") == "r1" and T.live_rows_missing_proof(q) == [])   # t_62f64298: the status row says live with its Proof, so a queue-only writer cannot leave the ledger stale
 
 # ---- P7 --proof-live / --proof-backfill ------------------------------------------------------------------------------------------------------
 res, q, db, p = run_recheck([row("r1", "live", proof=None)], write=True, include_live=True, only={"r1"}, proof_live=True)
-check("P7 recheck --proof-live --write --row: Proof via record_proof, state live, audit clean", q["fix_queue"][0]["state"] == "live" and full(q["fix_queue"][0]["proof"]) and T.live_rows_missing_proof(q) == [] and len(db.calls) == 1, str(res))
+check("P7 recheck --proof-live --write --row: Proof via record_proof, state live, audit clean", q["fix_queue"][0]["state"] == "live" and full(q["fix_queue"][0]["proof"]) and T.live_rows_missing_proof(q) == [] and len([c for c in db.calls if c[0] == "POST" and "ce_directory_status" in c[1]]) == 1, str(res))
 res, q, db, p = run_recheck([row("r1", "live", proof=None)], write=False, include_live=True, only={"r1"}, proof_live=True)
 check("P7 dry run (default) writes nothing and says what it would write", not db.calls and q["fix_queue"][0].get("proof") is None and "dry run" in (res[0]["note"] or ""), str(res[0]["note"]))
 
@@ -225,7 +225,7 @@ miss = dict(T.live_rows_missing_proof(ql, got))
 check("P10 DB has complete Proof, queue row has no proof key: NOT flagged; DB-null row flagged; row with no status row flagged", set(miss) == {"b", "c"}, str(miss))
 check("P10 without the DB (sink off) only the queue proof counts", {r for r, _ in T.live_rows_missing_proof(ql, None)} == {"a", "b", "c"})
 check("P10 queue Proof complete + DB row null: still OK (queue has it)", T.live_rows_missing_proof({"fix_queue": [row("a", "live", directory="b.example", proof=dict(GOOD))]}, got) == [])
-T.db_proof_by_directory = lambda db=None: got
+T.db_proof_by_directory = lambda db=None, client="SCC": got
 p = make_queue(ql["fix_queue"]); out = io.StringIO()
 with contextlib.redirect_stdout(out): rc = T.main(["--audit", "--queue", p])
 check("P10 --audit names only b and c (prod shape: 12 good + 3 missing => 3)", rc == 1 and "LIVE WITHOUT PROOF b" in out.getvalue() and "LIVE WITHOUT PROOF c" in out.getvalue() and "LIVE WITHOUT PROOF a" not in out.getvalue() and "2 live rows" in out.getvalue(), out.getvalue())

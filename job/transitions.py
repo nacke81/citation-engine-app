@@ -130,11 +130,11 @@ def check_proof(proof):
     return {k: proof[k] for k in PROOF_FIELDS}
 
 
-def db_proof_by_directory(db=None):
-    """Read-only GET of the Proof columns in ce_directory_status for SCC: {directory: {5 proof fields}}. None when the sink is off (CE_DIRECTORIES_WRITE=0)."""
+def db_proof_by_directory(db=None, client="SCC"):
+    """Read-only GET of the Proof columns in ce_directory_status for one business (`client`, default SCC; t_62f64298 v3 Spike): {directory: {5 proof fields}}. None when the sink is off (CE_DIRECTORIES_WRITE=0)."""
     db = db or (D.DirDB() if D.enabled() else None)
     if db is None: return None
-    rows = db.call("GET", "ce_directory_status?biz=eq.SCC&owner=eq.%s&select=directory,%s" % (D._owner(db), ",".join(PROOF_FIELDS)), None, "return=representation") or []
+    rows = db.call("GET", "ce_directory_status?biz=eq.%s&owner=eq.%s&select=directory,%s" % (client, D._owner(db), ",".join(PROOF_FIELDS)), None, "return=representation") or []
     return {r["directory"]: {k: r.get(k) for k in PROOF_FIELDS} for r in rows if r.get("directory")}
 
 
@@ -309,9 +309,10 @@ def set_nap_check(row_id, nap_check, queue_path=None):
     return row
 
 
-def record_proof(row_id, proof, *, queue_path=None, today=None, db=None):
-    """Proof for a row ALREADY live (backfill, --proof-live). Same validation as the live move; state unchanged; queue row + ce_directory_status. Refuses a non-live row."""
-    path = queue_path or Q.QUEUE_PATH
+def record_proof(row_id, proof, *, queue_path=None, today=None, db=None, client="SCC"):
+    """Proof for a row ALREADY live (backfill, --proof-live). Same validation as the live move; state unchanged; queue row + ce_directory_status. Refuses a non-live row.
+    `client` names the business (a TENANTS key); the queue file and the status row biz both follow it (t_62f64298: business is data, not a hard-coded SCC)."""
+    path = queue_path or tenant_of(client)["queue_default"]()
     day = today or datetime.date.today().isoformat()
     proof = check_proof(proof)
     q = _read(path)
@@ -319,9 +320,11 @@ def record_proof(row_id, proof, *, queue_path=None, today=None, db=None):
     if row.get("state") != "live": raise TransitionRefused("record_proof is for a live row, %s is %s" % (row_id, row.get("state")))
     db = db or (D.DirDB() if D.enabled() else None)
     if db is not None:   # status first: a failed write leaves the queue unchanged and the audit still lists the row
-        D._upsert_status(db, [D._status_row(db, "SCC", row["directory"], day, **proof)])
+        D.ensure_directory(db, row["directory"], day)   # t_62f64298: the status row's FK needs the Directory row first (a no-op when it exists)
+        # queue_state rides with the Proof: a row made live by a queue-only writer (the NM writer before v3) has no live status row, so no proof could ever count (the ledger counts queue_state=live with Proof)
+        D._upsert_status(db, [D._status_row(db, client, row["directory"], day, queue_state="live", queue_row_id=row.get("id"), queue_kind=_kind_of(q, row_id), **proof)])
     row["proof"] = dict(proof)
-    mirror_proof_quiet(q, db)   # t_78dc54b5: other live rows with a complete DB Proof but no queue proof
+    mirror_proof_quiet(q, db, client)   # t_78dc54b5: other live rows with a complete DB Proof but no queue proof
     _write_atomic(path, q)
     return {"row_id": row_id, "proof": proof, "queue_written": path, "directories_written": db is not None}
 
@@ -342,11 +345,11 @@ def mirror_proof(q, db_proof):
     return out
 
 
-def mirror_proof_quiet(q, db=None):
+def mirror_proof_quiet(q, db=None, client="SCC"):
     """Writer hook: mirror_proof with a lazy read-only GET (only when a live row needs it). Never raises: a DB failure is printed and the queue write goes on."""
     try:
         if not any(r.get("state") == "live" and proof_problems(r.get("proof")) for _k, _kd, rows in _row_lists(q) for r in rows): return []
-        return mirror_proof(q, db_proof_by_directory(db))
+        return mirror_proof(q, db_proof_by_directory(db, client))
     except Exception as e:
         print("MIRROR-PROOF skipped: " + (str(e)[:200] or type(e).__name__), file=sys.stderr, flush=True)
         return []
@@ -357,10 +360,10 @@ def _md5(path):
     with open(path, "rb") as f: return hashlib.md5(f.read()).hexdigest()
 
 
-def mirror_proof_file(path, write=False, today=None, db_proof="fetch"):
+def mirror_proof_file(path, write=False, today=None, db_proof="fetch", client="SCC"):
     """One-shot (--mirror-proof): dry run lists the rows that would be filled; write=True backs the file up, writes atomically, and returns md5 before/after.
     Sink off (db_proof None) = skipped, nothing written. No state change, no DB write."""
-    if isinstance(db_proof, str): db_proof = db_proof_by_directory()
+    if isinstance(db_proof, str): db_proof = db_proof_by_directory(client=client)
     if db_proof is None: return {"skipped": "directories sink is off (CE_DIRECTORIES_WRITE=0)", "filled": [], "written": False}
     q = _read(path)
     before = _md5(path)
@@ -673,7 +676,7 @@ def record_transition(client, row_id, new_state, evidence_url=None, note=None, *
     for _key, _kind, rows in _row_lists(q):
         for i, r in enumerate(rows):
             if r.get("id") == row_id: rows[i] = new_row
-    out["proof_mirrored"] = mirror_proof_quiet(q, directories)   # t_78dc54b5: fill live rows whose DB Proof is complete but whose queue row has none
+    out["proof_mirrored"] = mirror_proof_quiet(q, directories, client)   # t_78dc54b5: fill live rows whose DB Proof is complete but whose queue row has none
     if tenant["queue_name"]:   # NM: a per-write backup this call creates (t_13adf93c; shared with nm_transitions), never an earlier one
         import nm_transitions as NMT
         out["backup"] = NMT.backup_before_write(path, day)
@@ -941,11 +944,11 @@ def main(argv=None):
             print("REFUSED: %s" % e, file=sys.stderr); return 1
         print(json.dumps(res, indent=2)); return 0
     if n.audit:
-        miss = live_rows_missing_proof(_read(n.queue or Q.QUEUE_PATH), db_proof_by_directory())   # one read-only GET; DB Proof columns are the truth
+        miss = live_rows_missing_proof(_read(n.queue or tenant_of(n.client)["queue_default"]()), db_proof_by_directory(client=n.client))   # one read-only GET; DB Proof columns are the truth
         for rid, bad in miss: print("LIVE WITHOUT PROOF %s: %s" % (rid, ", ".join(bad)))
         print("%d live rows without complete Proof" % len(miss)); return 1 if miss else 0
     if n.mirror_proof:
-        print(json.dumps(mirror_proof_file(n.queue or Q.QUEUE_PATH, write=n.write, today=n.today), indent=2)); return 0
+        print(json.dumps(mirror_proof_file(n.queue or tenant_of(n.client)["queue_default"](), write=n.write, today=n.today, client=n.client), indent=2)); return 0
     if n.write: a.error("--write only applies to --mirror-proof")
     if not n.row or not n.new_state: a.error("--row and --to are required")
     try:
