@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 # directory -> regex over path (+ ?query) that a real record page matches
 PERMALINK = {
+    "us-business.info": r"^/company/[^/?]+",   # t_f169b3d6: /join/ (submit form), /search/ and /directory/<st>/ are not listings
     "yellowpages.com": r"/mip/[^/?]+-\d+",
     "superpages.com": r"/bpp/[^/?]+-\d+",
     "dexknows.com": r"/bp/[^/?]+-\d+",
